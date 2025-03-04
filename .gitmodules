@@ -1,0 +1,3 @@
+[submodule "firmware/movesense-device-lib"]
+	path = firmware/movesense-device-lib
+	url = https://bitbucket.org/movesense/movesense-device-lib.git
