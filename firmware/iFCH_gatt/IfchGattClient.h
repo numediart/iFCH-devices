@@ -50,24 +50,13 @@ private:
 private:
     void configGattSvc();
     void unsubscribeAllStreams();
-    void updateDataLoggerConfig();
-    bool checkIfAnyActiveSubscription();
 
-    void sendOfflineData(uint8_t client_reference);
-    void handleSendingOfflineData(const uint8_t *data, size_t length);
-    void sendLogOverBle(const char *logMessage);
     void setShutdownTimer();
 
     wb::TimerId mTimer;
     uint32_t mCounter;
     bool mLeadsConnected;
     uint8_t mDataLoggerState;
-
-    uint32_t mLogToSend;
-    uint16_t mSendBufferLength;
-    bool mFirstPacketSent;
-    uint8_t mLogSendReference;
-    uint8_t mSendBuffer[160];
 
     wb::ResourceId mCommandCharResource;
     wb::ResourceId mDataCharResource;
@@ -79,6 +68,13 @@ private:
 
     bool mNotificationsEnabled;
 
+    uint32_t mLogIdToFetch;
+    uint32_t mLogFetchOffset;
+    uint8_t mLogFetchReference;
+
+    uint8_t mLogListReference;
+    uint32_t mLogListLastId;
+
     // Data subscriptions
 
     struct DataSub
@@ -87,27 +83,31 @@ private:
         uint8_t clientReference;
         bool subStarted;
         bool subCompleted;
-        char resourcePath[32];
-        void clean()
-        {
-            memset(this, 0, sizeof(DataSub));
-            resourceId = wb::ID_INVALID_RESOURCE;
-        }
-        bool isEmpty() const
-        {
-            return resourceId == wb::ID_INVALID_RESOURCE;
-        }
     };
     static constexpr size_t MAX_DATASUB_COUNT = 4;
     DataSub mDataSubs[MAX_DATASUB_COUNT];
 
+    struct LogSub
+    {
+        char path[32];
+        uint8_t clientReference;
+    };
+    static constexpr size_t MAX_LOGSUB_COUNT = 4;
+    LogSub mLogSubs[MAX_LOGSUB_COUNT];
+
     DataSub *getFreeDataSubSlot();
+
+    LogSub *getFreeLogSubSlot();
 
     // Buffer for outgoing data messages (MTU -3)
     uint8_t mDataMsgBuffer[158];
 
     DataSub *findDataSub(const wb::ResourceId resourceId);
+    DataSub *findDataSub(const wb::LocalResourceId localResourceId);
     DataSub *findDataSubByRef(const uint8_t clientReference);
 
+    LogSub *findLogSubByRef(const uint8_t clientReference);
+
     void handleIncomingCommand(const wb::Array<uint8> &commandData);
+    void handleSendingLogbookData(const uint8_t *pData, uint32_t length);
 };
