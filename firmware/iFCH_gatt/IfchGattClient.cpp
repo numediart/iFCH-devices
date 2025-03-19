@@ -759,7 +759,7 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
             DEBUGLOG("subCompleted already: %u", resourceId);
 
             // 202: Accepted
-            uint8_t errorMsg[] = {Responses::DATA, ds->clientReference, 0x00, 0xCA};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, 0x00, 0xCA};
             WB_RES::Characteristic dataCharValue;
             dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
             asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
@@ -772,7 +772,7 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
             DEBUGLOG("Error subscribing to resource: %u", resourceId);
 
             // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::DATA, ds->clientReference, 0x01, 0xF4};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, 0x01, 0xF4};
             WB_RES::Characteristic dataCharValue;
             dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
             asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
@@ -784,7 +784,7 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
             ds->subCompleted = true;
 
             // 201: Created
-            uint8_t ackMsg[] = {Responses::DATA, ds->clientReference, 0x00, 0xC9};
+            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, 0x00, 0xC9};
             WB_RES::Characteristic dataCharValue;
             dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
             asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
