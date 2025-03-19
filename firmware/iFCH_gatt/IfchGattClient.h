@@ -50,6 +50,7 @@ private:
 private:
     void configGattSvc();
     void unsubscribeAllStreams();
+    void clearLogSubs();
 
     void setShutdownTimer();
 
@@ -83,6 +84,14 @@ private:
         uint8_t clientReference;
         bool subStarted;
         bool subCompleted;
+
+        void clean()
+        {
+            resourceId = wb::ID_INVALID_RESOURCE;
+            clientReference = 0;
+            subStarted = false;
+            subCompleted = false;
+        }
     };
     static constexpr size_t MAX_DATASUB_COUNT = 4;
     DataSub mDataSubs[MAX_DATASUB_COUNT];
@@ -91,6 +100,11 @@ private:
     {
         char path[32];
         uint8_t clientReference;
+        void clean()
+        {
+            memset(path, 0, sizeof(path));
+            clientReference = 0;
+        }
     };
     static constexpr size_t MAX_LOGSUB_COUNT = 4;
     LogSub mLogSubs[MAX_LOGSUB_COUNT];

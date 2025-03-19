@@ -84,17 +84,10 @@ bool IfchGattClient::startModule()
     // Clear subscription tables
     for (size_t i = 0; i < MAX_DATASUB_COUNT; i++)
     {
-        mDataSubs[i].clientReference = 0;
-        mDataSubs[i].resourceId = wb::ID_INVALID_RESOURCE;
-        mDataSubs[i].subStarted = false;
-        mDataSubs[i].subCompleted = false;
+        mDataSubs[i].clean();
     }
 
-    for (size_t i = 0; i < MAX_LOGSUB_COUNT; i++)
-    {
-        mLogSubs[i].clientReference = 0;
-        memset(mLogSubs[i].path, 0, sizeof(mLogSubs[i].path));
-    }
+    clearLogSubs();
 
     // Subscribe to leads detection
     asyncSubscribe(WB_RES::LOCAL::SYSTEM_STATES_STATEID(), AsyncRequestOptions::Empty, WB_RES::StateIdValues::CONNECTOR);
@@ -119,8 +112,14 @@ void IfchGattClient::stopModule()
     // Unsubscribe lead state
     asyncUnsubscribe(WB_RES::LOCAL::SYSTEM_STATES_STATEID(), AsyncRequestOptions::Empty, WB_RES::StateIdValues::CONNECTOR);
 
+    // Stop logging if needed
+    asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(),
+             AsyncRequestOptions::Empty,
+             WB_RES::DataLoggerStateValues::DATALOGGER_READY);
+
     // Unsubscribe sensor data
     unsubscribeAllStreams();
+    clearLogSubs();
 
     // Clean up GATT stuff
     asyncUnsubscribe(mCommandCharResource);
@@ -281,7 +280,21 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     case Commands::SUBSCRIBE:
     {
         DEBUGLOG("Commands::SUBSCRIBE. reference: %d", reference);
-        DataSub *pDataSub = getFreeDataSubSlot();
+
+        DataSub *pDataSub = findDataSubByRef(reference);
+        if (pDataSub != nullptr)
+        {
+            DEBUGLOG("Existing datasub slot");
+            // 403: forbidden
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x93};
+
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            return;
+        }
+
+        pDataSub = getFreeDataSubSlot();
 
         if (!pDataSub)
         {
@@ -301,6 +314,19 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         char pathBuffer[160]; // Big enough since MTU is 161
         memset(pathBuffer, 0, sizeof(pathBuffer));
 
+        if (dataLen >= sizeof(pathBuffer))
+        {
+            DEBUGLOG("Error: dataLen exceeds pathBuffer size");
+
+            // 500: Internal server error
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0xF4};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+
+            return;
+        }
+
         // Copy and null-terminate
         memcpy(pathBuffer, pData, dataLen);
 
@@ -310,6 +336,11 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         getResource(pathBuffer, dataSub.resourceId);
 
         asyncSubscribe(dataSub.resourceId, AsyncRequestOptions::ForceAsync);
+
+        // uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
+        // WB_RES::Characteristic dataCharValue;
+        // dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
+        // asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
         return;
     }
     case Commands::UNSUBSCRIBE:
@@ -321,8 +352,20 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         if (pDataSub != nullptr)
         {
             asyncUnsubscribe(pDataSub->resourceId);
-            pDataSub->resourceId = wb::ID_INVALID_RESOURCE;
-            pDataSub->clientReference = 0;
+            pDataSub->clean();
+
+            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+        }
+        else
+        {
+            // 404: not found
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x94};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
         }
         return;
     }
@@ -349,6 +392,8 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
                  AsyncRequestOptions::Empty,
                  WB_RES::DataLoggerStateValues::DATALOGGER_READY);
 
+        mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_READY;
+
         // Clear logbook entries
         asyncDelete(WB_RES::LOCAL::MEM_LOGBOOK_ENTRIES());
 
@@ -362,8 +407,20 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     case Commands::SUB_LOG:
     {
         DEBUGLOG("Commands::SUB_LOG. reference: %d", reference);
-        LogSub *pLogSub = getFreeLogSubSlot();
 
+        LogSub *pLogSub = findLogSubByRef(reference);
+        if (pLogSub != nullptr)
+        {
+            DEBUGLOG("Existing logsub slot");
+            // 403: forbidden
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x93};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            return;
+        }
+
+        pLogSub = getFreeLogSubSlot();
         if (!pLogSub)
         {
             DEBUGLOG("No free logsub slot");
@@ -378,7 +435,18 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         // Store client reference to array
         LogSub &logSub = *pLogSub;
 
-        ASSERT(dataLen < sizeof(logSub.path));
+        if (dataLen >= sizeof(logSub.path))
+        {
+            DEBUGLOG("Error: dataLen exceeds pathBuffer size");
+
+            // 500: Internal server error
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0xF4};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+
+            return;
+        }
 
         // Copy and null-terminate
         memset(logSub.path, 0, sizeof(logSub.path));
@@ -396,12 +464,23 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::UNSUB_LOG. reference: %d", reference);
 
-        // Store client reference to array and trigger subscribe
         LogSub *pLogSub = findLogSubByRef(reference);
         if (pLogSub != nullptr)
         {
-            memset(pLogSub->path, 0, sizeof(pLogSub->path));
-            pLogSub->clientReference = 0;
+            pLogSub->clean();
+
+            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+        }
+        else
+        {
+            // 404: not found
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x94};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
         }
         return;
     }
@@ -445,6 +524,8 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         // Start Logging
         asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(), AsyncRequestOptions::ForceAsync, WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING);
 
+        mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING;
+
         // Send OK response
         uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
         WB_RES::Characteristic dataCharValue;
@@ -460,6 +541,8 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(),
                  AsyncRequestOptions::Empty,
                  WB_RES::DataLoggerStateValues::DATALOGGER_READY);
+
+        mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_READY;
 
         // Send OK response
         uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
@@ -587,8 +670,8 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         {
             DEBUGLOG("Error fetching log entries: %d", resultCode);
 
-            // 404: Not found
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogListReference, 0x01, 0x94};
+            // 500: Internal server error
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogListReference, 0x01, 0xF4};
             WB_RES::Characteristic dataCharValue;
             dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
             asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
@@ -648,15 +731,18 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
     case WB_RES::LOCAL::COMM_BLE_PEERS::LID:
     {
         DEBUGLOG("OnSubscribeResult: WB_RES::LOCAL::COMM_BLE_PEERS: %d", resultCode);
-        return;
+        break;
     }
-    break;
     case WB_RES::LOCAL::COMM_BLE_GATTSVC_SVCHANDLE_CHARHANDLE::LID:
     {
         DEBUGLOG("OnSubscribeResult: COMM_BLE_GATTSVC*: %d", resultCode);
-        return;
+        break;
     }
-    break;
+    case WB_RES::LOCAL::SYSTEM_STATES_STATEID::LID:
+    {
+        DEBUGLOG("OnSubscribeResult: SYSTEM_STATES_STATEID: %d", resultCode);
+        break;
+    }
     default:
     {
         // All other notifications. These must be the client subscribed data streams
@@ -666,23 +752,42 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
             DEBUGLOG("DataSub not found for resource: %u", resourceId);
             return;
         }
+
         ASSERT(ds->subStarted);
         if (ds->subCompleted)
         {
             DEBUGLOG("subCompleted already: %u", resourceId);
+
+            // 202: Accepted
+            uint8_t errorMsg[] = {Responses::DATA, ds->clientReference, 0x00, 0xCA};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+
             return;
         }
 
         if (resultCode >= 400)
         {
-            ds->clientReference = 0;
-            ds->resourceId = wb::ID_INVALID_RESOURCE;
-            ds->subStarted = false;
-            ds->subCompleted = false;
+            DEBUGLOG("Error subscribing to resource: %u", resourceId);
+
+            // 500: Internal server error
+            uint8_t errorMsg[] = {Responses::DATA, ds->clientReference, 0x01, 0xF4};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+
+            ds->clean();
         }
         else
         {
             ds->subCompleted = true;
+
+            // 201: Created
+            uint8_t ackMsg[] = {Responses::DATA, ds->clientReference, 0x00, 0xC9};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
         }
     }
     break;
@@ -747,11 +852,18 @@ void IfchGattClient::unsubscribeAllStreams()
         if (mDataSubs[i].resourceId != wb::ID_INVALID_RESOURCE)
         {
             asyncUnsubscribe(mDataSubs[i].resourceId);
-            mDataSubs[i].clientReference = 0;
-            mDataSubs[i].resourceId = wb::ID_INVALID_RESOURCE;
-            mDataSubs[i].subStarted = false;
-            mDataSubs[i].subCompleted = false;
+            mDataSubs[i].clean();
         }
+    }
+}
+
+void IfchGattClient::clearLogSubs()
+{
+    // Clear subscription table
+    for (size_t i = 0; i < MAX_LOGSUB_COUNT; i++)
+    {
+        mLogSubs[i].clientReference = 0;
+        memset(mLogSubs[i].path, 0, sizeof(mLogSubs[i].path));
     }
 }
 
@@ -779,6 +891,14 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         {
             // if connection is dropped, unsubscribe all data streams so that sensor does not stay on for no reason
             unsubscribeAllStreams();
+
+            // If not logging, forget the log subs
+            // asyncGet(WB_RES::LOCAL::MEM_DATALOGGER_STATE());
+            if (mDataLoggerState != WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+            {
+                clearLogSubs();
+            }
+
             setShutdownTimer();
         }
         else if (peerChange.state == peerChange.state.CONNECTED)
@@ -947,6 +1067,10 @@ void IfchGattClient::onPostResult(wb::RequestId requestId,
         asyncGet(WB_RES::LOCAL::COMM_BLE_GATTSVC_SVCHANDLE(), AsyncRequestOptions(NULL, 0, true), mSensorSvcHandle);
         // Note: The rest of the init is performed in onGetResult()
     }
+    else
+    {
+        DEBUGLOG("Error creating custom Gatt service: %d", resultCode);
+    }
 }
 
 // Auto shutdown behaviour
@@ -985,6 +1109,7 @@ void IfchGattClient::onTimer(wb::TimerId timerId)
     }
     else
     {
+
         // Prepare AFE to wake-up mode
         asyncPut(WB_RES::LOCAL::COMPONENT_MAX3000X_WAKEUP(),
                  AsyncRequestOptions(NULL, 0, true), (uint8_t)1);
