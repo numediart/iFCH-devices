@@ -330,10 +330,22 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         // Copy and null-terminate
         memcpy(pathBuffer, pData, dataLen);
 
+        wb::Result result = getResource(pathBuffer, dataSub.resourceId);
+        if (result >= 400)
+        {
+            // 404: not found
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x94};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+
+            dataSub.clean();
+            return;
+        }
+
         dataSub.subStarted = true;
         dataSub.subCompleted = false;
         dataSub.clientReference = reference;
-        getResource(pathBuffer, dataSub.resourceId);
 
         asyncSubscribe(dataSub.resourceId, AsyncRequestOptions::ForceAsync);
 
@@ -451,6 +463,22 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         // Copy and null-terminate
         memset(logSub.path, 0, sizeof(logSub.path));
         memcpy(logSub.path, pData, dataLen);
+
+        wb::ResourceId resourceId;
+
+        wb::Result result = getResource(logSub.path, resourceId);
+        if (result >= 400)
+        {
+            // 404: not found
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x94};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+
+            logSub.clean();
+            return;
+        }
+
         logSub.clientReference = reference;
 
         uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
