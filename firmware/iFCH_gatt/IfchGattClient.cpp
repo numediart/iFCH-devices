@@ -359,6 +359,18 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::UNSUBSCRIBE. reference: %d", reference);
 
+        if (reference == 0)
+        {
+            DEBUGLOG("Error: reference == 0");
+            // 403: forbidden
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x93};
+
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            return;
+        }
+
         // Store client reference to array and trigger subscribe
         DataSub *pDataSub = findDataSubByRef(reference);
         if (pDataSub != nullptr)
@@ -385,8 +397,15 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::FETCH_LOG. reference: %d", reference);
         // Use the "old" API for fetching the log (GET)
-        ASSERT(pData != nullptr);
-        ASSERT(dataLen == sizeof(uint32_t));
+        if (pData == nullptr || dataLen != sizeof(uint32_t))
+        {
+            // 400: Bad request
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x90};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            return;
+        }
 
         memcpy(&mLogIdToFetch, pData, dataLen);
         mLogFetchReference = reference;
@@ -491,6 +510,18 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     case Commands::UNSUB_LOG:
     {
         DEBUGLOG("Commands::UNSUB_LOG. reference: %d", reference);
+
+        if (reference == 0)
+        {
+            DEBUGLOG("Error: reference == 0");
+            // 403: forbidden
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x93};
+
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            return;
+        }
 
         LogSub *pLogSub = findLogSubByRef(reference);
         if (pLogSub != nullptr)
@@ -678,6 +709,13 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
             DEBUGLOG("Fetching log complete. sending end marker.");
             // Send end marker (offset and no bytes)
             handleSendingLogbookData(nullptr, 0);
+
+            // Send OK response
+            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, mLogFetchReference, 0x00, 0xC8};
+            WB_RES::Characteristic responseCharValue;
+            responseCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), responseCharValue);
+
             // Mark "no current log"
             mLogIdToFetch = 0;
             mLogFetchOffset = 0;
@@ -711,7 +749,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         uint8_t logIdsMsg[256];
         size_t writePos = 0;
 
-        logIdsMsg[writePos++] = Responses::COMMAND_RESULT;
+        logIdsMsg[writePos++] = Responses::DATA;
         logIdsMsg[writePos++] = mLogListReference;
 
         for (size_t i = 0; i < logEntries.elements.size(); i++)
@@ -781,7 +819,19 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
             return;
         }
 
-        ASSERT(ds->subStarted);
+        if (!ds->subStarted)
+        {
+            DEBUGLOG("subStarted not set: %u", resourceId);
+
+            // 500: Internal server error
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, 0x01, 0xF4};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+
+            ds->clean();
+            return;
+        }
         if (ds->subCompleted)
         {
             DEBUGLOG("subCompleted already: %u", resourceId);
