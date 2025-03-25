@@ -11,8 +11,3 @@ if(NOT IS_ABSOLUTE ${MOVESENSE_CORE_LIBRARY})
 endif()
 
 include(${MOVESENSE_CORE_LIBRARY}/MovesenseFromStaticLib.cmake REQUIRED)
-
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_definitions(-DIFCHDEBUG)
-endif()
-

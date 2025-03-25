@@ -3,6 +3,8 @@
 #include <whiteboard/LaunchableModule.h>
 #include <whiteboard/ResourceClient.h>
 
+#define MAX_PATH_LEN 32
+
 class IfchGattClient FINAL : private wb::ResourceClient, public wb::LaunchableModule
 {
 public:
@@ -33,11 +35,17 @@ private:
                              wb::Result resultCode,
                              const wb::Value &rResultData);
 
-    /** @see whiteboard::ResourceClient::onGetResult */
+    /** @see whiteboard::ResourceClient::onSubscribeResult */
     virtual void onSubscribeResult(wb::RequestId requestId,
                                    wb::ResourceId resourceId,
                                    wb::Result resultCode,
                                    const wb::Value &rResultData);
+
+    /** @see whiteboard::ResourceClient::onPutResult */
+    virtual void onPutResult(wb::RequestId requestId,
+                             wb::ResourceId resourceId,
+                             wb::Result resultCode,
+                             const wb::Value &rResultData);
 
     /** @see whiteboard::ResourceClient::onNotify */
     virtual void onNotify(wb::ResourceId resourceId,
@@ -76,6 +84,8 @@ private:
     uint8_t mLogListReference;
     uint32_t mLogListLastId;
 
+    uint8_t mDataloggerStateReference;
+
     // Data subscriptions
 
     struct DataSub
@@ -98,7 +108,7 @@ private:
 
     struct LogSub
     {
-        char path[32];
+        char path[MAX_PATH_LEN];
         uint8_t clientReference;
         void clean()
         {
@@ -113,7 +123,9 @@ private:
 
     LogSub *getFreeLogSubSlot();
 
-    // Buffer for outgoing data messages (MTU -3)
+    // Buffer for outgoing data messages
+    static constexpr size_t MTU = 158;
+    static constexpr size_t MAX_DATA_SIZE = MTU - 8;
     uint8_t mDataMsgBuffer[158];
 
     DataSub *findDataSub(const wb::ResourceId resourceId);

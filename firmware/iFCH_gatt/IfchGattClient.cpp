@@ -58,7 +58,8 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mDataLoggerState(WB_RES::DataLoggerStateValues::DATALOGGER_INVALID),
                                    mCounter(0),
                                    mLogListReference(0),
-                                   mLogListLastId(0)
+                                   mLogListLastId(0),
+                                   mDataloggerStateReference(0)
 {
 }
 
@@ -410,7 +411,6 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         memcpy(&mLogIdToFetch, pData, dataLen);
         mLogFetchReference = reference;
 
-        // TODO: Is there need for descriptors? Probably not but needs extra logic if there is.
         asyncGet(WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA(), AsyncRequestOptions::ForceAsync, mLogIdToFetch);
         return;
     }
@@ -419,14 +419,27 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         DEBUGLOG("Commands::CLEAR_LOGS. reference: %d", reference);
 
         // Stop logging if needed
-        asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(),
-                 AsyncRequestOptions::Empty,
-                 WB_RES::DataLoggerStateValues::DATALOGGER_READY);
 
-        mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_READY;
+        if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        {
+            asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(),
+                     AsyncRequestOptions::Empty,
+                     WB_RES::DataLoggerStateValues::DATALOGGER_READY);
+            mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_READY;
+        }
 
         // Clear logbook entries
-        asyncDelete(WB_RES::LOCAL::MEM_LOGBOOK_ENTRIES());
+        wb::Result result = asyncDelete(WB_RES::LOCAL::MEM_LOGBOOK_ENTRIES());
+
+        if (result >= 400)
+        {
+            // 500: Internal server error
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0xF4};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            return;
+        }
 
         // Send OK response
         uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
@@ -565,7 +578,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         // No logs subscribed
         if (count == 0)
         {
-            // Error 403 in hex = 0x193
+            // 403: forbidden
             uint8_t respError[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x93};
 
             WB_RES::Characteristic errorCharVal;
@@ -576,25 +589,44 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             return;
         }
 
+        if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        {
+            // 409: Conflict
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x99};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            return;
+        }
+
         // Set new config
         ldConfig.dataEntries.dataEntry = wb::MakeArray<WB_RES::DataEntry>(entries, count);
-        asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_CONFIG(), AsyncRequestOptions::ForceAsync, ldConfig);
+        asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_CONFIG(), AsyncRequestOptions::Empty, ldConfig);
+
+        mDataloggerStateReference = reference;
 
         // Start Logging
-        asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(), AsyncRequestOptions::ForceAsync, WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING);
+        asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(), AsyncRequestOptions::Empty, WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING);
 
         mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING;
 
-        // Send OK response
-        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
-        WB_RES::Characteristic dataCharValue;
-        dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
         return;
     }
     case Commands::STOP_LOG:
     {
         DEBUGLOG("Commands::STOP_LOG. reference: %d", reference);
+
+        if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_READY)
+        {
+            // 409: Conflict
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x99};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            return;
+        }
+
+        mDataloggerStateReference = reference;
 
         // Stop logging
         asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(),
@@ -603,11 +635,6 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
         mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_READY;
 
-        // Send OK response
-        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
-        WB_RES::Characteristic dataCharValue;
-        dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
         return;
     }
     case Commands::LIST_LOGS:
@@ -876,7 +903,7 @@ void IfchGattClient::handleSendingLogbookData(const uint8_t *pData, uint32_t len
 {
 
     // Forward data to client in same format (offset + bytes)
-    // If length > 150, split in two notifications
+    // If length > MAX_DATA_SIZE, split in two notifications
     memset(mDataMsgBuffer, 0, sizeof(mDataMsgBuffer));
     mDataMsgBuffer[0] = Responses::DATA;
     mDataMsgBuffer[1] = mLogFetchReference;
@@ -886,7 +913,7 @@ void IfchGattClient::handleSendingLogbookData(const uint8_t *pData, uint32_t len
     memcpy(&(mDataMsgBuffer[writePos]), &mLogFetchOffset, sizeof(mLogFetchOffset));
     writePos += sizeof(mLogFetchOffset);
 
-    size_t firstPartLen = (length > 150) ? 150 : length;
+    size_t firstPartLen = (length > MAX_DATA_SIZE) ? MAX_DATA_SIZE : length;
     size_t secondPartLen = (length == firstPartLen) ? 0 : length - firstPartLen;
     DEBUGLOG("firstPartLen: %d, secondPartLen: %d", firstPartLen, secondPartLen);
 
@@ -1025,7 +1052,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         DEBUGLOG("Logbook data notification. offset: %d, length: %d", dataNotification.offset, length);
 
         // Forward data to client in same format (offset + bytes)
-        // If length > 150, split in two notifications
+        // If length > MAX_DATA_SIZE, split in two notifications
         memset(mDataMsgBuffer, 0, sizeof(mDataMsgBuffer));
         mDataMsgBuffer[0] = Responses::DATA;
         mDataMsgBuffer[1] = ds->clientReference;
@@ -1034,7 +1061,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         size_t writePos = 2;
         memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.offset), sizeof(dataNotification.offset));
         writePos += sizeof(dataNotification.offset);
-        size_t firstPartLen = (length > 150) ? 150 : length;
+        size_t firstPartLen = (length > MAX_DATA_SIZE) ? MAX_DATA_SIZE : length;
         size_t secondPartLen = (length == firstPartLen) ? 0 : length - firstPartLen;
         DEBUGLOG("firstPartLen: %d, secondPartLen: %d", firstPartLen, secondPartLen);
         if (firstPartLen > 0)
@@ -1098,7 +1125,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         mDataMsgBuffer[1] = ds->clientReference;
 
         size_t writePos = 2;
-        size_t firstPartLen = (length > 150) ? 150 : length;
+        size_t firstPartLen = (length > MAX_DATA_SIZE) ? MAX_DATA_SIZE : length;
         size_t secondPartLen = (length == firstPartLen) ? 0 : length - firstPartLen;
         DEBUGLOG("firstPartLen: %d, secondPartLen: %d", firstPartLen, secondPartLen);
 
@@ -1135,24 +1162,74 @@ void IfchGattClient::onPostResult(wb::RequestId requestId,
 {
     DEBUGLOG("IfchGattClient::onPostResult: %d", resultCode);
 
-    if (resultCode == wb::HTTP_CODE_CREATED)
+    switch (resourceId.localResourceId)
     {
-        // Custom Gatt service was created
-        mSensorSvcHandle = (int32_t)rResultData.convertTo<uint16_t>();
-        DEBUGLOG("Custom Gatt service was created. handle: %d", mSensorSvcHandle);
+    case WB_RES::LOCAL::COMM_BLE_GATTSVC::LID:
+    {
+        if (resultCode == wb::HTTP_CODE_CREATED)
+        {
+            // Custom Gatt service was created
+            mSensorSvcHandle = (int32_t)rResultData.convertTo<uint16_t>();
+            DEBUGLOG("Custom Gatt service was created. handle: %d", mSensorSvcHandle);
 
-        // Request more info about created svc so we get the char handles
-        asyncGet(WB_RES::LOCAL::COMM_BLE_GATTSVC_SVCHANDLE(), AsyncRequestOptions(NULL, 0, true), mSensorSvcHandle);
-        // Note: The rest of the init is performed in onGetResult()
+            // Request more info about created svc so we get the char handles
+            asyncGet(WB_RES::LOCAL::COMM_BLE_GATTSVC_SVCHANDLE(), AsyncRequestOptions(NULL, 0, true), mSensorSvcHandle);
+            // Note: The rest of the init is performed in onGetResult()
+        }
+        else
+        {
+            DEBUGLOG("Error creating custom Gatt service: %d", resultCode);
+        }
+        break;
     }
-    else
+    }
+}
+
+void IfchGattClient::onPutResult(wb::RequestId requestId,
+                                 wb::ResourceId resourceId,
+                                 wb::Result resultCode,
+                                 const wb::Value &rResultData)
+{
+    DEBUGLOG("IfchGattClient::onPutResult: %d", resultCode);
+
+    switch (resourceId.localResourceId)
     {
-        DEBUGLOG("Error creating custom Gatt service: %d", resultCode);
+    case WB_RES::LOCAL::MEM_DATALOGGER_STATE::LID:
+    {
+        if (resultCode < 400)
+        {
+            if (mDataloggerStateReference != 0)
+            {
+                // 200: OK
+                uint8_t ackMsg[] = {Responses::COMMAND_RESULT, mDataloggerStateReference, 0x00, 0xC8};
+                WB_RES::Characteristic dataCharValue;
+                dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
+                asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+
+                mDataloggerStateReference = 0;
+            }
+        }
+        else
+        {
+            DEBUGLOG("Error setting Datalogger state: %d", resultCode);
+
+            if (mDataloggerStateReference != 0)
+            {
+                // 500: Internal server error
+                uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mDataloggerStateReference, 0x01, 0xF4};
+                WB_RES::Characteristic dataCharValue;
+                dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+                asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+
+                mDataloggerStateReference = 0;
+            }
+        }
+        break;
+    }
     }
 }
 
 // Auto shutdown behaviour
-
 void IfchGattClient::setShutdownTimer()
 {
     // Start timer

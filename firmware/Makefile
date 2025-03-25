@@ -1,7 +1,6 @@
 ROOT_DIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 name = iFCH_gatt
-# build = Release
-build = Debug
+build = Release
 
 compile: config
 	docker run --rm -w /movesense/build/ -v ${ROOT_DIR}:/movesense:delegated movesense/sensor-build-env:2.2 ninja
