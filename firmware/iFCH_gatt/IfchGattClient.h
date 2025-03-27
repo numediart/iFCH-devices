@@ -33,24 +33,24 @@ private:
     virtual void onGetResult(wb::RequestId requestId,
                              wb::ResourceId resourceId,
                              wb::Result resultCode,
-                             const wb::Value &rResultData);
+                             const wb::Value &rResultData) OVERRIDE;
 
     /** @see whiteboard::ResourceClient::onSubscribeResult */
     virtual void onSubscribeResult(wb::RequestId requestId,
                                    wb::ResourceId resourceId,
                                    wb::Result resultCode,
-                                   const wb::Value &rResultData);
+                                   const wb::Value &rResultData) OVERRIDE;
 
     /** @see whiteboard::ResourceClient::onPutResult */
     virtual void onPutResult(wb::RequestId requestId,
                              wb::ResourceId resourceId,
                              wb::Result resultCode,
-                             const wb::Value &rResultData);
+                             const wb::Value &rResultData) OVERRIDE;
 
     /** @see whiteboard::ResourceClient::onNotify */
     virtual void onNotify(wb::ResourceId resourceId,
                           const wb::Value &rValue,
-                          const wb::ParameterList &rParameters);
+                          const wb::ParameterList &rParameters) OVERRIDE;
 
     /** @see whiteboard::ResourceClient::onTimer */
     virtual void onTimer(wb::TimerId timerId) OVERRIDE;
@@ -66,6 +66,7 @@ private:
     uint32_t mCounter;
     bool mLeadsConnected;
     uint8_t mDataLoggerState;
+    bool mLogbookFull;
 
     wb::ResourceId mCommandCharResource;
     wb::ResourceId mDataCharResource;
@@ -79,12 +80,13 @@ private:
 
     uint32_t mLogIdToFetch;
     uint32_t mLogFetchOffset;
-    uint8_t mLogFetchReference;
 
-    uint8_t mLogListReference;
     uint32_t mLogListLastId;
 
+    uint8_t mLogFetchReference;
+    uint8_t mLogListReference;
     uint8_t mDataloggerStateReference;
+    uint8_t mGetTimeReference;
 
     // Data subscriptions
 
