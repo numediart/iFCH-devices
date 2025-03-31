@@ -1,0 +1,251 @@
+import asyncio
+import enum
+import logging
+import pathlib
+import time
+from typing import Optional
+
+from bleak import BleakClient, BleakScanner
+
+
+def decode_stream(data, references: dict):
+    for packet in data:
+        packet_type = Responses(packet[0])
+        if packet_type == Responses.COMMAND_RESULT:
+            logging.error(f"Invalid packet type in stream decode: {packet[0]}")
+            continue
+
+        reference = packet[1]
+        if reference not in references:
+            logging.error(
+                f"Invalid reference in stream decode: {reference}, available: {references}"
+            )
+
+        data_type = references[reference].decode()
+        data_type = "/".join(data_type.split("/")[:-1])
+
+        data_type = DataTypes(data_type)
+
+        if data_type == DataTypes.ECG:
+            if packet_type != Responses.DATA:
+                logging.error(f"Invalid packet type for {data_type}: {packet_type}")
+                continue
+
+            timestamp = int.from_bytes(packet[2:6], byteorder="little")
+
+            ecg_data = [
+                int.from_bytes(packet[i : i + 4], byteorder="little") * 0.38147e-3
+                for i in range(6, len(packet), 4)
+            ]
+
+            print(f"ECG stream: {timestamp}, {ecg_data}")
+
+        else:
+            logging.warning(f"Stream decoding of {data_type} not implemented.")
+
+
+def save_sbem(data, path: pathlib.Path, client_ref: Optional[int] = None):
+    with open(path, "wb") as f:
+        for packet in data:
+            packet_type = Responses(packet[0])
+            if packet_type == Responses.COMMAND_RESULT:
+                logging.error(f"Invalid packet type in stream decode: {packet[0]}")
+                continue
+
+            reference = packet[1]
+            if client_ref is None:
+                client_ref = reference
+            if reference != client_ref:
+                continue
+
+            offset = int.from_bytes(packet[2:6], byteorder="little")
+
+            # Write data in file at offset
+            f.seek(offset)
+            f.write(packet[6:])
+
+
+class DataTypes(enum.Enum):
+    ECG = "/Meas/ECG"
+    IMU6 = "/Meas/IMU6"
+    IMU9 = "/Meas/IMU9"
+
+
+class Responses(enum.Enum):
+    COMMAND_RESULT = 1
+    DATA = 2
+    DATA_PART2 = 3
+
+
+class Commands(enum.Enum):
+    HELLO = 0
+    SUBSCRIBE = 1
+    UNSUBSCRIBE = 2
+    FETCH_LOG = 3
+    CLEAR_LOGS = 4
+    SUB_LOG = 5
+    UNSUB_LOG = 6
+    START_LOG = 7
+    STOP_LOG = 8
+    LIST_LOGS = 9
+    GET_TIME = 10
+    INVALID = 0xFF
+
+
+class StatusCodes(enum.Enum):
+    OK_200 = (200).to_bytes(2)
+    OK_201 = (201).to_bytes(2)
+    OK_202 = (202).to_bytes(2)
+
+    ERROR_400 = (400).to_bytes(2)
+    ERROR_403 = (403).to_bytes(2)
+    ERROR_404 = (404).to_bytes(2)
+    ERROR_409 = (409).to_bytes(2)
+
+    ERROR_500 = (500).to_bytes(2)
+    ERROR_507 = (507).to_bytes(2)
+
+    HELLO = b"Hello"
+
+
+class MovesenseController:
+    COMMAND_CHAR_UUID = "34800001-7185-4d5d-b431-630e7050e8f0"
+    DATA_CHAR_UUID = "34800002-7185-4d5d-b431-630e7050e8f0"
+    BATTERY_CHAR_UUID = "00002a19-0000-1000-8000-00805f9b34fb"
+
+    ECG_128 = bytearray("/Meas/ECG/128", "utf-8")
+    IMU_104 = bytearray("/Meas/IMU9/104", "utf-8")
+
+    def __init__(self):
+        self.command_responses = []
+        self.data_responses = []
+
+        self.client_ref = 0
+        self.printing = 0
+
+    def notification_handler(self, _, data):
+        logging.debug("Notification: %s", data)
+
+        if data[0] == Responses.COMMAND_RESULT.value:
+            self.command_responses.append(data)
+            if self.printing:
+                logging.info(f"Notification: {Responses(data[0])}{data[1]}-{data[2:]}")
+        else:
+            self.data_responses.append(data)
+
+    async def send_command(
+        self,
+        command,
+        client_ref=None,
+        data=None,
+    ):
+        self.client_ref += 1
+
+        if client_ref is None:
+            client_ref = self.client_ref
+
+        command_bytes = bytearray([command.value, client_ref])
+
+        if data:
+            command_bytes += data
+
+        if data:
+            logging.debug(f"Sending {command}, {client_ref} with data {data}")
+        else:
+            logging.debug(f"Sending {command}, {client_ref}")
+
+        try:
+            await self.client.write_gatt_char(self.COMMAND_CHAR_UUID, command_bytes)
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            logging.error(f"Sending {command} failed: Exception {e}")
+
+    async def run(self, movesense_id=None, address=None, print=False):
+        if address is None:
+            logging.info("Scanning for Movesense device.")
+            devices = await BleakScanner().discover()
+            for d in devices:
+                if movesense_id is None and d.name and d.name.startswith("Movesense"):
+                    address = d.address
+                    break
+                if movesense_id and d.name and d.name.endswith(movesense_id):
+                    address = d.address
+                    break
+
+        if address is None:
+            raise Exception("Movesense device not found.")
+
+        async with BleakClient(address) as self.client:
+            logging.info(f"Connected to Movesense device: {address}.")
+
+            for serv in self.client.services:
+                logging.debug(f"Service: {serv}")
+                for char in serv.characteristics:
+                    logging.debug(f"Characteristic: {char}")
+
+            await self.client.start_notify(
+                self.DATA_CHAR_UUID, self.notification_handler
+            )
+            logging.debug("Notifications started.")
+
+            self.printing = print
+
+            await self.main()
+
+            await self.client.stop_notify(self.DATA_CHAR_UUID)
+            logging.debug("Notifications stopped.")
+
+            self.printing = False
+
+    async def main(self):
+        try:
+            battery_level = await self.client.read_gatt_char(self.BATTERY_CHAR_UUID)
+            battery_percentage = int.from_bytes(battery_level, byteorder="little")
+            logging.info(f"Battery Level: {battery_percentage}%")
+        except Exception as e:
+            logging.error(f"Failed to read battery level: {e}")
+
+        host_time = time.time()
+        await self.send_command(Commands.GET_TIME)
+        dev_time = int.from_bytes(self.data_responses[-1][2:], byteorder="little") / 1e3
+        diff = host_time % 3600 - dev_time
+        print(f"Host time: {host_time}, Device time: {dev_time}, Diff: {diff}")
+
+        self.data_responses.clear()
+
+        await self.send_command(Commands.CLEAR_LOGS)
+        # await self.send_command(Commands.SUB_LOG, client_ref=1, data=self.ECG_128)
+        await self.send_command(Commands.SUB_LOG, client_ref=2, data=self.IMU_104)
+        await self.send_command(Commands.START_LOG)
+        await asyncio.sleep(1)
+        await self.send_command(Commands.STOP_LOG)
+        # await self.send_command(Commands.UNSUB_LOG, client_ref=1)
+        await self.send_command(Commands.UNSUB_LOG, client_ref=2)
+
+        await self.send_command(
+            Commands.FETCH_LOG, data=(1).to_bytes(4, byteorder="little")
+        )
+
+        save_sbem(self.data_responses, pathlib.Path(__file__).parent / "log.sbem")
+
+        # self.data_responses.clear()
+
+        # await self.send_command(Commands.SUBSCRIBE, client_ref=1, data=self.ECG_128)
+
+        # await asyncio.sleep(1)
+
+        # await self.send_command(Commands.UNSUBSCRIBE, client_ref=1)
+
+        # decode_stream(self.data_responses, {1: self.ECG_128})
+
+        host_time = time.time()
+        await self.send_command(Commands.GET_TIME)
+        dev_time = int.from_bytes(self.data_responses[-1][2:], byteorder="little") / 1e3
+        diff = host_time % 3600 - dev_time
+        print(f"Host time: {host_time}, Device time: {dev_time}, Diff: {diff}")
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    controller = MovesenseController()
+    asyncio.run(controller.run(address="0C:8C:DC:1B:64:D2", print=True))
