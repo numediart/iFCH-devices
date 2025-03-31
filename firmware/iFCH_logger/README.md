@@ -3,6 +3,8 @@ iFCH Logger
 
 # Arduino
 
+Use SparkFun ESP32-C6 Thing Plus
+
 ## Boards manager
 
 * [esp32](https://github.com/espressif/arduino-esp32)

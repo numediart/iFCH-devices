@@ -1,0 +1,8 @@
+{
+    "configuration": "JTAGAdapter=default,CDCOnBoot=default,PartitionScheme=default,CPUFreq=160,FlashMode=qio,FlashFreq=80,FlashSize=4M,UploadSpeed=921600,DebugLevel=none,EraseFlash=none,ZigbeeMode=default",
+    "board": "esp32:esp32:sparkfun_esp32c6_thing_plus",
+    "port": "/dev/ttyACM0",
+    "programmer": "esptool",
+    "sketch": "firmware/iFCH_logger/LED/LED.ino",
+    "output": "firmware/iFCH_logger/build"
+}
