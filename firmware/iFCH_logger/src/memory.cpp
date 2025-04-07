@@ -5,7 +5,7 @@
 void setupSDCard()
 {
     // Initialize the SD card
-    ushort tries = 5;
+    ushort tries = SD_INIT_RETRIES;
     bool init_ok = false;
     do
     {

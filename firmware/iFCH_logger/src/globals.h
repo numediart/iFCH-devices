@@ -6,6 +6,9 @@
 #define VUSB_PIN (gpio_num_t)2
 #define SD_SELECT_PIN 18
 
+#define BAUD_RATE 115200
+#define SD_INIT_RETRIES 5
+
 #define RGB_MAX 63
 
 #define WAKEUP_PIN_MASK (1ULL << VUSB_PIN)

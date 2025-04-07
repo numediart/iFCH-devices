@@ -44,7 +44,7 @@ void setup()
     // The USB is connected, start Serial
     if (digitalRead(VUSB_PIN) == HIGH)
     {
-        Serial.begin(115200);
+        Serial.begin(BAUD_RATE);
         Serial.println("USB connected - starting Serial");
     }
     // if the USB is not connected, sleep
