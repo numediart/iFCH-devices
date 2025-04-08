@@ -3,6 +3,8 @@
 
 #include "globals.h"
 
+double getBattery();
+
 void enterHibernation(bool waketimer);
 
 #endif // POWER_H

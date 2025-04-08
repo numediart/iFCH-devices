@@ -1,12 +1,16 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
-#include "Arduino.h"
+#include <Arduino.h>
 
 #define VUSB_PIN (gpio_num_t)2
 #define SD_SELECT_PIN 18
 
 #define BAUD_RATE 115200
+#define START_BYTE 0x7E
+#define MAX_PAYLOAD_SIZE 512
+#define SERIAL_TIMEOUT 500
+
 #define SD_INIT_RETRIES 5
 
 #define RGB_MAX 63

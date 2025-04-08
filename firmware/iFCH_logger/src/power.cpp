@@ -3,8 +3,28 @@
 #include "rtc_time.h"
 #include "utils.h"
 
-#include "esp_sleep.h"
+#include <esp_sleep.h>
 // #include "driver/rtc_io.h"
+
+#include <Wire.h>
+#include <SparkFun_MAX1704x_Fuel_Gauge_Arduino_Library.h>
+
+SFE_MAX1704X lipo(MAX1704X_MAX17048); // Create a MAX17048
+
+void setupGauge()
+{
+    if (lipo.begin() == false)
+    {
+        errorReset(RGB_MAX, 0, 0);
+    }
+
+    lipo.quickStart();
+}
+
+double getBattery()
+{
+    return lipo.getSOC();
+}
 
 void enterHibernation(bool waketimer)
 {

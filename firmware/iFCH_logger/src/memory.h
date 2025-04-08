@@ -3,9 +3,9 @@
 
 #include "globals.h"
 
-#include "FS.h"
-#include "SD.h"
-#include "SPI.h"
+#include <FS.h>
+#include <SD.h>
+#include <SPI.h>
 
 void setupSDCard();
 

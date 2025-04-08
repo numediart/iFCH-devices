@@ -2,7 +2,7 @@
 #define RTC_TIME_H
 
 // For the RTC
-#include "SparkFun_RV8803.h"
+#include <SparkFun_RV8803.h>
 
 #include "globals.h"
 

@@ -1,5 +1,7 @@
 #include "utils.h"
 
+#include <Wire.h>
+
 void blink(uint8_t r_val, uint8_t g_val, uint8_t b_val, uint8_t times, uint32_t duration)
 {
     for (uint8_t i = 0; i < times; i++)
@@ -23,4 +25,7 @@ void errorReset(uint8_t r_val, uint8_t g_val, uint8_t b_val)
 void setupGPIO()
 {
     pinMode(VUSB_PIN, INPUT);
+
+    // For both RTC and fuel gauge
+    Wire.begin();
 }

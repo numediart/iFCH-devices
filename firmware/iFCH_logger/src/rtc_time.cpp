@@ -7,7 +7,6 @@ RV8803 RTC;
 void setupRTC()
 {
     // Initialize the RTC
-    Wire.begin();
     if (RTC.begin() == false)
     {
         errorReset(RGB_MAX, RGB_MAX, 0);
