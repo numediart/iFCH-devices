@@ -315,7 +315,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         // Store client reference to array and trigger subscribe
         DataSub &dataSub = *pDataSub;
 
-        char pathBuffer[160]; // Big enough since MTU is 161
+        char pathBuffer[MTU];
         memset(pathBuffer, 0, sizeof(pathBuffer));
 
         if (dataLen >= sizeof(pathBuffer))

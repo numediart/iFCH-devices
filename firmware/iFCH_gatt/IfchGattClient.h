@@ -128,7 +128,7 @@ private:
     // Buffer for outgoing data messages
     static constexpr size_t MTU = 158;
     static constexpr size_t MAX_DATA_SIZE = MTU - 8;
-    uint8_t mDataMsgBuffer[158];
+    uint8_t mDataMsgBuffer[MTU];
 
     DataSub *findDataSub(const wb::ResourceId resourceId);
     DataSub *findDataSub(const wb::LocalResourceId localResourceId);
