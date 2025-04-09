@@ -3,9 +3,7 @@
 
 #include "globals.h"
 
-#include <FS.h>
-#include <SD.h>
-#include <SPI.h>
+void sendFile(const char *filename);
 
 void setupSDCard();
 

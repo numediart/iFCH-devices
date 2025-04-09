@@ -70,13 +70,17 @@ void loop()
     if (Serial.available())
     {
         CmdType cmd = readSerial();
-        // TODO
 
         switch (cmd)
         {
         case CmdType::CMD_SCAN:
             // Scan for BLE devices
             scanBLEDevices();
+            break;
+
+        case CmdType::CMD_CONFIG_GET:
+            // Send the config file
+            sendFile("/config.json");
             break;
 
         default:

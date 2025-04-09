@@ -14,7 +14,7 @@ class ScanCallback : public BLEAdvertisedDeviceCallbacks
             String devName = advertisedDevice.getName();
             String devAddress = advertisedDevice.getAddress().toString();
 
-            String devRepr = devName + ";;" + devAddress;
+            String devRepr = devName + ";" + devAddress;
 
             sendFrame(CmdType::CMD_SCAN_RESULT, (uint8_t *)devRepr.c_str(), devRepr.length());
         }
