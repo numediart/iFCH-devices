@@ -5,7 +5,8 @@
 #include "src/utils.h"
 #include "src/power.h"
 #include "src/memory.h"
-#include "src/protocol.h"
+#include "src/serial_com.h"
+#include "src/ble_com.h"
 
 uint16_t fetchIntervalMin;
 uint32_t lastFetch;
@@ -31,6 +32,8 @@ void setup()
     setupSDCard();
 
     setupRTC();
+
+    setupBLE();
 
     // TODO load from SD
     fetchIntervalMin = 1;
@@ -71,8 +74,13 @@ void loop()
 
         switch (cmd)
         {
-        case CMD_INVALID:
-            // Invalid transmission, handled in readSerial
+        case CmdType::CMD_SCAN:
+            // Scan for BLE devices
+            scanBLEDevices();
+            break;
+
+        default:
+            // Handle other commands
             break;
         }
     }

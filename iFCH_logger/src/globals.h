@@ -11,6 +11,11 @@
 #define MAX_PAYLOAD_SIZE 512
 #define SERIAL_TIMEOUT 500
 
+#define BLE_MTU 158
+#define BLE_SCAN_TIME 1       // seconds
+#define BLE_SCAN_INTERVAL 500 // milliseconds
+#define BLE_SCAN_WINDOW 500   // milliseconds
+
 #define SD_INIT_RETRIES 5
 
 #define RGB_MAX 63

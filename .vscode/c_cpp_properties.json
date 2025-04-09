@@ -21,6 +21,7 @@
                 "/home/mfrancois/.arduino15/packages/esp32/hardware/esp32/3.2.0/libraries/FS/src",
                 "/home/mfrancois/.arduino15/packages/esp32/hardware/esp32/3.2.0/libraries/SD/src",
                 "/home/mfrancois/.arduino15/packages/esp32/hardware/esp32/3.2.0/libraries/SPI/src",
+                "/home/mfrancois/.arduino15/packages/esp32/hardware/esp32/3.2.0/libraries/BLE/src",
                 "/home/mfrancois/Arduino/libraries/SparkFun_MAX1704x_Fuel_Gauge_Arduino_Library/src",
                 "/home/mfrancois/Arduino/libraries/FastCRC/src",
                 "/home/mfrancois/.arduino15/packages/esp32/tools/esp-rv32/2411/riscv32-esp-elf/include/c++/14.2.0",
