@@ -19,6 +19,9 @@ enum class CmdType : uint8_t
     CMD_FILE_CHUNK = 0x20,
     CMD_CONFIG_GET = 0x21,
     CMD_CONFIG_PUT = 0x22,
+    // RTC
+    CMD_TIME_GET = 0x31,
+    CMD_TIME_PUT = 0x32,
     // Errors
     CMD_TIMEOUT = 0xFE,
     CMD_INVALID = 0xFF,

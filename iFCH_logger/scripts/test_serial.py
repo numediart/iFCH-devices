@@ -1,3 +1,4 @@
+import datetime
 import enum
 import json
 import struct
@@ -23,6 +24,8 @@ class Commands(enum.Enum):
     CMD_FILE_CHUNK = 0x20
     CMD_CONFIG_GET = 0x21
     CMD_CONFIG_PUT = 0x22
+    CMD_TIME_GET = 0x31
+    CMD_TIME_PUT = 0x32
     CMD_TIMEOUT = 0xFE
     CMD_INVALID = 0xFF
 
@@ -181,6 +184,43 @@ def test_send_config_file(port):
         print("Config file upload failed!")
 
 
+def test_get_time(port):
+    print("Testing get time command...")
+    with serial.Serial(port, BAUD, timeout=TIMEOUT) as ser:
+        # Send a get time command
+        send_frame(ser, Commands.CMD_TIME_GET.value)
+
+        # Wait for a response
+        cmd, payload = parse_frame(ser)
+        if cmd == Commands.CMD_TIME_GET.value and payload is not None:
+            epoch = int.from_bytes(payload, "little")
+            print(f"Epoch time: {epoch}")
+            # Convert epoch time to human-readable format
+            human_time = datetime.datetime.fromtimestamp(epoch)
+            print(f"Human-readable time: {human_time}")
+        else:
+            print("Failed to get time!")
+
+
+def test_set_time(port):
+    print("Testing set time command...")
+    with serial.Serial(port, BAUD, timeout=TIMEOUT) as ser:
+        # Send a set time command
+        epoch = int(datetime.datetime.now().timestamp())
+        payload = epoch.to_bytes(4, "little")
+        send_frame(ser, Commands.CMD_TIME_PUT.value, payload)
+
+        # Wait for a response
+        cmd, payload = parse_frame(ser)
+        if cmd == Commands.CMD_TIME_PUT.value and payload is not None:
+            epoch = int.from_bytes(payload, "little")
+            # Convert epoch time to human-readable format
+            human_time = datetime.datetime.fromtimestamp(epoch)
+            print(f"Time set successfully to {human_time}")
+        else:
+            print("Failed to set time!")
+
+
 def detect_device():
     for port in serial.tools.list_ports.comports():
         with serial.Serial(port.device, BAUD, timeout=TIMEOUT) as ser:
@@ -229,3 +269,7 @@ if __name__ == "__main__":
     test_send_config_file(serial_port)
 
     test_get_config(serial_port)
+
+    test_get_time(serial_port)
+
+    test_set_time(serial_port)

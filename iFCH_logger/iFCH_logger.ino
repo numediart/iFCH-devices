@@ -74,19 +74,25 @@ void loop()
         switch (cmd)
         {
         case CmdType::CMD_VERSION:
+        {
             // Send a hello message
             sendFrame(CmdType::CMD_VERSION, (uint8_t *)VERSION, strlen(VERSION));
             break;
+        }
 
         case CmdType::CMD_SCAN:
+        {
             // Scan for BLE devices
             scanBLEDevices();
             break;
+        }
 
         case CmdType::CMD_CONFIG_GET:
+        {
             // Send the config file
             sendFile(CONFIG_FILE);
             break;
+        }
 
         case CmdType::CMD_CONFIG_PUT:
         {
@@ -107,10 +113,35 @@ void loop()
             break;
         }
 
+        case CmdType::CMD_TIME_GET:
+        {
+            // Send the current time
+            uint32_t currentTime = getUNIXTime();
+            sendFrame(CmdType::CMD_TIME_GET, (uint8_t *)&currentTime, sizeof(currentTime));
+            break;
+        }
+
+        case CmdType::CMD_TIME_PUT:
+        {
+            // Receive the time
+            uint32_t newTime;
+            if (rx_payload_len != sizeof(newTime))
+            {
+                blink(COLOR_RUNTIME_ERROR, 5, 50);
+                break;
+            }
+            memcpy(&newTime, rx_payload, sizeof(newTime));
+            RTC.setEpoch(newTime);
+            sendFrame(CmdType::CMD_TIME_PUT, (uint8_t *)&newTime, sizeof(newTime));
+            break;
+        }
+
         default:
+        {
             // Handle other commands: blink warning
             blink(COLOR_RUNTIME_ERROR, 1, 20);
             break;
+        }
         }
     }
 
