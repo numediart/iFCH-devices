@@ -88,6 +88,19 @@ void loop()
             sendFile("/config.json");
             break;
 
+        case CmdType::CMD_CONFIG_PUT:
+        {
+            // Receive the config file
+            String receivedName = receiveFile("/config_.json");
+            if (receivedName == "config.json")
+            {
+                // TODO check config validity, use temp file
+                // If the file was received, send an ACK
+                sendFrame(CmdType::CMD_CONFIG_PUT, (uint8_t *)receivedName.c_str(), receivedName.length());
+            }
+            break;
+        }
+
         default:
             // Handle other commands
             break;

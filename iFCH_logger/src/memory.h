@@ -5,6 +5,8 @@
 
 void sendFile(const char *filename);
 
+String receiveFile(const char *filename);
+
 void setupSDCard();
 
 #endif // MEMORY_H

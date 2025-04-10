@@ -1,4 +1,5 @@
 import enum
+import json
 import struct
 import zlib
 
@@ -9,6 +10,8 @@ START_BYTE = 0x7E
 
 BAUD = 115200
 TIMEOUT = 4
+MAX_PAYLOAD_SIZE = 512
+SERIAL_RETRIES = 3
 
 
 class Commands(enum.Enum):
@@ -32,31 +35,49 @@ def send_frame(ser, cmd, payload=b""):
     ser.write(frame)
 
 
+def send_protected_frame(ser, cmd, payload, ack_id):
+    attempts = 0
+    while attempts < SERIAL_RETRIES:
+        send_frame(ser, cmd, payload)
+
+        cmd, rx_payload = parse_frame(ser)
+        if cmd == Commands.CMD_ACK.value:
+            if len(rx_payload) == 1 and rx_payload[0] == ack_id:
+                return True
+
+        attempts += 1
+
+    return False
+
+
 def parse_frame(ser):
     startbyte = ser.read(1)
-    if len(startbyte) == 0:
-        return None, None
+    if len(startbyte) < 1:
+        return Commands.CMD_TIMEOUT, None
 
     if startbyte != bytes([START_BYTE]):
-        return None, None
+        return Commands.CMD_INVALID, None
 
     header = ser.read(3)
     if len(header) < 3:
-        return None, None
+        return Commands.CMD_TIMEOUT, None
 
     cmd, length = struct.unpack(">B H", header)
     payload = ser.read(length)
-    crc_data = header + payload
-    crc_received = ser.read(4)
+    if len(payload) < length:
+        return Commands.CMD_TIMEOUT, None
 
+    crc_data = header + payload
+
+    crc_received = ser.read(4)
     if len(crc_received) < 4:
-        return None, None
+        return Commands.CMD_TIMEOUT, None
 
     crc_calc = zlib.crc32(crc_data)
     crc_recv = struct.unpack("<I", crc_received)[0]
 
     if crc_calc != crc_recv:
-        return cmd, None  # CRC fail
+        return Commands.CMD_INVALID, None  # CRC fail
 
     return cmd, payload
 
@@ -99,6 +120,61 @@ def get_file(ser):
             return None, None
 
     return file_name, file_chunks
+
+
+def test_send_config_file(port):
+    target_name = "config.json"
+    config = {"name": "conf", "data": 2}
+    file_data = json.dumps(config).encode()
+
+    with serial.Serial(port, BAUD, timeout=TIMEOUT) as ser:
+        seq_id = 0
+
+        # Step 1: Send CMD_CONFIG_PUT
+        send_frame(ser, Commands.CMD_CONFIG_PUT.value)
+
+        # Step 2: Send first chunk with filename
+        first_payload = seq_id.to_bytes(1) + target_name.encode()
+        if not send_protected_frame(
+            ser, Commands.CMD_FILE_CHUNK.value, first_payload, seq_id
+        ):
+            print("Filename ACK failed")
+            return
+
+        # Step 3: Send data chunks
+        offset = 0
+
+        while offset < len(file_data):
+            seq_id = (seq_id + 1) % 256
+
+            chunk = file_data[offset : offset + MAX_PAYLOAD_SIZE - 1]
+            offset += len(chunk)
+
+            frame_payload = seq_id.to_bytes(1) + chunk
+            if not send_protected_frame(
+                ser, Commands.CMD_FILE_CHUNK.value, frame_payload, seq_id
+            ):
+                print(f"Chunk {seq_id} ACK failed")
+                return
+
+        # Step 4: Send EOF marker (1 byte = sequence ID)
+        seq_id = (seq_id + 1) % 256
+        if not send_protected_frame(
+            ser, Commands.CMD_FILE_CHUNK.value, seq_id.to_bytes(1), seq_id
+        ):
+            print("EOF chunk ACK failed")
+            return
+
+        print("Chunks sent successfully!")
+
+        # Step 5: Wait for ACK
+        cmd, payload = parse_frame(ser)
+        if cmd == Commands.CMD_CONFIG_PUT.value:
+            if payload is not None and payload.decode() == target_name:
+                print("Config file upload complete!")
+                return
+
+        print("Config file upload failed!")
 
 
 def detect_device():
@@ -146,4 +222,6 @@ if __name__ == "__main__":
 
     # test_scan(serial_port)
 
-    test_get_config(serial_port)
+    # test_get_config(serial_port)
+
+    test_send_config_file(serial_port)
