@@ -16,6 +16,7 @@ void setupGauge()
     if (lipo.begin() == false)
     {
         errorReset(RGB_MAX, 0, 0);
+        return;
     }
 
     lipo.quickStart();
@@ -48,6 +49,7 @@ void enterHibernation(bool waketimer)
         if (result != ESP_OK)
         {
             errorReset(RGB_MAX, 0, 0);
+            return;
         }
     }
 
@@ -57,6 +59,7 @@ void enterHibernation(bool waketimer)
     if (result != ESP_OK)
     {
         errorReset(RGB_MAX, 0, 0);
+        return;
     }
 
     // Power off all components: not working

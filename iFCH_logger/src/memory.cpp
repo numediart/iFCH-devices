@@ -33,6 +33,7 @@ void sendFile(const char *filename)
         if (!toSend)
         {
             errorReset(RGB_MAX, 0, RGB_MAX);
+            return;
         }
 
         while (toSend.available())
@@ -77,5 +78,6 @@ void setupSDCard()
     if (tries == 0)
     {
         errorReset(RGB_MAX, 0, RGB_MAX);
+        return;
     }
 }
