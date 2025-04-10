@@ -48,7 +48,7 @@ uint32_t getUNIXTime()
     if (RTC.updateTime() == false)
     {
         errorReset(RGB_MAX, RGB_MAX, 0);
-        return;
+        return 0;
     }
     return RTC.getEpoch();
 }
