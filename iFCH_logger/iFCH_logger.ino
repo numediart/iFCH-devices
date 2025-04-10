@@ -73,6 +73,11 @@ void loop()
 
         switch (cmd)
         {
+        case CmdType::CMD_VERSION:
+            // Send a hello message
+            sendFrame(CmdType::CMD_VERSION, (uint8_t *)VERSION, strlen(VERSION));
+            break;
+
         case CmdType::CMD_SCAN:
             // Scan for BLE devices
             scanBLEDevices();

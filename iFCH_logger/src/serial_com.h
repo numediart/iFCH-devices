@@ -8,13 +8,18 @@ extern uint8_t rx_payload_len;
 
 enum class CmdType : uint8_t
 {
-    CMD_ACK = 0x00,
-    CMD_NACK = 0x01,
-    CMD_SCAN = 0x02,
-    CMD_SCAN_RESULT = 0x03,
-    CMD_CONFIG_PUT = 0x04,
-    CMD_CONFIG_GET = 0x05,
-    CMD_FILE_CHUNK = 0x06,
+    // General
+    CMD_ACK = 0x01,
+    CMD_NACK = 0x02,
+    CMD_VERSION = 0x03,
+    // BLE
+    CMD_SCAN = 0x11,
+    CMD_SCAN_RESULT = 0x12,
+    // File transfer
+    CMD_FILE_CHUNK = 0x20,
+    CMD_CONFIG_GET = 0x21,
+    CMD_CONFIG_PUT = 0x22,
+    // Errors
     CMD_TIMEOUT = 0xFE,
     CMD_INVALID = 0xFF,
 };

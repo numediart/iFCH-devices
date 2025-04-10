@@ -3,6 +3,8 @@
 
 #include <Arduino.h>
 
+#define VERSION "iFCH-logger v0.1"
+
 #define RGB_MAX 63
 
 #define VUSB_PIN (gpio_num_t)2
