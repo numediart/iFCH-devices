@@ -1,6 +1,7 @@
 #include "power.h"
 
 #include "rtc_time.h"
+#include "memory.h"
 #include "utils.h"
 
 #include <esp_sleep.h>
@@ -15,7 +16,7 @@ void setupGauge()
 {
     if (lipo.begin() == false)
     {
-        errorReset(RGB_MAX, 0, 0);
+        errorReset(COLOR_POWER);
         return;
     }
 
@@ -29,7 +30,10 @@ double getBattery()
 
 void enterHibernation(bool waketimer)
 {
-    blink(0, 0, RGB_MAX, 1, 750); // Blink blue to indicate hibernation
+    // Save the current state of the record to SD card
+    saveJsonRecord();
+
+    blink(COLOR_POWER, 1, 300); // Blink blue to indicate hibernation
 
     esp_err_t result;
 
@@ -38,17 +42,17 @@ void enterHibernation(bool waketimer)
 
         // Compute time since last data fetch
         uint32_t currentEpoch = getUNIXTime();
-        uint32_t lastFetchDelayMin = (currentEpoch - lastFetch) / 60;
-        if (lastFetchDelayMin > fetchIntervalMin)
+        uint32_t lastFetchDelayMin = (currentEpoch - record.lastFetch) / 60;
+        if (lastFetchDelayMin > config.fetchIntervalMin)
         {
-            lastFetchDelayMin = fetchIntervalMin - 1;
+            lastFetchDelayMin = config.fetchIntervalMin - 1;
         }
-        uint16_t waketimer_minutes = fetchIntervalMin - lastFetchDelayMin;
+        uint16_t waketimer_minutes = config.fetchIntervalMin - lastFetchDelayMin;
 
         result = esp_sleep_enable_timer_wakeup((uint64_t)60000000 * waketimer_minutes);
         if (result != ESP_OK)
         {
-            errorReset(RGB_MAX, 0, 0);
+            errorReset(COLOR_POWER);
             return;
         }
     }
@@ -58,7 +62,7 @@ void enterHibernation(bool waketimer)
 
     if (result != ESP_OK)
     {
-        errorReset(RGB_MAX, 0, 0);
+        errorReset(COLOR_POWER);
         return;
     }
 

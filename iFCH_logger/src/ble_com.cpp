@@ -36,7 +36,7 @@ void setupBLE()
 
 void scanBLEDevices()
 {
-    rgbLedWrite(RGB_BUILTIN, 0, RGB_MAX, RGB_MAX);
+    rgbLedWrite(RGB_BUILTIN, COLOR_BLE);
 
     pBLEScan->start(BLE_SCAN_TIME, false);
     pBLEScan->clearResults(); // delete results fromBLEScan buffer to release memory

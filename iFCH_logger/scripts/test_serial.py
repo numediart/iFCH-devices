@@ -123,8 +123,12 @@ def get_file(ser):
 
 
 def test_send_config_file(port):
-    target_name = "config.json"
-    config = {"name": "conf", "data": 2}
+    target_name = "/config.json"
+    config = {
+        "address": "0C:8C:DC:1B:64:D2",
+        "sensorPaths": ["/Meas/ECG/256", "/Meas/IMU9/104"],
+        "fetchIntervalMin": 1,
+    }
     file_data = json.dumps(config).encode()
 
     with serial.Serial(port, BAUD, timeout=TIMEOUT) as ser:
@@ -220,8 +224,8 @@ def test_get_config(port):
 if __name__ == "__main__":
     serial_port = detect_device()
 
-    # test_scan(serial_port)
-
-    # test_get_config(serial_port)
+    test_scan(serial_port)
 
     test_send_config_file(serial_port)
+
+    test_get_config(serial_port)

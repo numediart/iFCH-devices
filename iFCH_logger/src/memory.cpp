@@ -3,6 +3,8 @@
 #include <FS.h>
 #include <SD.h>
 #include <SPI.h>
+#include <ArduinoJson.h>
+#include <StreamUtils.h>
 
 #include "utils.h"
 #include "serial_com.h"
@@ -18,11 +20,11 @@ void sendFile(const char *filename)
     memcpy(tx_buffer + 1, filename, strlen(filename));
     if (!sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, strlen(filename) + 1, seqNum))
     {
-        blink(RGB_MAX, 0, 0, 4, 75);
+        blink(COLOR_RUNTIME_ERROR, 5, 50);
         return;
     }
 
-    rgbLedWrite(RGB_BUILTIN, RGB_MAX, 0, RGB_MAX);
+    rgbLedWrite(RGB_BUILTIN, COLOR_SD);
 
     bool sentOK = true;
 
@@ -32,7 +34,7 @@ void sendFile(const char *filename)
         File toSend = SD.open(filename, FILE_READ);
         if (!toSend)
         {
-            errorReset(RGB_MAX, 0, RGB_MAX);
+            errorReset(COLOR_SD);
             return;
         }
 
@@ -45,7 +47,7 @@ void sendFile(const char *filename)
             sentOK = sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, len, seqNum);
             if (!sentOK)
             {
-                blink(RGB_MAX, 0, 0, 4, 75);
+                blink(COLOR_RUNTIME_ERROR, 5, 50);
                 break;
             }
         }
@@ -59,7 +61,7 @@ void sendFile(const char *filename)
         seqNum++;
         if (!sendProtectedFrame(CmdType::CMD_FILE_CHUNK, &seqNum, 1, seqNum))
         {
-            blink(RGB_MAX, 0, 0, 4, 75);
+            blink(COLOR_RUNTIME_ERROR, 5, 50);
         }
     }
 
@@ -74,12 +76,13 @@ String receiveFile(const char *filename)
     File toReceive = SD.open(filename, FILE_WRITE, true);
     if (!toReceive)
     {
-        errorReset(RGB_MAX, 0, RGB_MAX);
+        errorReset(COLOR_SD);
         return "";
     }
 
     // Wait for the first packet
     uint8_t expectedID = 0;
+    rgbLedWrite(RGB_BUILTIN, COLOR_SD);
 
     while (true)
     {
@@ -107,7 +110,7 @@ String receiveFile(const char *filename)
                     // If the write failed, blink the LED and break
                     if (written != rx_payload_len - 1)
                     {
-                        blink(RGB_MAX, 0, 0, 4, 75);
+                        errorReset(COLOR_SD);
                         receivedName = "";
                         break;
                     }
@@ -135,7 +138,7 @@ String receiveFile(const char *filename)
             // Invalid chunk ID received
             else
             {
-                blink(RGB_MAX, 0, 0, 4, 75);
+                blink(COLOR_RUNTIME_ERROR, 5, 50);
                 receivedName = "";
                 break;
             }
@@ -143,7 +146,7 @@ String receiveFile(const char *filename)
         // Invalid command received
         else
         {
-            blink(RGB_MAX, 0, 0, 4, 75);
+            blink(COLOR_RUNTIME_ERROR, 5, 50);
             receivedName = "";
             break;
         }
@@ -152,6 +155,8 @@ String receiveFile(const char *filename)
     // If file exists, close it
     toReceive.flush();
     toReceive.close();
+
+    digitalWrite(RGB_BUILTIN, 0);
 
     return receivedName;
 }
@@ -167,7 +172,132 @@ void setupSDCard()
     } while (tries > 0 && !SD.begin(SD_SELECT_PIN));
     if (tries == 0)
     {
-        errorReset(RGB_MAX, 0, RGB_MAX);
+        errorReset(COLOR_SD);
         return;
     }
+}
+
+bool loadJsonConfig()
+{
+
+    // If the config file does not exist, blink the LED and return false
+    if (!SD.exists(CONFIG_FILE))
+    {
+        blink(COLOR_SD, 5, 50);
+        return false;
+    }
+
+    File file = SD.open(CONFIG_FILE, FILE_READ);
+    if (!file)
+    {
+        errorReset(COLOR_SD);
+        return false;
+    }
+
+    // Estimate the size: adjust based on your actual config
+    StaticJsonDocument<512> doc;
+
+    // Use buffer to speed up SD reading
+    ReadBufferingStream bufferedFile{file, 64};
+    DeserializationError err = deserializeJson(doc, bufferedFile);
+    file.close();
+
+    // Validate expected fields
+    if (err ||
+        !doc.containsKey("sensorPaths") ||
+        !doc.containsKey("fetchIntervalMin") ||
+        !doc.containsKey("address"))
+    {
+        blink(COLOR_SD, 5, 50);
+        return false;
+    }
+
+    config.sensorPaths.clear();
+    for (JsonVariant path : doc["sensorPaths"].as<JsonArray>())
+    {
+        config.sensorPaths.push_back(path.as<String>());
+    }
+
+    config.address = doc["address"].as<String>();
+    config.fetchIntervalMin = doc["fetchIntervalMin"];
+
+    config.initialized = true;
+
+    return true;
+}
+
+bool loadJsonRecord()
+{
+
+    // If the record file does not exist, just use default values
+    if (!SD.exists(RECORD_FILE))
+    {
+        return false;
+    }
+
+    File file = SD.open(RECORD_FILE, FILE_READ);
+    if (!file)
+    {
+        errorReset(COLOR_SD);
+        return false;
+    }
+
+    // Estimate the size: adjust based on your actual config
+    StaticJsonDocument<128> doc;
+
+    // Use buffer to speed up SD reading
+    ReadBufferingStream bufferedFile{file, 64};
+    DeserializationError err = deserializeJson(doc, bufferedFile);
+    file.close();
+
+    // Validate expected fields, if they are not present, blink warning
+    if (err ||
+        !doc.containsKey("lastFetch") ||
+        !doc.containsKey("logging") ||
+        !doc.containsKey("id"))
+    {
+        blink(COLOR_RUNTIME_ERROR, 5, 50);
+        return false;
+    }
+
+    record.lastFetch = doc["lastFetch"];
+    record.logging = doc["logging"];
+    record.id = doc["id"];
+
+    return true;
+}
+
+bool saveJsonRecord()
+{
+    // Create a JSON document
+    StaticJsonDocument<128> doc;
+
+    // Add the record data to the JSON document
+    doc["lastFetch"] = record.lastFetch;
+    doc["logging"] = record.logging;
+    doc["id"] = record.id;
+
+    // Open the file for writing
+    File file = SD.open(RECORD_FILE, FILE_WRITE, true);
+    if (!file)
+    {
+        errorReset(COLOR_SD);
+        return false;
+    }
+
+    // Serialize the JSON document to the file
+    if (serializeJson(doc, file) == 0)
+    {
+        errorReset(COLOR_RUNTIME_ERROR);
+        file.close();
+        return false;
+    }
+
+    // Close the file
+    file.flush();
+    file.close();
+
+    blink(COLOR_SD, 1, 150);
+
+    return true;
 }

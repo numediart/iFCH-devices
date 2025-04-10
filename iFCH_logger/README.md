@@ -18,6 +18,8 @@ Also works with 220k and 100k.
 * [SparkFun MAX1704x Fuel Gauge Arduino Library](https://github.com/sparkfun/SparkFun_MAX1704x_Fuel_Gauge_Arduino_Library)
 * [SparkFun Real Time Clock Module - RV-8803 (Qwiic) Arduino Library](https://github.com/sparkfun/SparkFun_RV-8803_Arduino_Library)
 * FastCRC
+* ArduinoJson
+* StreamUtils
 
 ## Links
 

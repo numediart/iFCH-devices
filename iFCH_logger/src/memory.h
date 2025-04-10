@@ -9,4 +9,10 @@ String receiveFile(const char *filename);
 
 void setupSDCard();
 
+bool loadJsonConfig();
+
+bool loadJsonRecord();
+
+bool saveJsonRecord();
+
 #endif // MEMORY_H
