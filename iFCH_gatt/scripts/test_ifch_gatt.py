@@ -23,6 +23,7 @@ class Commands(enum.Enum):
     STOP_LOG = 8
     LIST_LOGS = 9
     GET_TIME = 10
+    RESET = 11
     INVALID = 0xFF
 
 
@@ -175,6 +176,12 @@ class MovesenseTester:
         )
 
         await self.test_command(
+            Commands.RESET,
+            StatusCodes.OK_200,
+            test_name="RESET",
+        )
+
+        await self.test_command(
             Commands.GET_TIME,
             StatusCodes.OK_200,
             test_name="GET_TIME",
@@ -319,6 +326,18 @@ class MovesenseTester:
         )
 
         await asyncio.sleep(1)
+
+        await self.test_command(
+            Commands.CLEAR_LOGS,
+            StatusCodes.ERROR_409,
+            test_name="CLEAR_LOGS when logging",
+        )
+
+        await self.test_command(
+            Commands.RESET,
+            StatusCodes.ERROR_409,
+            test_name="RESET when logging",
+        )
 
         await self.test_command(
             Commands.STOP_LOG,

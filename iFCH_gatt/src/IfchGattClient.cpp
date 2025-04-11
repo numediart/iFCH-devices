@@ -186,6 +186,7 @@ enum Commands
     STOP_LOG = 8,
     LIST_LOGS = 9,
     GET_TIME = 10,
+    RESET = 11,
 };
 
 enum Responses
@@ -409,14 +410,15 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::CLEAR_LOGS. reference: %d", reference);
 
-        // Stop logging if needed
-
+        // Cannot clear logs if logging
         if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
         {
-            asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(),
-                     AsyncRequestOptions::Empty,
-                     WB_RES::DataLoggerStateValues::DATALOGGER_READY);
-            mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_READY;
+            // 409: Conflict
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x99};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            return;
         }
 
         // Clear logbook entries
@@ -644,6 +646,47 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         // Get current time
         mGetTimeReference = reference;
         asyncGet(WB_RES::LOCAL::TIME_DETAILED(), AsyncRequestOptions::ForceAsync);
+
+        return;
+    }
+    case Commands::RESET:
+    {
+        DEBUGLOG("Commands::RESET. reference: %d", reference);
+
+        // Cannot reset if logging (bug)
+        if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        {
+            // 409: Conflict
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x99};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            return;
+        }
+
+        // Clear all subscriptions
+        unsubscribeAllStreams();
+
+        // Clear log subscriptions
+        clearLogSubs();
+
+        // Clear logbook entries
+        wb::Result result = asyncDelete(WB_RES::LOCAL::MEM_LOGBOOK_ENTRIES());
+        if (result >= 400)
+        {
+            // 500: Internal server error
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0xF4};
+            WB_RES::Characteristic dataCharValue;
+            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
+            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            return;
+        }
+
+        // Send OK response
+        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
+        WB_RES::Characteristic dataCharValue;
+        dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
+        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
 
         return;
     }

@@ -89,6 +89,7 @@ class Commands(enum.Enum):
     STOP_LOG = 8
     LIST_LOGS = 9
     GET_TIME = 10
+    RESET = 11
     INVALID = 0xFF
 
 
@@ -213,7 +214,8 @@ class MovesenseController:
 
         self.data_responses.clear()
 
-        await self.send_command(Commands.CLEAR_LOGS)
+        await self.send_command(Commands.RESET)
+        # await self.send_command(Commands.CLEAR_LOGS)
         # await self.send_command(Commands.SUB_LOG, client_ref=1, data=self.ECG_128)
         await self.send_command(Commands.SUB_LOG, client_ref=2, data=self.IMU_104)
         await self.send_command(Commands.START_LOG)
