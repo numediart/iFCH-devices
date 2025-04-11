@@ -33,6 +33,8 @@ void setup()
 
     setupRTC();
 
+    setupGauge();
+
     setupBLE();
 
     loadJsonRecord();
@@ -133,6 +135,14 @@ void loop()
             memcpy(&newTime, rx_payload, sizeof(newTime));
             RTC.setEpoch(newTime);
             sendFrame(CmdType::CMD_TIME_PUT, (uint8_t *)&newTime, sizeof(newTime));
+            break;
+        }
+
+        case CmdType::CMD_BATTERY_GET:
+        {
+            // Send the battery level
+            float batteryLevel = getBattery();
+            sendFrame(CmdType::CMD_BATTERY_GET, (uint8_t *)&batteryLevel, sizeof(batteryLevel));
             break;
         }
 

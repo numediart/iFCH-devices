@@ -3,7 +3,9 @@
 
 #include "globals.h"
 
-double getBattery();
+void setupGauge();
+
+float getBattery();
 
 void enterHibernation(bool waketimer);
 

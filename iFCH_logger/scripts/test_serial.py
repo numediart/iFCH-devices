@@ -26,6 +26,7 @@ class Commands(enum.Enum):
     CMD_CONFIG_PUT = 0x22
     CMD_TIME_GET = 0x31
     CMD_TIME_PUT = 0x32
+    CMD_BATTERY_GET = 0x33
     CMD_TIMEOUT = 0xFE
     CMD_INVALID = 0xFF
 
@@ -221,6 +222,21 @@ def test_set_time(port):
             print("Failed to set time!")
 
 
+def test_get_battery(port):
+    print("Testing get battery command...")
+    with serial.Serial(port, BAUD, timeout=TIMEOUT) as ser:
+        # Send a get battery command
+        send_frame(ser, Commands.CMD_BATTERY_GET.value)
+
+        # Wait for a response
+        cmd, payload = parse_frame(ser)
+        if cmd == Commands.CMD_BATTERY_GET.value and payload is not None:
+            battery_level = struct.unpack("f", payload)[0]
+            print(f"Battery level: {battery_level}")
+        else:
+            print("Failed to get battery level!")
+
+
 def detect_device():
     for port in serial.tools.list_ports.comports():
         with serial.Serial(port.device, BAUD, timeout=TIMEOUT) as ser:
@@ -264,12 +280,14 @@ def test_get_config(port):
 if __name__ == "__main__":
     serial_port = detect_device()
 
-    test_scan(serial_port)
+    test_get_battery(serial_port)
 
-    test_send_config_file(serial_port)
+    # test_scan(serial_port)
 
-    test_get_config(serial_port)
+    # test_send_config_file(serial_port)
 
-    test_get_time(serial_port)
+    # test_get_config(serial_port)
 
-    test_set_time(serial_port)
+    # test_get_time(serial_port)
+
+    # test_set_time(serial_port)

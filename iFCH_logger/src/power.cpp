@@ -23,8 +23,9 @@ void setupGauge()
     lipo.quickStart();
 }
 
-double getBattery()
+float getBattery()
 {
+    lipo.quickStart();
     return lipo.getSOC();
 }
 

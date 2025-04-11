@@ -22,6 +22,7 @@ enum class CmdType : uint8_t
     // RTC
     CMD_TIME_GET = 0x31,
     CMD_TIME_PUT = 0x32,
+    CMD_BATTERY_GET = 0x33,
     // Errors
     CMD_TIMEOUT = 0xFE,
     CMD_INVALID = 0xFF,
