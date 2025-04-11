@@ -146,6 +146,23 @@ void loop()
             break;
         }
 
+        case CmdType::CMD_CONNECT:
+        {
+            // Connect to the Movesense
+            if (connectMovesense())
+            {
+                sendFrame(CmdType::CMD_CONNECT, (uint8_t *)config.address.c_str(), config.address.length());
+            }
+            break;
+        }
+        case CmdType::CMD_DISCONNECT:
+        {
+            // Disconnect from the Movesense
+            disconnectMovesense();
+            sendFrame(CmdType::CMD_DISCONNECT, (uint8_t *)config.address.c_str(), config.address.length());
+            break;
+        }
+
         default:
         {
             // Handle other commands: blink warning

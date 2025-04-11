@@ -15,6 +15,8 @@ enum class CmdType : uint8_t
     // BLE
     CMD_SCAN = 0x11,
     CMD_SCAN_RESULT = 0x12,
+    CMD_CONNECT = 0x13,
+    CMD_DISCONNECT = 0x14,
     // File transfer
     CMD_FILE_CHUNK = 0x20,
     CMD_CONFIG_GET = 0x21,

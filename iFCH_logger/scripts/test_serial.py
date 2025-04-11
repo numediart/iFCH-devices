@@ -19,14 +19,20 @@ class Commands(enum.Enum):
     CMD_ACK = 0x01
     CMD_NACK = 0x02
     CMD_VERSION = 0x03
+
     CMD_SCAN = 0x11
     CMD_SCAN_RESULT = 0x12
+    CMD_CONNECT = 0x13
+    CMD_DISCONNECT = 0x14
+
     CMD_FILE_CHUNK = 0x20
     CMD_CONFIG_GET = 0x21
     CMD_CONFIG_PUT = 0x22
+
     CMD_TIME_GET = 0x31
     CMD_TIME_PUT = 0x32
     CMD_BATTERY_GET = 0x33
+
     CMD_TIMEOUT = 0xFE
     CMD_INVALID = 0xFF
 
@@ -126,10 +132,13 @@ def get_file(ser):
     return file_name, file_chunks
 
 
-def test_send_config_file(port):
+def test_send_config_file(port, address=None):
+    if address is None:
+        address = "0C:8C:DC:1B:64:D2"
+
     target_name = "/config.json"
     config = {
-        "address": "0C:8C:DC:1B:64:D2",
+        "address": address,
         "sensorPaths": ["/Meas/ECG/256", "/Meas/IMU9/104"],
         "fetchIntervalMin": 1,
     }
@@ -250,6 +259,7 @@ def detect_device():
 
 def test_scan(port):
     print("Testing scan command...")
+    found = []
     with serial.Serial(port, BAUD, timeout=TIMEOUT) as ser:
         # Send a scan command
         send_frame(ser, Commands.CMD_SCAN.value)
@@ -260,9 +270,12 @@ def test_scan(port):
             if cmd == Commands.CMD_SCAN_RESULT.value:
                 if len(payload) == 0:
                     break
-                print(f"Scan result: {payload}")
+                found.append(payload.decode())
+                print(f"Scan result: {payload.decode()}")
             else:
                 break
+
+    return found
 
 
 def test_get_config(port):
@@ -277,17 +290,63 @@ def test_get_config(port):
     print(f"Config chunks: {conf_chunks}")
 
 
+def test_connect(port):
+    print("Testing connect command...")
+    with serial.Serial(port, BAUD, timeout=TIMEOUT) as ser:
+        # Send a connect command
+        send_frame(ser, Commands.CMD_CONNECT.value)
+
+        # Wait for a response
+        cmd, payload = parse_frame(ser)
+        if cmd == Commands.CMD_CONNECT.value and payload is not None:
+            print(f"Connected to {payload.decode()}!")
+        else:
+            print("Failed to connect!")
+
+
+def test_disconnect(port):
+    print("Testing disconnect command...")
+    with serial.Serial(port, BAUD, timeout=TIMEOUT) as ser:
+        # Send a disconnect command
+        send_frame(ser, Commands.CMD_DISCONNECT.value)
+
+        # Wait for a response
+        cmd, payload = parse_frame(ser)
+        if cmd == Commands.CMD_DISCONNECT.value and payload is not None:
+            print(f"Disconnected from {payload.decode()}!")
+        else:
+            print("Failed to disconnect!")
+
+
 if __name__ == "__main__":
     serial_port = detect_device()
+    address = "0C:8C:DC:1B:64:D2"
 
     test_get_battery(serial_port)
 
-    # test_scan(serial_port)
+    found = test_scan(serial_port)
+    for dev in found:
+        if dev.startswith("Movesense"):
+            address = dev.split(";")[-1]
+            print(f"Found Movesense device: {address}")
+            break
 
-    # test_send_config_file(serial_port)
+    test_send_config_file(serial_port, address)
 
-    # test_get_config(serial_port)
+    test_get_config(serial_port)
 
-    # test_get_time(serial_port)
+    test_get_time(serial_port)
 
-    # test_set_time(serial_port)
+    test_set_time(serial_port)
+
+    test_connect(serial_port)
+
+    test_disconnect(serial_port)
+
+    # Important: when connecting fails, the BLE stack may be in a bad state
+    # In that case scanning could block the device
+    # This implementation fixes that issue, this tests it
+    fake_address = "0C:8C:DC:1B:64:D3"
+    test_send_config_file(serial_port, fake_address)
+    test_connect(serial_port)
+    test_scan(serial_port)

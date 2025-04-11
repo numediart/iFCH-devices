@@ -22,6 +22,7 @@
 #define BLE_SCAN_TIME 1       // seconds
 #define BLE_SCAN_INTERVAL 500 // milliseconds
 #define BLE_SCAN_WINDOW 500   // milliseconds
+#define BLE_TIMEOUT 2000      // milliseconds
 
 #define SD_SELECT_PIN 18
 #define SD_INIT_RETRIES 5
