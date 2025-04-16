@@ -3,6 +3,8 @@
 
 #include "globals.h"
 
+#define WAKEUP_PIN_MASK (1ULL << VUSB_PIN)
+
 void setupGauge();
 
 float getBattery();

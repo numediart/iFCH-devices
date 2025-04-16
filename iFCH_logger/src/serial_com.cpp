@@ -53,6 +53,12 @@ void sendCMD(CmdType type)
     sendFrame(type, nullptr, 0);
 }
 
+void sendErr(String errMsg)
+{
+    // Send an error message
+    sendFrame(CmdType::CMD_ERROR, (uint8_t *)errMsg.c_str(), errMsg.length());
+}
+
 void initSerial()
 {
     Serial.begin(BAUD_RATE);

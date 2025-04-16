@@ -10,29 +10,36 @@ import serial.tools.list_ports
 START_BYTE = 0x7E
 
 BAUD = 115200
-TIMEOUT = 4
+TIMEOUT = 8
 MAX_PAYLOAD_SIZE = 512
 SERIAL_RETRIES = 3
 
 
 class Commands(enum.Enum):
+    # General
     CMD_ACK = 0x01
     CMD_NACK = 0x02
     CMD_VERSION = 0x03
-
+    CMD_ERROR = 0x04
+    # BLE
     CMD_SCAN = 0x11
     CMD_SCAN_RESULT = 0x12
     CMD_CONNECT = 0x13
     CMD_DISCONNECT = 0x14
-
+    CMD_BLE_NOTIFY = 0x15
+    # File transfer
     CMD_FILE_CHUNK = 0x20
     CMD_CONFIG_GET = 0x21
     CMD_CONFIG_PUT = 0x22
-
+    # RTC
     CMD_TIME_GET = 0x31
     CMD_TIME_PUT = 0x32
     CMD_BATTERY_GET = 0x33
-
+    # Movesense
+    CMD_MOV_BATTERY_GET = 0x41
+    CMD_MOV_SUB = 0x42
+    CMD_MOV_UNSUB = 0x43
+    # Errors
     CMD_TIMEOUT = 0xFE
     CMD_INVALID = 0xFF
 
@@ -89,6 +96,9 @@ def parse_frame(ser):
     if crc_calc != crc_recv:
         return Commands.CMD_INVALID, None  # CRC fail
 
+    if cmd == Commands.CMD_ERROR.value:
+        print(f"ERROR: {payload}")
+
     return cmd, payload
 
 
@@ -139,7 +149,10 @@ def test_send_config_file(port, address=None):
     target_name = "/config.json"
     config = {
         "address": address,
-        "sensorPaths": ["/Meas/ECG/256", "/Meas/IMU9/104"],
+        "sensorPaths": [
+            "/Meas/IMU9/26",
+            "/Meas/ECG/128",
+        ],
         "fetchIntervalMin": 1,
     }
     file_data = json.dumps(config).encode()
@@ -318,6 +331,54 @@ def test_disconnect(port):
             print("Failed to disconnect!")
 
 
+def test_get_mov_battery(port):
+    print("Testing get Movesense battery command...")
+    with serial.Serial(port, BAUD, timeout=TIMEOUT) as ser:
+        # Send a get Movesense battery command
+        send_frame(ser, Commands.CMD_MOV_BATTERY_GET.value)
+
+        # Wait for a response
+        cmd, payload = parse_frame(ser)
+        if cmd == Commands.CMD_MOV_BATTERY_GET.value and payload is not None:
+            battery_level = int.from_bytes(payload, "little")
+            print(f"Movesense battery level: {battery_level}")
+        else:
+            print("Failed to get Movesense battery level!")
+
+
+def test_mov_subscribe(port):
+    print("Testing Movesense subscribe command...")
+    with serial.Serial(port, BAUD, timeout=TIMEOUT) as ser:
+        # Send a Movesense subscribe command
+        send_frame(ser, Commands.CMD_MOV_SUB.value)
+
+        # Wait for a response
+        cmd, payload = parse_frame(ser)
+        if cmd == Commands.CMD_MOV_SUB.value and payload is not None:
+            print("Subscribed to Movesense notifications!")
+        else:
+            print("Failed to subscribe to Movesense notifications!")
+            # return
+
+        for _ in range(20):
+            cmd, payload = parse_frame(ser)
+            if cmd == Commands.CMD_BLE_NOTIFY.value and payload is not None:
+                print(f"Received notification of size {len(payload)}: {payload[0:3]}")
+            else:
+                print("Failed to receive Movesense notification!")
+                print(f"Unexpected command: {cmd}: {payload}")
+
+        # Unsubscribe from Movesense notifications
+        send_frame(ser, Commands.CMD_MOV_UNSUB.value)
+
+        # Wait for a response
+        cmd, payload = parse_frame(ser)
+        if cmd == Commands.CMD_MOV_UNSUB.value and payload is not None:
+            print("Unsubscribed from Movesense notifications!")
+        else:
+            print("Failed to unsubscribe from Movesense notifications!")
+
+
 if __name__ == "__main__":
     serial_port = detect_device()
     address = "0C:8C:DC:1B:64:D2"
@@ -341,12 +402,16 @@ if __name__ == "__main__":
 
     test_connect(serial_port)
 
+    test_get_mov_battery(serial_port)
+
+    test_mov_subscribe(serial_port)
+
     test_disconnect(serial_port)
 
     # Important: when connecting fails, the BLE stack may be in a bad state
     # In that case scanning could block the device
     # This implementation fixes that issue, this tests it
-    fake_address = "0C:8C:DC:1B:64:D3"
-    test_send_config_file(serial_port, fake_address)
-    test_connect(serial_port)
-    test_scan(serial_port)
+    # fake_address = "0C:8C:DC:1B:64:D3"
+    # test_send_config_file(serial_port, fake_address)
+    # test_connect(serial_port)
+    # test_scan(serial_port)

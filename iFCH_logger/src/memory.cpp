@@ -9,7 +9,7 @@
 #include "utils.h"
 #include "serial_com.h"
 
-void sendFile(const char *filename)
+bool sendFile(const char *filename)
 {
 
     uint8_t seqNum = 0;
@@ -20,8 +20,7 @@ void sendFile(const char *filename)
     memcpy(tx_buffer + 1, filename, strlen(filename));
     if (!sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, strlen(filename) + 1, seqNum))
     {
-        blink(COLOR_RUNTIME_ERROR, 5, 50);
-        return;
+        return false;
     }
 
     rgbLedWrite(RGB_BUILTIN, COLOR_SD);
@@ -35,7 +34,7 @@ void sendFile(const char *filename)
         if (!toSend)
         {
             errorReset(COLOR_SD);
-            return;
+            return false;
         }
 
         while (toSend.available())
@@ -47,7 +46,6 @@ void sendFile(const char *filename)
             sentOK = sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, len, seqNum);
             if (!sentOK)
             {
-                blink(COLOR_RUNTIME_ERROR, 5, 50);
                 break;
             }
         }
@@ -61,11 +59,12 @@ void sendFile(const char *filename)
         seqNum++;
         if (!sendProtectedFrame(CmdType::CMD_FILE_CHUNK, &seqNum, 1, seqNum))
         {
-            blink(COLOR_RUNTIME_ERROR, 5, 50);
+            sentOK = false;
         }
     }
 
     digitalWrite(RGB_BUILTIN, 0);
+    return sentOK;
 }
 
 String receiveFile(const char *filename)
@@ -138,7 +137,6 @@ String receiveFile(const char *filename)
             // Invalid chunk ID received
             else
             {
-                blink(COLOR_RUNTIME_ERROR, 5, 50);
                 receivedName = "";
                 break;
             }
@@ -146,7 +144,6 @@ String receiveFile(const char *filename)
         // Invalid command received
         else
         {
-            blink(COLOR_RUNTIME_ERROR, 5, 50);
             receivedName = "";
             break;
         }
@@ -165,7 +162,6 @@ void setupSDCard()
 {
     // Initialize the SD card
     ushort tries = SD_INIT_RETRIES;
-    bool init_ok = false;
     do
     {
         tries--;
@@ -180,10 +176,9 @@ void setupSDCard()
 bool loadJsonConfig()
 {
 
-    // If the config file does not exist, blink the LED and return false
+    // If the config file does not exist, return false
     if (!SD.exists(CONFIG_FILE))
     {
-        blink(COLOR_SD, 5, 50);
         return false;
     }
 
@@ -198,7 +193,7 @@ bool loadJsonConfig()
     StaticJsonDocument<512> doc;
 
     // Use buffer to speed up SD reading
-    ReadBufferingStream bufferedFile{file, 64};
+    ReadBufferingStream bufferedFile{file, SD_BUFFER_SIZE};
     DeserializationError err = deserializeJson(doc, bufferedFile);
     file.close();
 
@@ -208,7 +203,6 @@ bool loadJsonConfig()
         !doc.containsKey("fetchIntervalMin") ||
         !doc.containsKey("address"))
     {
-        blink(COLOR_SD, 5, 50);
         return false;
     }
 
@@ -246,11 +240,12 @@ bool loadJsonRecord()
     StaticJsonDocument<128> doc;
 
     // Use buffer to speed up SD reading
-    ReadBufferingStream bufferedFile{file, 64};
+    ReadBufferingStream bufferedFile{file, SD_BUFFER_SIZE};
     DeserializationError err = deserializeJson(doc, bufferedFile);
     file.close();
 
-    // Validate expected fields, if they are not present, blink warning
+    // Validate expected fields
+    // If the file is corrupted, just use default values and blink
     if (err ||
         !doc.containsKey("lastFetch") ||
         !doc.containsKey("logging") ||

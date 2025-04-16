@@ -3,6 +3,12 @@
 
 #include "globals.h"
 
+#define BAUD_RATE 115200
+#define START_BYTE 0x7E
+#define MAX_PAYLOAD_SIZE 512
+#define SERIAL_TIMEOUT 500
+#define SERIAL_SEND_RETRIES 3
+
 extern uint8_t rx_payload[MAX_PAYLOAD_SIZE];
 extern uint8_t rx_payload_len;
 
@@ -12,11 +18,13 @@ enum class CmdType : uint8_t
     CMD_ACK = 0x01,
     CMD_NACK = 0x02,
     CMD_VERSION = 0x03,
+    CMD_ERROR = 0x04,
     // BLE
     CMD_SCAN = 0x11,
     CMD_SCAN_RESULT = 0x12,
     CMD_CONNECT = 0x13,
     CMD_DISCONNECT = 0x14,
+    CMD_BLE_NOTIFY = 0x15,
     // File transfer
     CMD_FILE_CHUNK = 0x20,
     CMD_CONFIG_GET = 0x21,
@@ -25,6 +33,10 @@ enum class CmdType : uint8_t
     CMD_TIME_GET = 0x31,
     CMD_TIME_PUT = 0x32,
     CMD_BATTERY_GET = 0x33,
+    // Movesense
+    CMD_MOV_BATTERY_GET = 0x41,
+    CMD_MOV_SUB = 0x42,
+    CMD_MOV_UNSUB = 0x43,
     // Errors
     CMD_TIMEOUT = 0xFE,
     CMD_INVALID = 0xFF,
@@ -47,5 +59,8 @@ void sendFrame(CmdType cmd, uint8_t *payload, uint16_t len);
 // Send a command to the serial port
 // This is a wrapper for sendFrame with no payload
 void sendCMD(CmdType type);
+
+// Send an error message
+void sendErr(String errMsg);
 
 #endif // SERIAL_COM_H
