@@ -340,7 +340,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::HELLO. reference: %d", reference);
         // Hello response
-        uint8_t helloMsg[] = {Responses::COMMAND_RESULT, reference, 'H', 'e', 'l', 'l', 'o'};
+        uint8_t helloMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8, 'H', 'e', 'l', 'l', 'o'};
 
         asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), helloMsg, sizeof(helloMsg));
         return;
@@ -938,22 +938,17 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         const auto &time = rResultData.convertTo<const WB_RES::DetailedTime &>();
 
-        uint8_t timeMsg[6];
-        size_t writePos = 0;
+        uint8_t timeMsg[8];
 
         timeMsg[0] = Responses::DATA;
         timeMsg[1] = mGetTimeReference;
+        timeMsg[2] = 0x00;
+        timeMsg[3] = 0xC8;
 
         uint32_t relTime = time.relativeTime;
-        memcpy(&timeMsg[2], &relTime, 4);
+        memcpy(&timeMsg[4], &relTime, 4);
 
-        WB_RES::Characteristic logCharValue;
-        logCharValue.bytes = wb::MakeArray<uint8_t>(timeMsg, 6);
-        asyncPut(mLogCharResource, AsyncRequestOptions(NULL, 0, true), logCharValue);
-
-        // Send OK response
-        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, mGetTimeReference, 0x00, 0xC8};
-        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), timeMsg, sizeof(timeMsg));
 
         mGetTimeReference = 0;
         break;

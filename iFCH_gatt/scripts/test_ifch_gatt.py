@@ -41,8 +41,6 @@ class StatusCodes(enum.Enum):
     ERROR_500 = (500).to_bytes(2)
     ERROR_507 = (507).to_bytes(2)
 
-    HELLO = b"Hello"
-
 
 class MovesenseTester:
     COMMAND_CHAR_UUID = "34800001-7185-4d5d-b431-630e7050e8f0"
@@ -135,9 +133,7 @@ class MovesenseTester:
                 )
                 return 1
 
-            response_status = StatusCodes(
-                bytes(response[2 : 2 + len(expected_response.value)])
-            )
+            response_status = StatusCodes(bytes(response[2:4]))
             if response_status != expected_response:
                 logging.error(
                     f"Test {test_name} failed: Unexpected response: {response_status}, expected {expected_response}."
@@ -204,7 +200,7 @@ class MovesenseTester:
 
         await self.test_command(
             Commands.HELLO,
-            StatusCodes.HELLO,
+            StatusCodes.OK_200,
             test_name="HELLO",
         )
 
@@ -216,7 +212,6 @@ class MovesenseTester:
             Commands.GET_TIME,
             StatusCodes.OK_200,
             test_name="GET_TIME",
-            expect_log=True,
         )
 
         await self.test_command(

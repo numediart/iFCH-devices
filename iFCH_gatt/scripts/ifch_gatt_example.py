@@ -107,8 +107,6 @@ class StatusCodes(enum.Enum):
     ERROR_500 = (500).to_bytes(2)
     ERROR_507 = (507).to_bytes(2)
 
-    HELLO = b"Hello"
-
 
 class MovesenseController:
     COMMAND_CHAR_UUID = "34800001-7185-4d5d-b431-630e7050e8f0"
@@ -228,7 +226,10 @@ class MovesenseController:
 
         host_time = time.time()
         await self.send_command(Commands.GET_TIME)
-        dev_time = int.from_bytes(self.log_responses[-1][2:], byteorder="little") / 1e3
+        await asyncio.sleep(1)
+        dev_time = (
+            int.from_bytes(self.command_responses[-1][4:], byteorder="little") / 1e3
+        )
         diff = host_time % 3600 - dev_time
         print(f"Host time: {host_time}, Device time: {dev_time}, Diff: {diff}")
 
@@ -263,7 +264,10 @@ class MovesenseController:
 
         host_time = time.time()
         await self.send_command(Commands.GET_TIME)
-        dev_time = int.from_bytes(self.log_responses[-1][2:], byteorder="little") / 1e3
+        await asyncio.sleep(1)
+        dev_time = (
+            int.from_bytes(self.command_responses[-1][4:], byteorder="little") / 1e3
+        )
         diff = host_time % 3600 - dev_time
         print(f"Host time: {host_time}, Device time: {dev_time}, Diff: {diff}")
 
