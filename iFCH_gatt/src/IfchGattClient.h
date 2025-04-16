@@ -2,10 +2,25 @@
 
 #include <whiteboard/LaunchableModule.h>
 #include <whiteboard/ResourceClient.h>
+#include <queue>
 
 #define MAX_PATH_LEN 32
 
-class IfchGattClient FINAL : private wb::ResourceClient, public wb::LaunchableModule
+struct IndicateRequest
+{
+    IndicateRequest(wb::ResourceId nresourceId, wb::ResourceClient::AsyncRequestOptions nrOptions, const uint8_t *ndata, size_t nlength)
+        : resourceId(nresourceId), rOptions(nrOptions)
+    {
+        data.assign(ndata, ndata + nlength);
+    }
+
+    wb::ResourceId resourceId;
+    const wb::ResourceClient::AsyncRequestOptions rOptions;
+    std::vector<uint8_t> data;
+};
+
+class IfchGattClient FINAL : private wb::ResourceClient,
+                             public wb::LaunchableModule
 {
 public:
     /** Name of this class. Used in StartupProvider list. */
@@ -60,9 +75,16 @@ private:
     void unsubscribeAllStreams();
     void clearLogSubs();
 
+    void asyncPutIndicate(wb::ResourceId resourceId, const AsyncRequestOptions &rOptions, const uint8_t *data, size_t length);
+    void putNextIndicate();
+
+    std::queue<IndicateRequest> mIndicateQueue;
+    bool mIsIndicating;
+
     void setShutdownTimer();
 
-    wb::TimerId mTimer;
+    wb::TimerId mShutdownTimer;
+    wb::TimerId mIndicateTimer;
     uint32_t mCounter;
     bool mLeadsConnected;
     uint8_t mDataLoggerState;
@@ -70,18 +92,28 @@ private:
 
     wb::ResourceId mCommandCharResource;
     wb::ResourceId mDataCharResource;
+    wb::ResourceId mResponseCharResource;
+    wb::ResourceId mLogCharResource;
+
     wb::TimerId mMeasurementTimer;
 
     int32_t mSensorSvcHandle;
     int32_t mCommandCharHandle;
     int32_t mDataCharHandle;
+    int32_t mResponseCharHandle;
+    int32_t mLogCharHandle;
 
-    bool mNotificationsEnabled;
+    // bool mNotificationsEnabled;
+    // bool mResponseNotificationsEnabled;
+    // bool mLogNotificationsEnabled;
 
     uint32_t mLogIdToFetch;
     uint32_t mLogFetchOffset;
 
     uint32_t mLogListLastId;
+
+    uint32_t mLogFetchDataSent;
+    uint32_t mLogListDataSent;
 
     uint8_t mLogFetchReference;
     uint8_t mLogListReference;

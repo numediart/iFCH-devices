@@ -36,6 +36,10 @@ constexpr uint8_t COMMAND_CHAR_UUID[] = {0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x3
 constexpr uint16_t commandCharUUID16 = 0x0001;
 constexpr uint8_t DATA_CHAR_UUID[] = {0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x31, 0xb4, 0x5d, 0x4d, 0x85, 0x71, 0x02, 0x00, 0x80, 0x34};
 constexpr uint16_t dataCharUUID16 = 0x0002;
+constexpr uint8_t RESPONSE_CHAR_UUID[] = {0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x31, 0xb4, 0x5d, 0x4d, 0x85, 0x71, 0x03, 0x00, 0x80, 0x34};
+constexpr uint16_t responseCharUUID16 = 0x0003;
+constexpr uint8_t LOG_CHAR_UUID[] = {0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x31, 0xb4, 0x5d, 0x4d, 0x85, 0x71, 0x04, 0x00, 0x80, 0x34};
+constexpr uint16_t logCharUUID16 = 0x0004;
 
 // Time between wake-up and going to power-off mode
 #define AVAILABILITY_TIME 60000
@@ -43,18 +47,54 @@ constexpr uint16_t dataCharUUID16 = 0x0002;
 // LED blinking period in advertising mode
 #define LED_BLINKING_PERIOD 5000
 
+// To avoid losing Indicate messages, we need to wait a bit before sending the next one
+#define INDICATE_DELAY 50
+
+enum Commands
+{
+    HELLO = 0,
+    SUBSCRIBE = 1,
+    UNSUBSCRIBE = 2,
+    FETCH_LOG = 3,
+    CLEAR_LOGS = 4,
+    SUB_LOG = 5,
+    UNSUB_LOG = 6,
+    START_LOG = 7,
+    STOP_LOG = 8,
+    LIST_LOGS = 9,
+    GET_TIME = 10,
+    RESET = 11,
+    UNSUBSCRIBE_ALL = 12,
+};
+
+enum Responses
+{
+    COMMAND_RESULT = 1,
+    DATA = 2,
+    DATA_PART2 = 3, // In case the subscription data is larger than fits in the single BLE packet, continue with Part2 & 3
+};
+
 IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB_EXEC_CTX_APPLICATION),
                                    LaunchableModule(LAUNCHABLE_NAME, WB_EXEC_CTX_APPLICATION),
                                    mCommandCharResource(wb::ID_INVALID_RESOURCE),
                                    mDataCharResource(wb::ID_INVALID_RESOURCE),
-                                   mNotificationsEnabled(false),
+                                   mResponseCharResource(wb::ID_INVALID_RESOURCE),
+                                   mLogCharResource(wb::ID_INVALID_RESOURCE),
                                    mSensorSvcHandle(0),
                                    mCommandCharHandle(0),
+                                   mDataCharHandle(0),
+                                   mResponseCharHandle(0),
+                                   mLogCharHandle(0),
+                                   //    mNotificationsEnabled(false),
+                                   //    mResponseNotificationsEnabled(false),
+                                   //    mLogNotificationsEnabled(false),
                                    mLogIdToFetch(0),
                                    mLogFetchOffset(0),
                                    mLogFetchReference(0),
-                                   mDataCharHandle(0),
-                                   mTimer(wb::ID_INVALID_TIMER),
+                                   mLogFetchDataSent(0),
+                                   mLogListDataSent(0),
+                                   mShutdownTimer(wb::ID_INVALID_TIMER),
+                                   mIndicateTimer(wb::ID_INVALID_TIMER),
                                    mLeadsConnected(false),
                                    mDataLoggerState(WB_RES::DataLoggerStateValues::DATALOGGER_INVALID),
                                    mCounter(0),
@@ -62,8 +102,8 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mLogListLastId(0),
                                    mDataloggerStateReference(0),
                                    mGetTimeReference(0),
-                                   mLogbookFull(true)
-
+                                   mLogbookFull(true),
+                                   mIsIndicating(false)
 {
 }
 
@@ -117,8 +157,10 @@ bool IfchGattClient::startModule()
 void IfchGattClient::stopModule()
 {
     // Stop LED timer
-    stopTimer(mTimer);
-    mTimer = wb::ID_INVALID_TIMER;
+    stopTimer(mShutdownTimer);
+    stopTimer(mIndicateTimer);
+    mShutdownTimer = wb::ID_INVALID_TIMER;
+    mIndicateTimer = wb::ID_INVALID_TIMER;
 
     // Unsubscribe lead state
     asyncUnsubscribe(WB_RES::LOCAL::SYSTEM_STATES_STATEID(), AsyncRequestOptions::Empty, WB_RES::StateIdValues::CONNECTOR);
@@ -138,63 +180,90 @@ void IfchGattClient::stopModule()
     // Clean up GATT stuff
     asyncUnsubscribe(mCommandCharResource);
     asyncUnsubscribe(mDataCharResource);
+    asyncUnsubscribe(mResponseCharResource);
+    asyncUnsubscribe(mLogCharResource);
 
     releaseResource(mCommandCharResource);
     releaseResource(mDataCharResource);
+    releaseResource(mResponseCharResource);
+    releaseResource(mLogCharResource);
 
     mCommandCharResource = wb::ID_INVALID_RESOURCE;
     mDataCharResource = wb::ID_INVALID_RESOURCE;
+    mResponseCharResource = wb::ID_INVALID_RESOURCE;
+    mLogCharResource = wb::ID_INVALID_RESOURCE;
 
     mModuleState = WB_RES::ModuleStateValues::STOPPED;
+
+    mIsIndicating = false;
+    mIndicateQueue = std::queue<IndicateRequest>();
 }
 
 void IfchGattClient::configGattSvc()
 {
     WB_RES::GattSvc customGattSvc;
-    WB_RES::GattChar characteristics[2];
+    WB_RES::GattChar characteristics[4];
     WB_RES::GattChar &commandChar = characteristics[0];
     WB_RES::GattChar &dataChar = characteristics[1];
+    WB_RES::GattChar &responseChar = characteristics[2];
+    WB_RES::GattChar &logChar = characteristics[3];
 
     // Define the CMD characteristics
-    WB_RES::GattProperty dataCharProp = WB_RES::GattProperty::NOTIFY;
     WB_RES::GattProperty commandCharProp = WB_RES::GattProperty::WRITE;
-
-    dataChar.props = wb::MakeArray<WB_RES::GattProperty>(&dataCharProp, 1);
-    dataChar.uuid = wb::MakeArray<uint8_t>(reinterpret_cast<const uint8_t *>(&DATA_CHAR_UUID), sizeof(DATA_CHAR_UUID));
+    WB_RES::GattProperty dataCharProp = WB_RES::GattProperty::NOTIFY;
+    WB_RES::GattProperty responseCharProp = WB_RES::GattProperty::INDICATE;
+    WB_RES::GattProperty logCharProp = WB_RES::GattProperty::NOTIFY;
 
     commandChar.props = wb::MakeArray<WB_RES::GattProperty>(&commandCharProp, 1);
     commandChar.uuid = wb::MakeArray<uint8_t>(reinterpret_cast<const uint8_t *>(&COMMAND_CHAR_UUID), sizeof(COMMAND_CHAR_UUID));
 
+    dataChar.props = wb::MakeArray<WB_RES::GattProperty>(&dataCharProp, 1);
+    dataChar.uuid = wb::MakeArray<uint8_t>(reinterpret_cast<const uint8_t *>(&DATA_CHAR_UUID), sizeof(DATA_CHAR_UUID));
+
+    responseChar.props = wb::MakeArray<WB_RES::GattProperty>(&responseCharProp, 1);
+    responseChar.uuid = wb::MakeArray<uint8_t>(reinterpret_cast<const uint8_t *>(&RESPONSE_CHAR_UUID), sizeof(RESPONSE_CHAR_UUID));
+
+    logChar.props = wb::MakeArray<WB_RES::GattProperty>(&logCharProp, 1);
+    logChar.uuid = wb::MakeArray<uint8_t>(reinterpret_cast<const uint8_t *>(&LOG_CHAR_UUID), sizeof(LOG_CHAR_UUID));
+
     // Combine chars to service
     customGattSvc.uuid = wb::MakeArray<uint8_t>(SENSOR_DATASERVICE_UUID, sizeof(SENSOR_DATASERVICE_UUID));
-    customGattSvc.chars = wb::MakeArray<WB_RES::GattChar>(characteristics, 2);
+    customGattSvc.chars = wb::MakeArray<WB_RES::GattChar>(characteristics, 4);
 
     // Create custom service
     asyncPost(WB_RES::LOCAL::COMM_BLE_GATTSVC(), AsyncRequestOptions(NULL, 0, true), customGattSvc);
 }
-
-enum Commands
+void IfchGattClient::asyncPutIndicate(wb::ResourceId resourceId, const AsyncRequestOptions &rOptions,
+                                      const uint8_t *data, size_t length)
 {
-    HELLO = 0,
-    SUBSCRIBE = 1,
-    UNSUBSCRIBE = 2,
-    FETCH_LOG = 3,
-    CLEAR_LOGS = 4,
-    SUB_LOG = 5,
-    UNSUB_LOG = 6,
-    START_LOG = 7,
-    STOP_LOG = 8,
-    LIST_LOGS = 9,
-    GET_TIME = 10,
-    RESET = 11,
-};
+    IndicateRequest pIndicateRequest(resourceId, rOptions, data, length);
 
-enum Responses
+    mIndicateQueue.push(pIndicateRequest);
+
+    if (!mIsIndicating)
+    {
+        putNextIndicate();
+    }
+}
+
+void IfchGattClient::putNextIndicate()
 {
-    COMMAND_RESULT = 1,
-    DATA = 2,
-    DATA_PART2 = 3, // In case the subscription data is larger than fits in the single BLE packet, continue with Part2 & 3
-};
+    if (mIndicateQueue.empty())
+    {
+        mIsIndicating = false;
+        return;
+    }
+
+    mIsIndicating = true;
+
+    IndicateRequest pIndicateRequest = mIndicateQueue.front();
+    mIndicateQueue.pop();
+
+    WB_RES::Characteristic indicateCharVal;
+    indicateCharVal.bytes = wb::MakeArray<uint8_t>(pIndicateRequest.data.data(), pIndicateRequest.data.size());
+
+    asyncPut(pIndicateRequest.resourceId, pIndicateRequest.rOptions, indicateCharVal);
+}
 
 IfchGattClient::DataSub *IfchGattClient::findDataSub(const wb::LocalResourceId localResourceId)
 {
@@ -246,9 +315,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         // Return an error message
         uint8_t respError[] = {Responses::COMMAND_RESULT, 0x00, 0x01, 0x90};
-        WB_RES::Characteristic errorCharVal;
-        errorCharVal.bytes = wb::MakeArray<uint8_t>(respError, sizeof(respError));
-        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), errorCharVal);
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), respError, sizeof(respError));
         return;
     }
 
@@ -263,9 +330,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
         // 403: forbidden
         uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x93};
-        WB_RES::Characteristic dataCharValue;
-        dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
         return;
     }
 
@@ -277,9 +342,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         // Hello response
         uint8_t helloMsg[] = {Responses::COMMAND_RESULT, reference, 'H', 'e', 'l', 'l', 'o'};
 
-        WB_RES::Characteristic dataCharValue;
-        dataCharValue.bytes = wb::MakeArray<uint8_t>(helloMsg, sizeof(helloMsg));
-        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), helloMsg, sizeof(helloMsg));
         return;
     }
     case Commands::SUBSCRIBE:
@@ -292,10 +355,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             DEBUGLOG("Existing datasub slot");
             // 403: forbidden
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x93};
-
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
@@ -306,10 +366,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             DEBUGLOG("No free datasub slot");
             // 507: HTTP_CODE_INSUFFICIENT_STORAGE
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0xFB};
-
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
@@ -325,9 +382,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
             // 500: Internal server error
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0xF4};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             return;
         }
@@ -340,9 +395,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             // 404: not found
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x94};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             dataSub.clean();
             return;
@@ -354,10 +407,6 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
         asyncSubscribe(dataSub.resourceId, AsyncRequestOptions::ForceAsync);
 
-        // uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
-        // WB_RES::Characteristic dataCharValue;
-        // dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-        // asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
         return;
     }
     case Commands::UNSUBSCRIBE:
@@ -372,17 +421,13 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             pDataSub->clean();
 
             uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
         }
         else
         {
             // 404: not found
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x94};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
         }
         return;
     }
@@ -394,14 +439,13 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             // 400: Bad request
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x90};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
         memcpy(&mLogIdToFetch, pData, dataLen);
         mLogFetchReference = reference;
+        mLogFetchDataSent = 0;
 
         asyncGet(WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA(), AsyncRequestOptions::ForceAsync, mLogIdToFetch);
         return;
@@ -415,9 +459,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             // 409: Conflict
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x99};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
@@ -428,17 +470,13 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             // 500: Internal server error
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0xF4};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
         // Send OK response
         uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
-        WB_RES::Characteristic dataCharValue;
-        dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
         return;
     }
     case Commands::SUB_LOG:
@@ -451,9 +489,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             DEBUGLOG("Existing logsub slot");
             // 403: forbidden
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x93};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
@@ -463,9 +499,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             DEBUGLOG("No free logsub slot");
             // 507: HTTP_CODE_INSUFFICIENT_STORAGE
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0xFB};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
@@ -478,9 +512,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
             // 500: Internal server error
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0xF4};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             return;
         }
@@ -496,9 +528,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             // 404: not found
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x94};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             logSub.clean();
             return;
@@ -507,9 +537,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         logSub.clientReference = reference;
 
         uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
-        WB_RES::Characteristic dataCharValue;
-        dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
 
         return;
     }
@@ -523,17 +551,13 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             pLogSub->clean();
 
             uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
         }
         else
         {
             // 404: not found
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x94};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
         }
         return;
     }
@@ -546,9 +570,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             DEBUGLOG("Logbook is full");
             // 507: HTTP_CODE_INSUFFICIENT_STORAGE
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0xFB};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
@@ -572,10 +594,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             // 403: forbidden
             uint8_t respError[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x93};
-
-            WB_RES::Characteristic errorCharVal;
-            errorCharVal.bytes = wb::MakeArray<uint8_t>(respError, sizeof(respError));
-            asyncPut(mDataCharResource, AsyncRequestOptions::ForceAsync, errorCharVal);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions::ForceAsync, respError, sizeof(respError));
 
             // We return here to avoid starting logging with no subscriptions
             return;
@@ -585,9 +604,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             // 409: Conflict
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x99};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
@@ -612,9 +629,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             // 409: Conflict
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x99};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
@@ -634,6 +649,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         DEBUGLOG("Commands::LIST_LOGS. reference: %d", reference);
 
         mLogListReference = reference;
+        mLogListDataSent = 0;
 
         // Get logbook entries
         asyncGet(WB_RES::LOCAL::MEM_LOGBOOK_ENTRIES(), AsyncRequestOptions::ForceAsync);
@@ -658,9 +674,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             // 409: Conflict
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x99};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
@@ -676,17 +690,26 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             // 500: Internal server error
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, 0x01, 0xF4};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
         // Send OK response
         uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
-        WB_RES::Characteristic dataCharValue;
-        dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
+
+        return;
+    }
+    case Commands::UNSUBSCRIBE_ALL:
+    {
+        DEBUGLOG("Commands::UNSUBSCRIBE_ALL. reference: %d", reference);
+
+        // Clear all subscriptions
+        unsubscribeAllStreams();
+
+        // Send OK response
+        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, 0x00, 0xC8};
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
 
         return;
     }
@@ -694,9 +717,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         // Return an error message
         uint8_t respError[] = {Responses::COMMAND_RESULT, reference, 0x01, 0x90};
-        WB_RES::Characteristic errorCharVal;
-        errorCharVal.bytes = wb::MakeArray<uint8_t>(respError, sizeof(respError));
-        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), errorCharVal);
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), respError, sizeof(respError));
 
         return;
     }
@@ -729,9 +750,13 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
                 mDataCharHandle = c.handle.hasValue() ? c.handle.getValue() : 0;
             else if (uuid16 == commandCharUUID16)
                 mCommandCharHandle = c.handle.hasValue() ? c.handle.getValue() : 0;
+            else if (uuid16 == responseCharUUID16)
+                mResponseCharHandle = c.handle.hasValue() ? c.handle.getValue() : 0;
+            else if (uuid16 == logCharUUID16)
+                mLogCharHandle = c.handle.hasValue() ? c.handle.getValue() : 0;
         }
 
-        if (!mCommandCharHandle || !mDataCharHandle)
+        if (!mCommandCharHandle || !mDataCharHandle || !mResponseCharHandle || !mLogCharHandle)
         {
             DEBUGLOG("ERROR: Not all chars were configured!");
             return;
@@ -742,12 +767,19 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         getResource(pathBuffer, mCommandCharResource);
         snprintf(pathBuffer, sizeof(pathBuffer), "/Comm/Ble/GattSvc/%d/%d", mSensorSvcHandle, mDataCharHandle);
         getResource(pathBuffer, mDataCharResource);
+        snprintf(pathBuffer, sizeof(pathBuffer), "/Comm/Ble/GattSvc/%d/%d", mSensorSvcHandle, mResponseCharHandle);
+        getResource(pathBuffer, mResponseCharResource);
+        snprintf(pathBuffer, sizeof(pathBuffer), "/Comm/Ble/GattSvc/%d/%d", mSensorSvcHandle, mLogCharHandle);
+        getResource(pathBuffer, mLogCharResource);
 
         // Force subscriptions asynchronously to save stack (will have stack overflow if not)
         // Subscribe to listen to intervalChar notifications (someone writes new value to intervalChar)
         asyncSubscribe(mCommandCharResource, AsyncRequestOptions(NULL, 0, true));
+
         // Subscribe to listen to measChar notifications (someone enables/disables the INDICATE characteristic)
-        asyncSubscribe(mDataCharResource, AsyncRequestOptions(NULL, 0, true));
+        // asyncSubscribe(mDataCharResource, AsyncRequestOptions(NULL, 0, true));
+        // asyncSubscribe(mResponseCharResource, AsyncRequestOptions(NULL, 0, true));
+        // asyncSubscribe(mLogCharResource, AsyncRequestOptions(NULL, 0, true));
         break;
     }
 
@@ -765,13 +797,12 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         {
             // 404: Not found
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogFetchReference, 0x01, 0x94};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mLogFetchReference = 0;
             mLogIdToFetch = 0;
             mLogFetchOffset = 0;
+            mLogFetchDataSent = 0;
 
             return;
         }
@@ -779,6 +810,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         DEBUGLOG("Sending from get. size: %d", stream.length());
 
         handleSendingLogbookData(stream.data, stream.length());
+
         if (resultCode == wb::HTTP_CODE_CONTINUE)
         {
             // Do another GET request to get the next bytes (needs to be async)
@@ -790,16 +822,21 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
             // Send end marker (offset and no bytes)
             handleSendingLogbookData(nullptr, 0);
 
-            // Send OK response
-            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, mLogFetchReference, 0x00, 0xC8};
-            WB_RES::Characteristic responseCharValue;
-            responseCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), responseCharValue);
+            // Send OK response with total number of packets sent
+            uint8_t ackMsg[8];
+            ackMsg[0] = Responses::COMMAND_RESULT;
+            ackMsg[1] = mLogFetchReference;
+            ackMsg[2] = 0x00;
+            ackMsg[3] = 0xC8;
+            memcpy(&ackMsg[4], &mLogFetchDataSent, sizeof(mLogFetchDataSent));
+
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
 
             // Mark "no current log"
             mLogIdToFetch = 0;
             mLogFetchOffset = 0;
             mLogFetchReference = 0;
+            mLogFetchDataSent = 0;
         }
         break;
     }
@@ -830,12 +867,11 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
             // 500: Internal server error
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogListReference, 0x01, 0xF4};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mLogListReference = 0;
             mLogListLastId = 0;
+            mLogListDataSent = 0;
 
             return;
         }
@@ -855,9 +891,10 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
             mLogListLastId = logId;
         }
 
-        WB_RES::Characteristic dataCharValue;
-        dataCharValue.bytes = wb::MakeArray<uint8_t>(logIdsMsg, writePos);
-        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+        WB_RES::Characteristic logCharValue;
+        logCharValue.bytes = wb::MakeArray<uint8_t>(logIdsMsg, writePos);
+        asyncPut(mLogCharResource, AsyncRequestOptions(NULL, 0, true), logCharValue);
+        mLogListDataSent += 1;
 
         if (resultCode == wb::HTTP_CODE_CONTINUE)
         {
@@ -865,14 +902,18 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         }
         else if (resultCode == wb::HTTP_CODE_OK)
         {
-            // Send OK response
-            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, mLogListReference, 0x00, 0xC8};
-            WB_RES::Characteristic responseCharValue;
-            responseCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), responseCharValue);
+            // Send OK response with total packets sent
+            uint8_t ackMsg[8];
+            ackMsg[0] = Responses::COMMAND_RESULT;
+            ackMsg[1] = mLogListReference;
+            ackMsg[2] = 0x00;
+            ackMsg[3] = 0xC8;
+            memcpy(&ackMsg[4], &mLogListDataSent, sizeof(mLogListDataSent));
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
 
             mLogListReference = 0;
             mLogListLastId = 0;
+            mLogListDataSent = 0;
         }
         break;
     }
@@ -889,9 +930,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
             // 500: Internal server error
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetTimeReference, 0x01, 0xF4};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mGetTimeReference = 0;
             return;
@@ -908,15 +947,13 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         uint32_t relTime = time.relativeTime;
         memcpy(&timeMsg[2], &relTime, 4);
 
-        WB_RES::Characteristic dataCharValue;
-        dataCharValue.bytes = wb::MakeArray<uint8_t>(timeMsg, 6);
-        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+        WB_RES::Characteristic logCharValue;
+        logCharValue.bytes = wb::MakeArray<uint8_t>(timeMsg, 6);
+        asyncPut(mLogCharResource, AsyncRequestOptions(NULL, 0, true), logCharValue);
 
         // Send OK response
         uint8_t ackMsg[] = {Responses::COMMAND_RESULT, mGetTimeReference, 0x00, 0xC8};
-        WB_RES::Characteristic responseCharValue;
-        responseCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-        asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), responseCharValue);
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
 
         mGetTimeReference = 0;
         break;
@@ -965,9 +1002,7 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
 
             // 500: Internal server error
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, 0x01, 0xF4};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             ds->clean();
             return;
@@ -978,9 +1013,7 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
 
             // 202: Accepted
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, 0x00, 0xCA};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             return;
         }
@@ -991,9 +1024,7 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
 
             // 500: Internal server error
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, 0x01, 0xF4};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             ds->clean();
         }
@@ -1003,9 +1034,7 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
 
             // 201: Created
             uint8_t ackMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, 0x00, 0xC9};
-            WB_RES::Characteristic dataCharValue;
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-            asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
         }
     }
     break;
@@ -1041,9 +1070,10 @@ void IfchGattClient::handleSendingLogbookData(const uint8_t *pData, uint32_t len
         DEBUGLOG("End of file marker");
     }
 
-    WB_RES::Characteristic dataCharValue;
-    dataCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
-    asyncPut(mDataCharResource, AsyncRequestOptions::Empty, dataCharValue);
+    WB_RES::Characteristic logCharValue;
+    logCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
+    asyncPut(mLogCharResource, AsyncRequestOptions::Empty, logCharValue);
+    mLogFetchDataSent += 1;
 
     if (secondPartLen > 0)
     {
@@ -1058,8 +1088,9 @@ void IfchGattClient::handleSendingLogbookData(const uint8_t *pData, uint32_t len
         writePos += secondPartLen;
         mLogFetchOffset += secondPartLen;
 
-        dataCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
-        asyncPut(mDataCharResource, AsyncRequestOptions::Empty, dataCharValue);
+        logCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
+        asyncPut(mLogCharResource, AsyncRequestOptions::Empty, logCharValue);
+        mLogFetchDataSent += 1;
     }
 }
 
@@ -1117,12 +1148,19 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
                 clearLogSubs();
             }
 
+            if (mIndicateTimer != wb::ID_INVALID_TIMER)
+            {
+                stopTimer(mIndicateTimer);
+                mIndicateTimer = wb::ID_INVALID_TIMER;
+            }
+            mIsIndicating = false;
+
             setShutdownTimer();
         }
         else if (peerChange.state == peerChange.state.CONNECTED)
         {
-            stopTimer(mTimer);
-            mTimer = wb::ID_INVALID_TIMER;
+            stopTimer(mShutdownTimer);
+            mShutdownTimer = wb::ID_INVALID_TIMER;
             return;
         }
         break;
@@ -1131,6 +1169,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
     case WB_RES::LOCAL::COMM_BLE_GATTSVC_SVCHANDLE_CHARHANDLE::LID:
     {
         WB_RES::LOCAL::COMM_BLE_GATTSVC_SVCHANDLE_CHARHANDLE::SUBSCRIBE::ParameterListRef parameterRef(rParameters);
+
         if (parameterRef.getCharHandle() == mCommandCharHandle)
         {
             const WB_RES::Characteristic &charValue = value.convertTo<const WB_RES::Characteristic &>();
@@ -1140,13 +1179,33 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             handleIncomingCommand(charValue.bytes);
             return;
         }
-        else if (parameterRef.getCharHandle() == mDataCharHandle)
-        {
-            const WB_RES::Characteristic &charValue = value.convertTo<const WB_RES::Characteristic &>();
-            // Update the notification state so we know if to forward data to datapipe
-            mNotificationsEnabled = charValue.notifications.hasValue() ? charValue.notifications.getValue() : false;
-            DEBUGLOG("onNotify: mDataCharHandle. mNotificationsEnabled: %d", mNotificationsEnabled);
-        }
+        // else if (parameterRef.getCharHandle() == mDataCharHandle)
+        // {
+        //     const WB_RES::Characteristic &charValue = value.convertTo<const WB_RES::Characteristic &>();
+        //     // Update the notification state so we know if to forward data to datapipe
+        //     mNotificationsEnabled = charValue.notifications.hasValue() ? charValue.notifications.getValue() : false;
+        //     DEBUGLOG("onNotify: mDataCharHandle. mNotificationsEnabled: %d", mNotificationsEnabled);
+
+        //     return;
+        // }
+        // else if (parameterRef.getCharHandle() == mResponseCharHandle)
+        // {
+        //     const WB_RES::Characteristic &charValue = value.convertTo<const WB_RES::Characteristic &>();
+
+        //     mResponseNotificationsEnabled = charValue.notifications.hasValue() ? charValue.notifications.getValue() : false;
+        //     DEBUGLOG("onNotify: mResponseCharHandle. mResponseNotificationsEnabled: %d", mResponseNotificationsEnabled);
+
+        //     return;
+        // }
+        // else if (parameterRef.getCharHandle() == mLogCharHandle)
+        // {
+        //     const WB_RES::Characteristic &charValue = value.convertTo<const WB_RES::Characteristic &>();
+
+        //     mResponseNotificationsEnabled = charValue.notifications.hasValue() ? charValue.notifications.getValue() : false;
+        //     DEBUGLOG("onNotify: mLogCharHandle. mLogNotificationsEnabled: %d", mLogNotificationsEnabled);
+
+        //     return;
+        // }
         break;
     }
 
@@ -1187,9 +1246,9 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             DEBUGLOG("End of file marker");
         }
 
-        WB_RES::Characteristic dataCharValue;
-        dataCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
-        asyncPut(mDataCharResource, AsyncRequestOptions::Empty, dataCharValue);
+        WB_RES::Characteristic logCharValue;
+        logCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
+        asyncPut(mLogCharResource, AsyncRequestOptions::Empty, logCharValue);
 
         if (secondPartLen > 0)
         {
@@ -1204,8 +1263,8 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.bytes[firstPartLen]), secondPartLen);
             writePos += secondPartLen;
 
-            dataCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
-            asyncPut(mDataCharResource, AsyncRequestOptions::Empty, dataCharValue);
+            logCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
+            asyncPut(mLogCharResource, AsyncRequestOptions::Empty, logCharValue);
         }
         break;
     }
@@ -1331,9 +1390,7 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
             {
                 // 200: OK
                 uint8_t ackMsg[] = {Responses::COMMAND_RESULT, mDataloggerStateReference, 0x00, 0xC8};
-                WB_RES::Characteristic dataCharValue;
-                dataCharValue.bytes = wb::MakeArray<uint8_t>(ackMsg, sizeof(ackMsg));
-                asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+                asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
 
                 mDataloggerStateReference = 0;
             }
@@ -1346,9 +1403,7 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
             {
                 // 500: Internal server error
                 uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mDataloggerStateReference, 0x01, 0xF4};
-                WB_RES::Characteristic dataCharValue;
-                dataCharValue.bytes = wb::MakeArray<uint8_t>(errorMsg, sizeof(errorMsg));
-                asyncPut(mDataCharResource, AsyncRequestOptions(NULL, 0, true), dataCharValue);
+                asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
                 mDataloggerStateReference = 0;
             }
@@ -1356,13 +1411,20 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
         break;
     }
     }
+
+    // We just completed an INDICATE request
+    if (resourceId == mLogCharResource || resourceId == mResponseCharResource)
+    {
+        // Schedule next INDICATE
+        mIndicateTimer = startTimer(INDICATE_DELAY, false);
+    }
 }
 
 // Auto shutdown behaviour
 void IfchGattClient::setShutdownTimer()
 {
     // Start timer
-    mTimer = startTimer(LED_BLINKING_PERIOD, true);
+    mShutdownTimer = startTimer(LED_BLINKING_PERIOD, true);
 
     // Reset timeout mCounter
     mCounter = 0;
@@ -1370,40 +1432,56 @@ void IfchGattClient::setShutdownTimer()
 
 void IfchGattClient::onTimer(wb::TimerId timerId)
 {
-    // Check leads connection and datalogger state. if either is on, reset counter
-    // NOTE: Trust that this module and datalogger are in same thread so the call is synchronous
-    STATIC_VERIFY(WB_EXEC_CTX_APPLICATION == WB_RES::LOCAL::MEM_DATALOGGER_STATE::EXECUTION_CONTEXT, DataLogger_must_be_application_thread);
-
-    asyncGet(WB_RES::LOCAL::MEM_DATALOGGER_STATE());
-    if (mLeadsConnected || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+    if (timerId == wb::ID_INVALID_TIMER)
     {
-        DEBUGLOG("leads connected [%d] or datalogger running [%d]. postponing shutdown", mLeadsConnected, mDataLoggerState);
-        mCounter = 0;
         return;
     }
 
-    // Ok, no reason to stay awake. keep incrementing and blinking
-    mCounter += LED_BLINKING_PERIOD;
-
-    if (mCounter < AVAILABILITY_TIME)
+    else if (timerId == mShutdownTimer)
     {
-        asyncPut(WB_RES::LOCAL::UI_IND_VISUAL(), AsyncRequestOptions::Empty,
-                 WB_RES::VisualIndTypeValues::SHORT_VISUAL_INDICATION);
-        return;
+        // Check leads connection and datalogger state. if either is on, reset counter
+        // NOTE: Trust that this module and datalogger are in same thread so the call is synchronous
+        STATIC_VERIFY(WB_EXEC_CTX_APPLICATION == WB_RES::LOCAL::MEM_DATALOGGER_STATE::EXECUTION_CONTEXT, DataLogger_must_be_application_thread);
+
+        asyncGet(WB_RES::LOCAL::MEM_DATALOGGER_STATE());
+        if (mLeadsConnected || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        {
+            DEBUGLOG("leads connected [%d] or datalogger running [%d]. postponing shutdown", mLeadsConnected, mDataLoggerState);
+            mCounter = 0;
+            return;
+        }
+
+        // Ok, no reason to stay awake. keep incrementing and blinking
+        mCounter += LED_BLINKING_PERIOD;
+
+        if (mCounter < AVAILABILITY_TIME)
+        {
+            asyncPut(WB_RES::LOCAL::UI_IND_VISUAL(), AsyncRequestOptions::Empty,
+                     WB_RES::VisualIndTypeValues::SHORT_VISUAL_INDICATION);
+            return;
+        }
+        else
+        {
+
+            // Prepare AFE to wake-up mode
+            asyncPut(WB_RES::LOCAL::COMPONENT_MAX3000X_WAKEUP(),
+                     AsyncRequestOptions(NULL, 0, true), (uint8_t)1);
+
+            // Make PUT request to switch LED on
+            asyncPut(WB_RES::LOCAL::COMPONENT_LED(), AsyncRequestOptions::Empty, true);
+
+            // Make PUT request to enter power off mode
+            asyncPut(WB_RES::LOCAL::SYSTEM_MODE(), AsyncRequestOptions(NULL, 0, true), // true = Force async
+                     WB_RES::SystemModeValues::FULLPOWEROFF);
+        }
     }
-    else
+
+    else if (timerId == mIndicateTimer)
     {
-
-        // Prepare AFE to wake-up mode
-        asyncPut(WB_RES::LOCAL::COMPONENT_MAX3000X_WAKEUP(),
-                 AsyncRequestOptions(NULL, 0, true), (uint8_t)1);
-
-        // Make PUT request to switch LED on
-        asyncPut(WB_RES::LOCAL::COMPONENT_LED(), AsyncRequestOptions::Empty, true);
-
-        // Make PUT request to enter power off mode
-        asyncPut(WB_RES::LOCAL::SYSTEM_MODE(), AsyncRequestOptions(NULL, 0, true), // true = Force async
-                 WB_RES::SystemModeValues::FULLPOWEROFF);
+        // We just completed an INDICATE request
+        // Send the next one
+        mIndicateTimer = wb::ID_INVALID_TIMER;
+        putNextIndicate();
     }
 }
 
