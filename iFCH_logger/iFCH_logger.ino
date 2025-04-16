@@ -194,6 +194,7 @@ void handleSerialCommand()
         if (subscribeMovesense())
         {
             sendFrame(CmdType::CMD_MOV_SUB, nullptr, 0);
+            isStreaming = true;
         }
         else
         {
@@ -219,6 +220,7 @@ void handleSerialCommand()
         if (unsubscribeMovesense())
         {
             sendFrame(CmdType::CMD_MOV_UNSUB, nullptr, 0);
+            isStreaming = true;
         }
         else
         {

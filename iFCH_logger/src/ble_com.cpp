@@ -191,7 +191,8 @@ bool registerCharacteristics()
         return false;
     }
 
-    pResponseChar->registerForNotify(notifyCallbackResponse);
+    // Register for indications
+    pResponseChar->registerForNotify(notifyCallbackResponse, false);
 
     pCommandChar = pService->getCharacteristic(BLE_CMD_CHARACTERISTIC_UUID);
     if (!pCommandChar || !pCommandChar->canWrite())
