@@ -212,6 +212,7 @@ void handleSerialCommand()
         {
             sendErr("Failed to send hello to Movesense");
         }
+        break;
     }
 
     case CmdType::CMD_MOV_BATTERY_GET:
