@@ -34,6 +34,7 @@ class DeviceService:
         self.proto = await open_connection(self._port)
 
     async def stop(self):
+        logging.debug("Stopping device service")
         for t in self._tasks:
             t.cancel()
 
@@ -44,6 +45,8 @@ class DeviceService:
 
         if self.proto:
             self.proto.transport.close()
+
+        logging.debug("Device service stopped")
 
     @property
     def notifications(self):
@@ -206,7 +209,13 @@ class DeviceService:
         result = await self.proto.wait_for_cmd(
             Commands.CMD_CONNECT, timeout=BLE_TIMEOUT_S
         )
-        if result:
+        self.connected = False
+
+        if result is None:
+            logging.error("Connect timed out")
+            return None
+
+        elif result:
             if require_hello:
                 hello = await self.hello_movesense()
                 if not hello:
@@ -215,8 +224,8 @@ class DeviceService:
 
             logging.debug("Connected to device %s", result)
             self.connected = True
+
         else:
-            self.connected = False
             logging.warning("Failed to connect to Movesense")
 
         return self.connected
@@ -226,7 +235,10 @@ class DeviceService:
         result = await self.proto.wait_for_cmd(
             Commands.CMD_DISCONNECT, timeout=BLE_TIMEOUT_S
         )
-        if result:
+        if result is None:
+            logging.error("Disconnect timed out")
+            return None
+        elif result:
             logging.debug("Disconnected from device %s", result)
             self.connected = False
             return True
@@ -244,36 +256,36 @@ class DeviceService:
             return True
         else:
             logging.warning("Hello Movesense timed out")
-            return False
+            return None
 
     async def get_mov_battery(self):
         self.proto.send_frame(Commands.CMD_MOV_BATTERY_GET)
         result = await self.proto.wait_for_cmd(
             Commands.CMD_MOV_BATTERY_GET, timeout=BLE_TIMEOUT_S
         )
-        if result:
-            if len(result) == 1:
-                battery_level = int.from_bytes(result, "little")
-                logging.debug("Received Movesense battery: %d", battery_level)
-                return battery_level
-            else:
-                logging.error("Invalid Movesense battery response: %s", result)
-                return None
-        else:
-            logging.warning("Get Movesense battery timed out")
+        if result is None:
+            logging.error("Get Movesense battery timed out")
             return None
+        elif len(result) == 1:
+            battery_level = int.from_bytes(result, "little")
+            logging.debug("Received Movesense battery: %d", battery_level)
+            return battery_level
+        else:
+            logging.error("Invalid Movesense battery response: %s", result)
+            return -1
 
     async def subscribe(self):
         self.proto.send_frame(Commands.CMD_MOV_SUB)
         result = await self.proto.wait_for_cmd(
             Commands.CMD_MOV_SUB, timeout=BLE_TIMEOUT_S
         )
-        if result is not None:
-            logging.debug("Subscribed to device %s", result)
-            self.subscribed = True
+        if result is None:
+            logging.error("Subscribe timed out")
+            return None
         else:
-            logging.warning("Failed to subscribe to Movesense")
-            self.subscribed = False
+            logging.debug("Subscribed to Movesense")
+            self.subscribed = True
+
         return self.subscribed
 
     async def unsubscribe(self):
@@ -285,8 +297,7 @@ class DeviceService:
             logging.debug("Unsubscribed from device %s", result)
             self.subscribed = False
         else:
-            logging.warning("Failed to unsubscribe from Movesense")
-            self.subscribed = True
+            logging.warning("Unsubscribe timed out")
         return not self.subscribed
 
     async def notify_stream(self):

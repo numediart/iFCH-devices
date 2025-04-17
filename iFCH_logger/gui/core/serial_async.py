@@ -74,6 +74,7 @@ class FrameProtocol(asyncio.Protocol):
         self.disconnected.set()
 
     def send_frame(self, cmd: Commands, payload: bytes = b""):
+        logging.debug("Sending command: %s, payload: %s", cmd.name, payload.hex(" "))
         header = struct.pack(">B H", cmd, len(payload))
         crc = zlib.crc32(header + payload)
         frame = bytes((START_BYTE,)) + header + payload + struct.pack("<I", crc)
@@ -311,11 +312,15 @@ async def _probe(port: str, probe_timeout: float) -> tuple[str, bytes] | None:
 
 
 async def detect_device(
-    baud: int = BAUD, probe_timeout: float = SERIAL_TIMEOUT_S
+    baud: int = BAUD, probe_timeout: float = SERIAL_TIMEOUT_S, reset_ports=False
 ) -> list[tuple[str, str]]:
     ports = [p.device for p in serial.tools.list_ports.comports()]
-    tasks = [asyncio.create_task(_probe(p, probe_timeout)) for p in ports]
 
+    if reset_ports:
+        tasks = [asyncio.create_task(_reset_port(p)) for p in ports]
+        await asyncio.gather(*tasks)
+
+    tasks = [asyncio.create_task(_probe(p, probe_timeout)) for p in ports]
     found = []
 
     for fut in asyncio.as_completed(tasks):
@@ -329,6 +334,15 @@ async def detect_device(
             found.append((port, payload.decode(errors="ignore")))
 
     return found
+
+
+async def _reset_port(port: str, baud: int = BAUD):
+    logging.warning("RESET DTR on %s", port)
+    with serial.Serial(port, baud) as s:
+        s.dtr = False
+        await asyncio.sleep(0.25)
+        s.dtr = True
+    await asyncio.sleep(0.5)
 
 
 async def open_connection(port: str, baud: int = BAUD):

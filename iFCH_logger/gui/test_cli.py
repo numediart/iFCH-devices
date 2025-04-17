@@ -106,8 +106,11 @@ if __name__ == "__main__":
     devices = asyncio.run(detect_device())
 
     if len(devices) == 0:
-        logging.warning("No devices found")
-        exit(1)
+        logging.warning("No devices found, attempting to reset ports")
+        devices = asyncio.run(detect_device(reset_ports=False))
+        if len(devices) == 0:
+            logging.warning("No devices found, exiting")
+            exit(1)
 
     selected_device = devices[0]
     port = selected_device[0]
