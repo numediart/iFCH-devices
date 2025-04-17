@@ -43,7 +43,7 @@ bool sendFile(const char *filename)
             tx_buffer[0] = seqNum;
             size_t len = toSend.read(tx_buffer + 1, MAX_PAYLOAD_SIZE - 1);
 
-            sentOK = sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, len, seqNum);
+            sentOK = sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, len + 1, seqNum);
             if (!sentOK)
             {
                 break;
