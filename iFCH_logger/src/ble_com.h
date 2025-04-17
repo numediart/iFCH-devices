@@ -22,7 +22,7 @@ void setupBLE();
 void scanBLEDevices();
 
 bool connectMovesense();
-bool disconnectMovesense();
+void disconnectMovesense();
 bool isMovesenseConnected();
 
 bool getMovesenseBattery(uint8_t &batteryLevel);

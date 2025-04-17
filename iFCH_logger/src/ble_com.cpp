@@ -212,6 +212,42 @@ bool registerCharacteristics()
     return true;
 }
 
+void unregisterCharacteristics()
+{
+    if (pDataChar)
+    {
+        pDataChar->registerForNotify(nullptr);
+        pDataChar = nullptr;
+    }
+
+    if (pLogChar)
+    {
+        pLogChar->registerForNotify(nullptr);
+        pLogChar = nullptr;
+    }
+
+    if (pResponseChar)
+    {
+        pResponseChar->registerForNotify(nullptr);
+        pResponseChar = nullptr;
+    }
+
+    if (pCommandChar)
+    {
+        pCommandChar = nullptr;
+    }
+
+    if (pBatteryChar)
+    {
+        pBatteryChar = nullptr;
+    }
+
+    // Clear previously received messages (if any)
+    xQueueReset(commandQueue);
+    xQueueReset(dataQueue);
+    xQueueReset(logQueue);
+}
+
 bool isMovesenseConnected()
 {
     if (!pClient)
@@ -281,6 +317,8 @@ bool connectMovesense()
     // Failed connection
     else
     {
+        unregisterCharacteristics();
+
         // Connected but failed to register characteristics
         // We need to disconnect and re-connect
         if (isMovesenseConnected())
@@ -293,18 +331,26 @@ bool connectMovesense()
     return connectResult;
 }
 
-bool disconnectMovesense()
+void disconnectMovesense()
 {
-    if (isMovesenseConnected())
+    unregisterCharacteristics();
+    delay(10);
+
+    if (pClient)
     {
+        // Disconnect from the Movesense
         pClient->disconnect();
-        blink(COLOR_BLE, 1, 50);
-        return true;
+        delete pClient;
+        pClient = nullptr;
     }
-    else
-    {
-        return false;
-    }
+
+    delay(10);
+    // De-initialize the BLE stack
+    BLEDevice::deinit(); // Completely de-initialize BLE
+    delay(100);          // Give hardware time to settle
+    setupBLE();
+
+    blink(COLOR_BLE, 1, 50);
 }
 
 bool getMovesenseBattery(uint8_t &batteryLevel)
@@ -351,8 +397,6 @@ bool subscribeMovesense()
     // For each path in config, subscribe to the Movesense
     for (uint8_t index = 0; index < config.sensorPaths.size(); index++)
     {
-        // Clear previously received messages (if any)
-        xQueueReset(commandQueue);
 
         // References start from 1
         uint8_t reference = index + 1;
@@ -394,9 +438,6 @@ bool unsubscribeMovesense()
 {
     // Stop listening to notifications from the data stream
     pDataChar->registerForNotify(nullptr);
-
-    // Clear previously received messages (if any)
-    xQueueReset(commandQueue);
 
     // Reference starts from 1
     const uint8_t reference = (uint8_t)MovCommands::UNSUBSCRIBE_ALL + 10;

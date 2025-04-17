@@ -191,6 +191,12 @@ void handleSerialCommand()
             break;
         }
 
+        if (isStreaming)
+        {
+            sendErr("Already streaming");
+            break;
+        }
+
         if (subscribeMovesense())
         {
             sendFrame(CmdType::CMD_MOV_SUB, nullptr, 0);
@@ -220,7 +226,7 @@ void handleSerialCommand()
         if (unsubscribeMovesense())
         {
             sendFrame(CmdType::CMD_MOV_UNSUB, nullptr, 0);
-            isStreaming = true;
+            isStreaming = false;
         }
         else
         {
