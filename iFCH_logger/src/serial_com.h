@@ -24,6 +24,7 @@ enum class CmdType : uint8_t
     CMD_CONNECT = 0x12,
     CMD_DISCONNECT = 0x13,
     CMD_BLE_NOTIFY = 0x14,
+    CMD_BLE_HELLO = 0x15,
     // File transfer
     CMD_FILE_CHUNK = 0x20,
     CMD_CONFIG_GET = 0x21,

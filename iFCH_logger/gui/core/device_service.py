@@ -4,7 +4,7 @@ import json
 import logging
 import struct
 
-from serial_async import Commands, open_connection
+from .serial_async import Commands, open_connection
 
 BLE_TIMEOUT_S = 3
 
@@ -36,6 +36,12 @@ class DeviceService:
     async def stop(self):
         for t in self._tasks:
             t.cancel()
+
+        if self.connected:
+            if self.subscribed:
+                await self.unsubscribe()
+            await self.disconnect()
+
         if self.proto:
             self.proto.transport.close()
 
@@ -195,12 +201,18 @@ class DeviceService:
 
     # ---------------------------------------------------------------------------
     # Movesense specific methods
-    async def connect(self):
+    async def connect(self, require_hello=True):
         self.proto.send_frame(Commands.CMD_CONNECT)
         result = await self.proto.wait_for_cmd(
             Commands.CMD_CONNECT, timeout=BLE_TIMEOUT_S
         )
         if result:
+            if require_hello:
+                hello = await self.hello_movesense()
+                if not hello:
+                    logging.error("Failed to greet Movesense")
+                    return False
+
             logging.debug("Connected to device %s", result)
             self.connected = True
         else:
@@ -220,6 +232,18 @@ class DeviceService:
             return True
         else:
             logging.warning("Failed to connect from Movesense")
+            return False
+
+    async def hello_movesense(self):
+        self.proto.send_frame(Commands.CMD_BLE_HELLO)
+        result = await self.proto.wait_for_cmd(
+            Commands.CMD_BLE_HELLO, timeout=BLE_TIMEOUT_S
+        )
+        if result is not None:
+            logging.debug("Received hello from Movesense")
+            return True
+        else:
+            logging.warning("Hello Movesense timed out")
             return False
 
     async def get_mov_battery(self):
@@ -267,5 +291,6 @@ class DeviceService:
 
     async def notify_stream(self):
         while True:
-            payload = await self.proto.notif_queue.get()
-            yield payload
+            if len(self.proto.notif_buffer) > 0:
+                yield self.proto.notif_buffer.pop(0)
+            await asyncio.sleep(0.05)

@@ -28,6 +28,7 @@ class Commands(enum.IntEnum):
     CMD_CONNECT = 0x12
     CMD_DISCONNECT = 0x13
     CMD_BLE_NOTIFY = 0x14
+    CMD_BLE_HELLO = 0x15
     # File transfer
     CMD_FILE_CHUNK = 0x20
     CMD_CONFIG_GET = 0x21
@@ -54,6 +55,7 @@ class FrameProtocol(asyncio.Protocol):
         self.loop = loop
 
         self.connected = asyncio.Event()
+        self.disconnected = asyncio.Event()
 
     # --- low‑level serial callbacks ----------------------------------
     def connection_made(self, transport):
@@ -69,6 +71,7 @@ class FrameProtocol(asyncio.Protocol):
         # Optional: push a sentinel onto the queue or emit a signal
         if exc:
             logging.warning(f"Serial connection lost: {exc}")
+        self.disconnected.set()
 
     def send_frame(self, cmd: Commands, payload: bytes = b""):
         header = struct.pack(">B H", cmd, len(payload))

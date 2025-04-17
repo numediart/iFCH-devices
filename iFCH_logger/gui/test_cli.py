@@ -2,8 +2,8 @@ import asyncio
 import datetime
 import logging
 
-from device_service import DeviceService
-from serial_async import detect_device
+from core.device_service import DeviceService
+from core.serial_async import detect_device
 
 
 async def test_device(port):
@@ -64,6 +64,11 @@ async def test_device(port):
         if not ok:
             logging.error("Failed to connect to Movesense")
             return
+
+        logging.info("Greeting Movesense...")
+        ok = await device.hello_movesense()
+        if not ok:
+            logging.error("Failed to greet Movesense")
 
         logging.info("Getting Movesense battery...")
         battery = await device.get_mov_battery()

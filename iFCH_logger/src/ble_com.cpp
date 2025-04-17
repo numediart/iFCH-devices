@@ -15,6 +15,8 @@ BLERemoteCharacteristic *pResponseChar;
 BLERemoteCharacteristic *pLogChar;
 BLERemoteCharacteristic *pBatteryChar;
 
+uint8_t bleMsg[BLE_MTU + 1]; // +1 for the length byte
+
 enum class MovCommands : uint8_t
 {
     HELLO = 0,
@@ -392,6 +394,57 @@ bool sendMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *payload, 
     return true;
 }
 
+// Wait for a Movesense response
+// This function blocks until a response is received or the timeout is reached
+// The response is checked for validity (code < 300)
+// The response is stored in the global variable bleMsg
+bool waitForMovesenseResponse(uint8_t reference)
+{
+    // Wait for movesense answer
+    if (xQueueReceive(commandQueue, bleMsg, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
+    {
+        sendErr("Movesense response timed out");
+        return false;
+    }
+
+    // Check the response
+    uint8_t rxRef = bleMsg[2];
+    uint16_t rxCode = (bleMsg[3] << 8) | bleMsg[4];
+
+    // Check if the response is valid
+    if (rxRef != reference)
+    {
+        sendErr("Invalid response reference from Movesense: " + String(rxRef) + ", expected: " + String(reference));
+        return false;
+    }
+    else if (rxCode >= 300)
+    {
+        sendErr("Invalid response code from Movesense: " + String(rxCode));
+        return false;
+    }
+
+    return true;
+}
+
+bool helloMovesense()
+{
+    const uint8_t reference = (uint8_t)MovCommands::HELLO + 10;
+    if (!sendMovesenseCommand((uint8_t)MovCommands::HELLO, reference, nullptr, 0))
+    {
+        sendErr("Failed to send hello command");
+        return false;
+    }
+
+    // Wait for the response
+    if (!waitForMovesenseResponse(reference))
+    {
+        sendErr("Failed to receive hello response");
+        return false;
+    }
+
+    return true;
+}
+
 bool subscribeMovesense()
 {
     // For each path in config, subscribe to the Movesense
@@ -409,22 +462,9 @@ bool subscribeMovesense()
             return false;
         }
 
-        // Wait for movesense answer
-        uint8_t bleMsg[BLE_MTU + 1];
-        if (xQueueReceive(commandQueue, bleMsg, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
+        if (!waitForMovesenseResponse(reference))
         {
-            sendErr("Subscribe command timed out");
-            return false;
-        }
-
-        // Check the response
-        uint8_t rxRef = bleMsg[2];
-        uint16_t rxCode = (bleMsg[3] << 8) | bleMsg[4];
-
-        // Check if the response is valid
-        if (rxRef != reference || rxCode >= 300)
-        {
-            sendErr("Invalid response from Movesense: " + String(rxCode));
+            sendErr("Failed to subscribe to Movesense path: " + path);
             return false;
         }
     }
@@ -447,19 +487,10 @@ bool unsubscribeMovesense()
         return false;
     }
 
-    uint8_t bleMsg[BLE_MTU + 1];
-
-    // Wait for device answer
-    if (xQueueReceive(commandQueue, bleMsg, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
+    // Wait for the response
+    if (!waitForMovesenseResponse(reference))
     {
-        return false;
-    }
-
-    // Check the response
-    uint8_t rxRef = bleMsg[2];
-    uint16_t rxCode = (bleMsg[3] << 8) | bleMsg[4];
-    if (rxRef != reference || rxCode >= 300)
-    {
+        sendErr("Failed to unsubscribe from Movesense");
         return false;
     }
 

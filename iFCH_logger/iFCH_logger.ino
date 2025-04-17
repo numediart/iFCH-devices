@@ -17,7 +17,7 @@ QueueHandle_t logQueue;
 
 bool isStreaming = false;
 
-uint8_t bleMsg[BLE_MTU + 1]; // +1 for the length byte
+uint8_t queueNotif[BLE_MTU + 1]; // +1 for the length byte
 
 void fetchMovesenseData()
 {
@@ -49,6 +49,17 @@ void handleSerialCommand()
 
     case CmdType::CMD_SCAN:
     {
+        if (isMovesenseConnected())
+        {
+            sendErr("Movesense connected, cannot scan");
+            break;
+        }
+        else if (record.logging)
+        {
+            sendErr("Movesense currently logging, cannot scan");
+            break;
+        }
+
         // Scan for BLE devices
         scanBLEDevices();
         break;
@@ -69,6 +80,11 @@ void handleSerialCommand()
         if (isMovesenseConnected())
         {
             sendErr("Movesense connected, cannot update config");
+            break;
+        }
+        else if (record.logging)
+        {
+            sendErr("Movesense currently logging, cannot update config");
             break;
         }
 
@@ -99,6 +115,12 @@ void handleSerialCommand()
 
     case CmdType::CMD_TIME_PUT:
     {
+        if (record.logging)
+        {
+            sendErr("Movesense currently logging, cannot set time");
+            break;
+        }
+
         // Receive the time
         uint32_t newTime;
         if (rx_payload_len != sizeof(newTime))
@@ -135,6 +157,12 @@ void handleSerialCommand()
             break;
         }
 
+        if (record.logging)
+        {
+            sendErr("Movesense currently logging, cannot connect");
+            break;
+        }
+
         // Connect to the Movesense
         if (connectMovesense())
         {
@@ -149,10 +177,41 @@ void handleSerialCommand()
 
     case CmdType::CMD_DISCONNECT:
     {
+        if (record.logging)
+        {
+            sendErr("Movesense currently logging, cannot disconnect");
+            break;
+        }
+
         // Disconnect from the Movesense
         disconnectMovesense();
         sendFrame(CmdType::CMD_DISCONNECT, (uint8_t *)config.address.c_str(), config.address.length());
         break;
+    }
+
+    case CmdType::CMD_BLE_HELLO:
+    {
+        // Send a hello message to the Movesense
+        if (!isMovesenseConnected())
+        {
+            sendErr("Movesense not connected");
+            break;
+        }
+
+        if (record.logging)
+        {
+            sendErr("Movesense currently logging, cannot send hello");
+            break;
+        }
+
+        if (helloMovesense())
+        {
+            sendFrame(CmdType::CMD_BLE_HELLO, nullptr, 0);
+        }
+        else
+        {
+            sendErr("Failed to send hello to Movesense");
+        }
     }
 
     case CmdType::CMD_MOV_BATTERY_GET:
@@ -187,7 +246,7 @@ void handleSerialCommand()
 
         if (record.logging)
         {
-            sendErr("Movesense currently logging");
+            sendErr("Movesense currently logging, cannot subscribe");
             break;
         }
 
@@ -219,7 +278,7 @@ void handleSerialCommand()
         }
         if (record.logging)
         {
-            sendErr("Movesense currently logging");
+            sendErr("Movesense currently logging, cannot unsubscribe");
             break;
         }
 
@@ -285,6 +344,11 @@ void setup()
     // TODO do not sleep if the Movesense is connected
     else
     {
+        if (isMovesenseConnected())
+        {
+            disconnectMovesense();
+        }
+
         enterHibernation(true); // TODO: set the waketimer
     }
 }
@@ -298,13 +362,13 @@ void loop()
     }
 
     // Handle incoming BLE notifications
-    while (xQueueReceive(dataQueue, bleMsg, 0) == pdTRUE)
+    while (xQueueReceive(dataQueue, queueNotif, 0) == pdTRUE)
     {
-        uint8_t len = bleMsg[0];
+        uint8_t len = queueNotif[0];
 
         if (isStreaming)
         {
-            sendFrame(CmdType::CMD_BLE_NOTIFY, bleMsg + 1, len);
+            sendFrame(CmdType::CMD_BLE_NOTIFY, queueNotif + 1, len);
         }
         else
         {
@@ -312,21 +376,21 @@ void loop()
         }
     }
 
-    while (xQueueReceive(logQueue, bleMsg, 0) == pdTRUE)
+    while (xQueueReceive(logQueue, queueNotif, 0) == pdTRUE)
     {
-        uint8_t len = bleMsg[0];
+        uint8_t len = queueNotif[0];
 
         // TODO: handle the log notification instead of forwarding it
-        sendFrame(CmdType::CMD_BLE_NOTIFY, bleMsg + 1, len);
+        sendFrame(CmdType::CMD_BLE_NOTIFY, queueNotif + 1, len);
     }
 
-    while (xQueueReceive(commandQueue, bleMsg, 0) == pdTRUE)
+    while (xQueueReceive(commandQueue, queueNotif, 0) == pdTRUE)
     {
-        uint8_t len = bleMsg[0];
+        uint8_t len = queueNotif[0];
 
         // We should not be here, commands should have been processed
         blink(COLOR_RUNTIME_ERROR, 5, 50);
-        sendFrame(CmdType::CMD_ERROR, bleMsg + 1, len);
+        sendFrame(CmdType::CMD_ERROR, queueNotif + 1, len);
     }
 
     // Handle incoming Serial commands
@@ -339,6 +403,11 @@ void loop()
     // TODO do not sleep if the Movesense is connected
     if (digitalRead(VUSB_PIN) == LOW)
     {
+        if (isMovesenseConnected())
+        {
+            disconnectMovesense();
+        }
+
         enterHibernation(true); // TODO: set the waketimer
     }
 }

@@ -26,6 +26,7 @@ void disconnectMovesense();
 bool isMovesenseConnected();
 
 bool getMovesenseBattery(uint8_t &batteryLevel);
+bool helloMovesense();
 
 bool subscribeMovesense();
 bool unsubscribeMovesense();
