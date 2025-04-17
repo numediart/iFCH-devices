@@ -16,7 +16,6 @@
 #define BLE_QUEUE_LENGTH 25
 
 extern BLEScan *pBLEScan;
-extern bool movesenseConnected;
 
 void setupBLE();
 
@@ -24,6 +23,7 @@ void scanBLEDevices();
 
 bool connectMovesense();
 bool disconnectMovesense();
+bool isMovesenseConnected();
 
 bool getMovesenseBattery(uint8_t &batteryLevel);
 

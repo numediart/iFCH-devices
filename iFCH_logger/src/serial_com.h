@@ -3,7 +3,7 @@
 
 #include "globals.h"
 
-#define BAUD_RATE 115200
+#define BAUD_RATE 921600
 #define START_BYTE 0x7E
 #define MAX_PAYLOAD_SIZE 512
 #define SERIAL_TIMEOUT 500
@@ -21,10 +21,9 @@ enum class CmdType : uint8_t
     CMD_ERROR = 0x04,
     // BLE
     CMD_SCAN = 0x11,
-    CMD_SCAN_RESULT = 0x12,
-    CMD_CONNECT = 0x13,
-    CMD_DISCONNECT = 0x14,
-    CMD_BLE_NOTIFY = 0x15,
+    CMD_CONNECT = 0x12,
+    CMD_DISCONNECT = 0x13,
+    CMD_BLE_NOTIFY = 0x14,
     // File transfer
     CMD_FILE_CHUNK = 0x20,
     CMD_CONFIG_GET = 0x21,

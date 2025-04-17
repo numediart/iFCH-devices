@@ -66,7 +66,7 @@ void handleSerialCommand()
 
     case CmdType::CMD_CONFIG_PUT:
     {
-        if (movesenseConnected)
+        if (isMovesenseConnected())
         {
             sendErr("Movesense connected, cannot update config");
             break;
@@ -158,7 +158,7 @@ void handleSerialCommand()
     case CmdType::CMD_MOV_BATTERY_GET:
     {
         // Send the Movesense battery level
-        if (!movesenseConnected)
+        if (!isMovesenseConnected())
         {
             sendErr("Movesense not connected");
             break;
@@ -179,7 +179,7 @@ void handleSerialCommand()
     case CmdType::CMD_MOV_SUB:
     {
         // Subscribe to the Movesense
-        if (!movesenseConnected)
+        if (!isMovesenseConnected())
         {
             sendErr("Movesense not connected");
             break;
@@ -206,7 +206,7 @@ void handleSerialCommand()
     case CmdType::CMD_MOV_UNSUB:
     {
         // Unsubscribe from the Movesense
-        if (!movesenseConnected)
+        if (!isMovesenseConnected())
         {
             sendErr("Movesense not connected");
             break;

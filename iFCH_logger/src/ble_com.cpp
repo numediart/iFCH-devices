@@ -5,7 +5,7 @@
 
 BLEScan *pBLEScan;
 BLEClient *pClient;
-bool movesenseConnected;
+
 bool connectResult;
 bool connectComplete;
 
@@ -54,7 +54,7 @@ class ScanCallback : public BLEAdvertisedDeviceCallbacks
             String devRepr = devName + ";" + devAddress;
 
             // Send the device representation to the serial port
-            sendFrame(CmdType::CMD_SCAN_RESULT, (uint8_t *)devRepr.c_str(), devRepr.length());
+            sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
         }
     }
 };
@@ -136,8 +136,6 @@ void setupBLE()
     pBLEScan->setActiveScan(true);            // Active scan uses more power, but get results faster
     pBLEScan->setInterval(BLE_SCAN_INTERVAL); // How often to scan
     pBLEScan->setWindow(BLE_SCAN_WINDOW);     // How long each scan is
-
-    movesenseConnected = false;
 }
 
 void scanBLEDevices()
@@ -147,7 +145,7 @@ void scanBLEDevices()
     pBLEScan->start(BLE_SCAN_TIME, false);
     pBLEScan->clearResults(); // delete results fromBLEScan buffer to release memory
 
-    sendCMD(CmdType::CMD_SCAN_RESULT);
+    sendCMD(CmdType::CMD_SCAN);
 
     digitalWrite(RGB_BUILTIN, 0);
 }
@@ -214,11 +212,21 @@ bool registerCharacteristics()
     return true;
 }
 
+bool isMovesenseConnected()
+{
+    if (!pClient)
+    {
+        return false;
+    }
+
+    return pClient->isConnected();
+}
+
 // Connect to the Movesense and register the characteristics
 bool connectMovesense()
 {
     // If already connected, nothing to do
-    if (movesenseConnected)
+    if (isMovesenseConnected())
     {
         return true;
     }
@@ -264,10 +272,8 @@ bool connectMovesense()
         delay(100); // non-blocking loop
     }
 
-    movesenseConnected = connectResult;
-
     // Successful connection and registration of characteristics
-    if (movesenseConnected && registerCharacteristics())
+    if (isMovesenseConnected() && registerCharacteristics())
     {
         blink(COLOR_BLE, 1, 50);
     }
@@ -277,22 +283,21 @@ bool connectMovesense()
     {
         // Connected but failed to register characteristics
         // We need to disconnect and re-connect
-        if (movesenseConnected)
+        if (isMovesenseConnected())
         {
             pClient->disconnect();
-            movesenseConnected = false;
+            connectResult = false;
         }
     }
 
-    return movesenseConnected;
+    return connectResult;
 }
 
 bool disconnectMovesense()
 {
-    if (movesenseConnected)
+    if (isMovesenseConnected())
     {
         pClient->disconnect();
-        movesenseConnected = false;
         blink(COLOR_BLE, 1, 50);
         return true;
     }
@@ -304,7 +309,7 @@ bool disconnectMovesense()
 
 bool getMovesenseBattery(uint8_t &batteryLevel)
 {
-    if (!movesenseConnected || !pBatteryChar || !pBatteryChar->canRead())
+    if (!isMovesenseConnected() || !pBatteryChar || !pBatteryChar->canRead())
     {
         return false;
     }
@@ -324,7 +329,7 @@ bool getMovesenseBattery(uint8_t &batteryLevel)
 
 bool sendMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *payload, uint8_t payloadLength)
 {
-    if (!movesenseConnected || !pCommandChar || !pCommandChar->canWrite())
+    if (!isMovesenseConnected() || !pCommandChar || !pCommandChar->canWrite())
     {
         return false;
     }
