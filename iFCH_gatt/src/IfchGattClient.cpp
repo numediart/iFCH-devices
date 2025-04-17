@@ -67,6 +67,8 @@ enum Commands
     UNSUBSCRIBE_ALL = 12,
 };
 
+// TODO: add a command to get the Movesense vesrsion
+
 enum Responses
 {
     COMMAND_RESULT = 1,
