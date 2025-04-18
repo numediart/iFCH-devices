@@ -233,7 +233,7 @@ class DeviceService:
     async def disconnect(self):
         self.proto.send_frame(Commands.CMD_DISCONNECT)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_DISCONNECT, timeout=BLE_TIMEOUT_S
+            Commands.CMD_DISCONNECT, timeout=2 * BLE_TIMEOUT_S
         )
         if result is None:
             logging.error("Disconnect timed out")
