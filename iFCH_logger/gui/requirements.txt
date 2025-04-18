@@ -1,2 +1,4 @@
 pyserial
 pyserial-asyncio
+qasync
+PySide6
