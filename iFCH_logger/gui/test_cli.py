@@ -82,7 +82,11 @@ async def test_device(port):
         if not ok:
             logging.error("Failed to subscribe to Movesense")
 
-        await asyncio.sleep(1)
+        for i in range(12):
+            await asyncio.sleep(5)
+            logging.warning(
+                f"{(i + 1) * 5} seconds elapsed"
+            )  # TODO: check why the connection fails after 40 seconds
 
         logging.info("Unsubscribing from Movesense...")
         ok = await device.unsubscribe()
@@ -101,13 +105,13 @@ async def test_device(port):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
 
     devices = asyncio.run(detect_device())
 
     if len(devices) == 0:
         logging.warning("No devices found, attempting to reset ports")
-        devices = asyncio.run(detect_device(reset_ports=False))
+        devices = asyncio.run(detect_device(reset_ports=True))
         if len(devices) == 0:
             logging.warning("No devices found, exiting")
             exit(1)

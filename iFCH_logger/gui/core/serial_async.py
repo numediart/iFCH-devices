@@ -179,8 +179,12 @@ class FrameProtocol(asyncio.Protocol):
                         )
 
                     if cmd == Commands.CMD_BLE_NOTIFY:
-                        logging.debug("Received BLE notification: %s", payload.hex(" "))
                         self.notif_buffer.append(payload)
+                        logging.debug(
+                            "Received BLE notification [buffer: %d]: %s",
+                            len(self.notif_buffer),
+                            payload.hex(" "),
+                        )
                     else:
                         # Non‑blocking publish to whoever is interested
                         logging.debug(

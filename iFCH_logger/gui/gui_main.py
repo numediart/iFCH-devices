@@ -7,29 +7,83 @@ import qasync
 from core.device_service import DeviceService
 from core.serial_async import detect_device
 from PySide6.QtCore import Qt, Slot
-from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
+)
 
 SCAN_PERIOD_S = 1.0  # how often to probe USB when nothing is attached
 REFRESH_PERIOD_S = 3.0  # how often to poll battery when online
+
+STATE_FIELDS = [
+    ("bat", "Controller battery"),
+    ("mov", "Movesense address"),
+    ("mov_bat", "Movesense battery"),
+]
 
 
 # ----------------------------------------------------------------------
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Device battery monitor")
+        self.setWindowTitle("iFCH Holter Control")
         self.resize(300, 120)
 
-        self.label = QLabel("Starting...", alignment=Qt.AlignCenter)
-        lay = QVBoxLayout(self)
-        lay.addWidget(self.label)
+        # Main layout: split horizontally
+        main_layout = QHBoxLayout(self)
+
+        # Left zone: live ECG plot placeholder
+        self.plot_frame = QFrame()
+        self.plot_frame.setFrameShape(QFrame.Box)
+        self.plot_frame.setMinimumWidth(300)
+        plot_layout = QVBoxLayout(self.plot_frame)
+        self.plot_label = QLabel("ECG Live Plot Placeholder", alignment=Qt.AlignCenter)
+        plot_layout.addWidget(self.plot_label)
+        main_layout.addWidget(self.plot_frame)
+
+        # Right zone: form with fixed labels and value fields
+        self.info_widget = QWidget()
+        info_layout = QVBoxLayout(self.info_widget)
+
+        form_widget = QWidget()
+        form_layout = QFormLayout(form_widget)
+
+        self.fields = {}
+        for field in STATE_FIELDS:
+            key, label = field
+            value_label = QLabel("N/A")
+            form_layout.addRow(f"{label}:", value_label)
+            self.fields[key] = value_label
+
+        info_layout.addWidget(form_widget)
+        info_layout.addStretch(1)
+        self.status_label = QLabel("Starting")
+        info_layout.addWidget(self.status_label)
+
+        main_layout.addWidget(self.info_widget)
 
         self.cleanup = None
 
+    @Slot()
+    def reset_state(self):
+        for key in self.fields.keys():
+            self.fields[key].setText("N/A")
+
     # simple setters called by backend
+    @Slot(dict)
+    def show_state(self, state):
+        for key in self.fields.keys():
+            if key in state:
+                self.fields[key].setText(state[key])
+
     @Slot(str)
-    def show_state(self, text):
-        self.label.setText(text)
+    def show_status(self, status):
+        self.status_label.setText(status)
 
     def closeEvent(self, event):
         event.ignore()
@@ -37,7 +91,8 @@ class MainWindow(QWidget):
         asyncio.create_task(self._finish_shutdown())
 
     async def _finish_shutdown(self):
-        await self.cleanup()
+        if self.cleanup:
+            await self.cleanup()
         QApplication.instance().quit()
 
 
@@ -49,17 +104,19 @@ class Backend:
 
     # ------------- public entry‑point ---------------------------------
     async def run(self):
+        logging.debug("Starting backend")
         while True:
             await self._scan_loop()
 
     async def quit(self):
-        logging.debug("Quitting backend...")
+        logging.debug("Quitting backend")
         if self.svc is not None:
             await self.svc.stop()
 
     # ------------- private helpers -----------------------------------
     async def _scan_loop(self):
-        self.ui.show_state("Scanning USB...")
+        logging.debug("Starting scan loop")
+        self.ui.show_status("Scanning USB...")
 
         usb_lost = False
 
@@ -83,12 +140,14 @@ class Backend:
                         return_when=asyncio.FIRST_COMPLETED,
                     )
 
+                    self.ui.reset_state()
+
                     usb_lost = True
 
                     for task in pending:
                         task.cancel()
 
-                    self.ui.show_state("Disconnected, scanning USB...")
+                    self.ui.show_status("Disconnected, scanning USB...")
 
                 await asyncio.sleep(SCAN_PERIOD_S)
             except Exception as e:
@@ -96,13 +155,20 @@ class Backend:
                 await asyncio.sleep(SCAN_PERIOD_S)
 
     async def _online_loop(self) -> bool:
-        self.ui.show_state("Connected")
+        logging.info("Starting online loop")
+        self.ui.show_status("Connected")
         try:
             while True:
-                self.ui.show_state("Connected, getting battery...")
+                state = {}
+
+                self.ui.show_status("Getting battery...")
                 bat = await self.svc.get_battery()
                 if bat is None:
                     raise ConnectionError
+                bat = min(int(bat), 100)
+                state["bat"] = f"{bat}%"
+
+                self.ui.show_state(state)
 
                 # TODO first check if an experiment is in progress
                 if False:  # TODO if experiment in progress
@@ -115,13 +181,13 @@ class Backend:
                         logging.error("Failed to disconnect from Movesense")
                         raise ConnectionError
 
-                    self.ui.show_state("Scanning BLE devices...")
+                    self.ui.show_status("Scanning BLE devices...")
                     devices = await self.svc.scan()
                     if devices is None:
                         raise ConnectionError
 
                     if len(devices) > 0:
-                        self.ui.show_state("Movesense found, connecting...")
+                        self.ui.show_status("Movesense found, connecting...")
 
                         logging.info("Found devices: %s", devices)
 
@@ -130,7 +196,7 @@ class Backend:
                             # TODO warn the user that multiple Movesense are present
 
                         for dev in devices:
-                            self.ui.show_state(
+                            self.ui.show_status(
                                 f"Movesense found, connecting to {dev}..."
                             )
                             movesense_address = dev.split(";")[-1]
@@ -148,14 +214,19 @@ class Backend:
                                         "Connected to Movesense %s", movesense_address
                                     )
 
-                                    self.ui.show_state(
+                                    self.ui.show_status(
                                         f"Connected to {dev}, getting battery..."
                                     )
+                                    state["mov"] = dev
+
                                     mov_bat = await self.svc.get_mov_battery()
                                     if mov_bat is None:
                                         raise ConnectionError
+                                    state["mov_bat"] = f"{mov_bat}%"
 
-                                    self.ui.show_state(f"Subscribing to data stream...")
+                                    self.ui.show_status(
+                                        f"Subscribing to data stream..."
+                                    )
                                     result = await self.svc.subscribe()
                                     if not result:
                                         logging.error(
@@ -166,12 +237,16 @@ class Backend:
                                         logging.info("Subscribed to Movesense %s", dev)
                                         break
 
+                                    # TODO check why subscription is failing
+
+                self.ui.show_state(state)
+
                 await asyncio.sleep(REFRESH_PERIOD_S)
 
         except (ConnectionError, asyncio.IncompleteReadError, OSError) as e:
             logging.warning("Device disconnected: %s", e)
             await self.svc.stop()
-            self.ui.show_state("Scanning USB...")
+            self.ui.show_status("Scanning USB...")
             return True  # tell scan loop to restart
 
 
