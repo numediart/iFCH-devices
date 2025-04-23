@@ -1,12 +1,16 @@
 import asyncio
+import collections
 import datetime
 import json
 import logging
 import struct
+import time
 
+from .movesense_decoder import decode_stream_packet
 from .serial_async import Commands, open_connection
 
 BLE_TIMEOUT_S = 3
+PLOT_SAMPLES = 12 * 200
 
 
 class DeviceService:
@@ -18,20 +22,30 @@ class DeviceService:
         self.connected = False
         self.subscribed = False
 
+        self.plot_y = collections.deque(maxlen=PLOT_SAMPLES)
+        self.plot_x = collections.deque(maxlen=PLOT_SAMPLES)
+        self.time_start = -1
+
         self.config = {
             "address": None,
             "sensorPaths": [
-                "/Meas/Acc/13",
                 "/Meas/ECG/200",
+                "/Meas/Acc/13",
             ],
             "fetchIntervalMin": 1,  # TODO set this accordingly
         }
+
+        self.subscriptions = {}
+        for index, path in enumerate(self.config["sensorPaths"]):
+            self.subscriptions[index + 1] = path
 
     def set_address(self, address: str):
         self.config["address"] = address
 
     async def start(self):
         self.proto = await open_connection(self._port)
+        task = asyncio.create_task(self.process_notifications())
+        self._tasks.append(task)
 
     async def stop(self):
         logging.debug("Stopping device service")
@@ -48,11 +62,22 @@ class DeviceService:
 
         logging.debug("Device service stopped")
 
-    @property
-    def notifications(self):
-        if self.proto is None:
-            raise RuntimeError("DeviceService.start() not called")
-        return self.proto.notif_buffer
+    async def process_notifications(self):
+        while True:
+            # await next notification from the queue
+            payload = await self.proto.notif_queue.get()
+
+            timestamps, samples, ref = decode_stream_packet(payload, self.subscriptions)
+
+            if self.time_start == -1:
+                self.time_start = time.time() - timestamps[0]
+
+            if ref == 1:
+                timestamps = [t + self.time_start for t in timestamps]
+                self.plot_x.extend(timestamps)
+                self.plot_y.extend(samples)
+                print(samples)
+                # self.plot_y.extend([sample[0] for sample in samples])
 
     async def scan(self, retries=5, filter_movesense=True):
         scanned = []

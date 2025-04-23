@@ -2,15 +2,17 @@
 import asyncio
 import logging
 import sys
+import time
 
+import numpy as np
+import pyqtgraph as pg
 import qasync
 from core.device_service import DeviceService
 from core.serial_async import detect_device
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import QTimer, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QFormLayout,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QVBoxLayout,
@@ -18,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 SCAN_PERIOD_S = 1.0  # how often to probe USB when nothing is attached
-REFRESH_PERIOD_S = 3.0  # how often to poll battery when online
+REFRESH_PERIOD_S = 10.0  # how often to poll battery when online
 
 STATE_FIELDS = [
     ("bat", "Controller battery"),
@@ -29,7 +31,7 @@ STATE_FIELDS = [
 
 # ----------------------------------------------------------------------
 class MainWindow(QWidget):
-    def __init__(self):
+    def __init__(self, loop):
         super().__init__()
         self.setWindowTitle("iFCH Holter Control")
         self.resize(300, 120)
@@ -38,13 +40,20 @@ class MainWindow(QWidget):
         main_layout = QHBoxLayout(self)
 
         # Left zone: live ECG plot placeholder
-        self.plot_frame = QFrame()
-        self.plot_frame.setFrameShape(QFrame.Box)
-        self.plot_frame.setMinimumWidth(300)
+        self.plot_frame = QWidget()
         plot_layout = QVBoxLayout(self.plot_frame)
-        self.plot_label = QLabel("ECG Live Plot Placeholder", alignment=Qt.AlignCenter)
-        plot_layout.addWidget(self.plot_label)
-        main_layout.addWidget(self.plot_frame)
+
+        self.plot_widget = pg.PlotWidget()
+        self.plot_widget.getViewBox().setMouseEnabled(x=False, y=False)
+
+        self.plot_widget.setLabel("left", "ECG", units="V")
+        self.plot_widget.setLabel("bottom", "Seconds")
+        # Create a curve for the ECG data
+        self.ecg_curve = self.plot_widget.plot(pen="g")
+
+        # self.plot_label = QLabel("ECG Live Plot Placeholder", alignment=Qt.AlignCenter)
+        # plot_layout.addWidget(self.plot_label)
+        plot_layout.addWidget(self.plot_widget)
 
         # Right zone: form with fixed labels and value fields
         self.info_widget = QWidget()
@@ -65,9 +74,38 @@ class MainWindow(QWidget):
         self.status_label = QLabel("Starting")
         info_layout.addWidget(self.status_label)
 
-        main_layout.addWidget(self.info_widget)
+        main_layout.addWidget(self.plot_frame, 2.5)
+        main_layout.addWidget(self.info_widget, 1)
 
-        self.cleanup = None
+        # Timer to update the live plot
+        self.plot_timer = QTimer(self)
+        self.plot_timer.timeout.connect(self.poll_ecg_data)
+        self.plot_timer.start(50)
+
+        # Non UI related stuff
+        self._tasks = []
+        self.backend = Backend(self)
+
+        self._tasks.append(loop.create_task(self.backend.run()))
+
+    async def cleanup(self):
+        logging.debug("Cleaning up...")
+        for task in self._tasks:
+            task.cancel()
+        await self.backend.quit()
+
+    @Slot()
+    def poll_ecg_data(self):
+        if self.backend.svc is None or len(self.backend.svc.plot_x) == 0:
+            return
+
+        t = time.time()
+        x_time = np.asarray(self.backend.svc.plot_x) - t
+        self.ecg_curve.setData(x_time, self.backend.svc.plot_y, autoDownsample=True)
+
+        maxY = np.max(np.abs(self.backend.svc.plot_y))
+        self.plot_widget.setYRange(-maxY, maxY)
+        self.plot_widget.setXRange(-10, 0, padding=0)
 
     @Slot()
     def reset_state(self):
@@ -91,8 +129,7 @@ class MainWindow(QWidget):
         asyncio.create_task(self._finish_shutdown())
 
     async def _finish_shutdown(self):
-        if self.cleanup:
-            await self.cleanup()
+        await self.cleanup()
         QApplication.instance().quit()
 
 
@@ -237,11 +274,14 @@ class Backend:
                                         logging.info("Subscribed to Movesense %s", dev)
                                         break
 
-                                    # TODO check why subscription is failing
+                            # TODO check why subscription is failing
 
                 self.ui.show_state(state)
 
-                await asyncio.sleep(REFRESH_PERIOD_S)
+                if not self.svc.connected:
+                    await asyncio.sleep(SCAN_PERIOD_S)
+                else:
+                    await asyncio.sleep(REFRESH_PERIOD_S)
 
         except (ConnectionError, asyncio.IncompleteReadError, OSError) as e:
             logging.warning("Device disconnected: %s", e)
@@ -252,24 +292,14 @@ class Backend:
 
 # ----------------------------------------------------------------------
 def main():
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
 
     app = QApplication(sys.argv)
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
 
-    ui = MainWindow()
+    ui = MainWindow(loop)
     ui.show()
-
-    backend = Backend(ui)
-    task = loop.create_task(backend.run())  # fire‑and‑forget
-
-    async def cleanup():
-        logging.debug("Cleaning up...")
-        task.cancel()
-        await backend.quit()
-
-    ui.cleanup = cleanup
 
     with loop:
         loop.run_forever()

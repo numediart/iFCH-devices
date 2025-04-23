@@ -1,5 +1,4 @@
 import asyncio
-import collections
 import enum
 import logging
 import struct
@@ -14,7 +13,8 @@ MAX_PAYLOAD_SIZE = 512
 BAUD = 921_600
 SERIAL_TIMEOUT_S = 1
 SERIAL_RETRIES = 3
-NOTIF_BUFFER_SIZE = 256
+NOTIF_QUEUE_SIZE = 64
+RX_QUEUE_SIZE = 32
 
 
 class Commands(enum.IntEnum):
@@ -46,12 +46,44 @@ class Commands(enum.IntEnum):
     CMD_INVALID = 0xFF
 
 
+class BoundedQueue(asyncio.Queue):
+    def __init__(self, maxsize: int, drop_loglevel=logging.WARNING):
+        super().__init__(maxsize)
+        self.level = drop_loglevel
+
+    async def put(self, item):
+        if self.full():
+            try:
+                dropped = self.get_nowait()
+                logging.log(
+                    self.level, "Queue is full, discarding oldest item: %s", dropped
+                )
+
+            except asyncio.QueueEmpty:
+                pass
+
+        await super().put(item)
+
+    def put_nowait(self, item):
+        if self.full():
+            try:
+                dropped = self.get_nowait()
+                logging.log(
+                    self.level, "Queue is full, discarding oldest item: %s", dropped
+                )
+
+            except asyncio.QueueEmpty:
+                pass
+
+        super().put_nowait(item)
+
+
 class FrameProtocol(asyncio.Protocol):
     def __init__(self, loop: asyncio.AbstractEventLoop):
         self.transport = None
         self.buffer = bytearray()
-        self.rx_queue = asyncio.Queue()
-        self.notif_buffer = collections.deque(maxlen=NOTIF_BUFFER_SIZE)
+        self.rx_queue = BoundedQueue(RX_QUEUE_SIZE)
+        self.notif_queue = BoundedQueue(NOTIF_QUEUE_SIZE, logging.DEBUG)
         self.loop = loop
 
         self.connected = asyncio.Event()
@@ -179,12 +211,11 @@ class FrameProtocol(asyncio.Protocol):
                         )
 
                     if cmd == Commands.CMD_BLE_NOTIFY:
-                        self.notif_buffer.append(payload)
                         logging.debug(
-                            "Received BLE notification [buffer: %d]: %s",
-                            len(self.notif_buffer),
+                            "Received BLE notification : %s",
                             payload.hex(" "),
                         )
+                        self.notif_queue.put_nowait(payload)
                     else:
                         # Non‑blocking publish to whoever is interested
                         logging.debug(
