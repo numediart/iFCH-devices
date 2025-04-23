@@ -2,6 +2,7 @@ import asyncio
 import enum
 import logging
 import pathlib
+import struct
 import time
 from typing import Optional
 
@@ -34,11 +35,28 @@ def decode_stream(data, references: dict):
             timestamp = int.from_bytes(packet[2:6], byteorder="little")
 
             ecg_data = [
-                int.from_bytes(packet[i : i + 4], byteorder="little") * 0.38147e-3
+                struct.unpack("<i", packet[i : i + 4])[0] * 0.38147e-6
                 for i in range(6, len(packet), 4)
             ]
 
             print(f"ECG stream: {timestamp}, {ecg_data}")
+
+        if data_type == DataTypes.ACC:
+            if packet_type != Responses.DATA:
+                logging.error(f"Invalid packet type for {data_type}: {packet_type}")
+                continue
+
+            timestamp = int.from_bytes(packet[2:6], byteorder="little")
+
+            acc_data = [
+                [
+                    struct.unpack("<f", packet[i + j * 4 : i + (j + 1) * 4])[0]
+                    for j in range(3)
+                ]
+                for i in range(6, len(packet), 4 * 3)
+            ]
+
+            print(f"ACC stream: {timestamp}, {acc_data}")
 
         else:
             logging.warning(f"Stream decoding of {data_type} not implemented.")
@@ -69,6 +87,7 @@ class DataTypes(enum.Enum):
     ECG = "/Meas/ECG"
     IMU6 = "/Meas/IMU6"
     IMU9 = "/Meas/IMU9"
+    ACC = "/Meas/Acc"
 
 
 class Responses(enum.Enum):
@@ -117,6 +136,7 @@ class MovesenseController:
 
     ECG_128 = bytearray("/Meas/ECG/128", "utf-8")
     IMU_104 = bytearray("/Meas/IMU9/104", "utf-8")
+    ACC_13 = bytearray("/Meas/Acc/26", "utf-8")
 
     def __init__(self):
         self.command_responses = []
@@ -254,12 +274,14 @@ class MovesenseController:
 
         self.log_responses.clear()
 
+        # await self.send_command(Commands.SUBSCRIBE, client_ref=1, data=self.ACC_13)
         await self.send_command(Commands.SUBSCRIBE, client_ref=1, data=self.ECG_128)
 
         await asyncio.sleep(1)
 
         await self.send_command(Commands.UNSUBSCRIBE, client_ref=1)
 
+        # decode_stream(self.data_responses, {1: self.ACC_13})
         decode_stream(self.data_responses, {1: self.ECG_128})
 
         host_time = time.time()

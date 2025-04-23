@@ -152,10 +152,10 @@ class SBEMGroup:
 class SBEMDecoder:
     SBEM_TYPES = {
         "uint8": SBEMType(1, "B"),
-        "uint16": SBEMType(2, "H"),
-        "uint32": SBEMType(4, "I"),
-        "int32": SBEMType(4, "i"),
-        "float32": SBEMType(4, "f"),
+        "uint16": SBEMType(2, "<H"),
+        "uint32": SBEMType(4, "<I"),
+        "int32": SBEMType(4, "<i"),
+        "float32": SBEMType(4, "<f"),
     }
     RESERVED_SBEM_ID_E_ESCAPE = b"\255"
     RESERVED_SBEM_ID_E_DESCRIPTOR = 0
