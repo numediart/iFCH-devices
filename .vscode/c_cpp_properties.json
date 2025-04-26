@@ -32,7 +32,9 @@
                 "/home/mfrancois/.arduino15/packages/esp32/tools/esp-rv32/2411/riscv32-esp-elf/include/c++/14.2.0/backward",
                 "/home/mfrancois/.arduino15/packages/esp32/tools/esp-rv32/2411/lib/gcc/riscv32-esp-elf/14.2.0/include",
                 "/home/mfrancois/.arduino15/packages/esp32/tools/esp-rv32/2411/lib/gcc/riscv32-esp-elf/14.2.0/include-fixed",
-                "/home/mfrancois/.arduino15/packages/esp32/tools/esp-rv32/2411/riscv32-esp-elf/include"
+                "/home/mfrancois/.arduino15/packages/esp32/tools/esp-rv32/2411/riscv32-esp-elf/include",
+                "/opt/esp-idf/components",
+                "/opt/esp-idf/components/esp_driver_usb_serial_jtag/include"
             ],
             "forcedInclude": [
                 "/home/mfrancois/.arduino15/packages/esp32/hardware/esp32/3.2.0/cores/esp32/Arduino.h"

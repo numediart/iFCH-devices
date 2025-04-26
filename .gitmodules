@@ -1,3 +1,6 @@
 [submodule "iFCH_gatt/movesense-device-lib"]
 	path = iFCH_gatt/movesense-device-lib
 	url = https://bitbucket.org/movesense/movesense-device-lib.git
+[submodule "iFCH_logger/firmware/components/arduino"]
+	path = iFCH_logger/firmware/components/arduino
+	url = https://github.com/espressif/arduino-esp32.git
