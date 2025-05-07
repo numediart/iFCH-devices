@@ -50,7 +50,7 @@ void closeSerial();
 // Store its payload in rx_payload, with length in rx_payload_len
 // Return CMD_TIMEOUT if connection times out
 // Return CMD_INVALID if the frame is invalid
-CmdType readSerial();
+CmdType readSerial(bool wait);
 
 // Send a frame with retries if no ACK, return true if success
 bool sendProtectedFrame(CmdType cmd, uint8_t *payload, uint16_t len, uint8_t id);

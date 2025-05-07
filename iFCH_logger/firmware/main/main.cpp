@@ -400,8 +400,8 @@ void loop()
         sendFrame(CmdType::CMD_ERROR, queueNotif + 1, len);
     }
 
-    // Handle incoming Serial commands
-    CmdType cmd = readSerial();
+    // Handle incoming Serial commands without waiting
+    CmdType cmd = readSerial(false);
     if (cmd != CmdType::NONE)
     {
         // If the command is valid, handle it

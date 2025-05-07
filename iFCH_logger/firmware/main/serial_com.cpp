@@ -46,7 +46,7 @@ bool sendProtectedFrame(CmdType cmd, uint8_t *payload, uint16_t len, uint8_t id)
         sendFrame(cmd, payload, len);
 
         // Wait for ACK
-        if (readSerial() == CmdType::CMD_ACK)
+        if (readSerial(true) == CmdType::CMD_ACK)
         {
             if (rx_payload_len == 1 && rx_payload[0] == id)
             {
@@ -118,12 +118,22 @@ void closeSerial()
     usb_serial_jtag_driver_uninstall();
 }
 
-CmdType readSerial()
+CmdType readSerial(bool wait)
 {
 
     uint8_t startByte = 0;
-    if (readBytesNoWait(&startByte, 1) != 1)
+    if (wait)
+    {
+        if (readBytes(&startByte, 1) != 1)
+        {
+            sendCMD(CmdType::CMD_TIMEOUT);
+            return CmdType::CMD_TIMEOUT;
+        }
+    }
+    else if (readBytesNoWait(&startByte, 1) != 1)
+    {
         return CmdType::NONE;
+    }
 
     if (startByte != START_BYTE)
         return CmdType::CMD_INVALID;

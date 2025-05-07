@@ -3,16 +3,21 @@
 
 #include "globals.h"
 
-#define CONFIG_FILE "/config.json"
-#define RECORD_FILE "/record.json"
+#define MOUNT_POINT "/sdcard"
+#define CONFIG_FILE MOUNT_POINT "/config.json"
+#define RECORD_FILE MOUNT_POINT "/record.json"
 
-#define SD_SELECT_PIN 18
-#define SD_INIT_RETRIES 5
+#define PIN_NUM_MISO 21
+#define PIN_NUM_MOSI 20
+#define PIN_NUM_CLK 19
+#define PIN_NUM_CS (gpio_num_t)18
+#define PIN_SD_DET (gpio_num_t)22
+
 #define SD_BUFFER_SIZE 512
 
-bool sendFile(const char *filename);
+bool sendFile(String filename);
 
-String receiveFile(const char *filename);
+String receiveFile(String filename);
 
 void setupSDCard();
 

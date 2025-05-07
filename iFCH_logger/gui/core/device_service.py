@@ -156,13 +156,17 @@ class DeviceService:
 
         file_name, data = await self.proto.wait_for_file()
 
-        if file_name is None or file_name != "/config.json":
+        if file_name is None or file_name != "/sdcard/config.json":
             logging.error("Failed to get config file")
             return None
 
-        config = json.loads(data.decode("utf-8"))
-        logging.debug("Received config file: %s", config)
-        return config
+        try:
+            config = json.loads(data.decode("utf-8"))
+            logging.debug("Received config file: %s", config)
+            return config
+        except json.JSONDecodeError as e:
+            logging.error("Failed to decode config file: %s", e)
+            return None
 
     async def get_version(self):
         self.proto.send_frame(Commands.CMD_VERSION)
