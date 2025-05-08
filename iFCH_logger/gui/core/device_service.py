@@ -14,6 +14,8 @@ PLOT_SAMPLES = 12 * 200
 
 
 class DeviceService:
+    CONFIG_FILE = "/sdcard/config.jsn"
+
     def __init__(self, port: str):
         self._port = port
         self.proto = None
@@ -126,7 +128,7 @@ class DeviceService:
 
         # Step 2 - send the file
         config_data = json.dumps(self.config).encode("utf-8")
-        ok = await self.proto.send_file(config_data, "/config.json")
+        ok = await self.proto.send_file(config_data, self.CONFIG_FILE)
 
         if not ok:
             logging.error("Failed to send config file")
@@ -140,7 +142,7 @@ class DeviceService:
         if payload is None:
             logging.error("Config PUT request timed out")
             return False
-        elif payload.decode("utf-8") != "/config.json":
+        elif payload.decode("utf-8") != self.CONFIG_FILE:
             logging.error(
                 "Config PUT request failed, received: %s", payload.decode("utf-8")
             )
@@ -156,7 +158,7 @@ class DeviceService:
 
         file_name, data = await self.proto.wait_for_file()
 
-        if file_name is None or file_name != "/sdcard/config.json":
+        if file_name is None or file_name != self.CONFIG_FILE:
             logging.error("Failed to get config file")
             return None
 

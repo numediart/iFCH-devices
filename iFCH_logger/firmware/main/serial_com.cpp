@@ -10,7 +10,17 @@ uint16_t rx_payload_len = 0;
 
 size_t readBytes(uint8_t *buf, uint32_t length)
 {
-    return usb_serial_jtag_read_bytes(buf, length, pdMS_TO_TICKS(SERIAL_TIMEOUT));
+    size_t total_read = 0;
+    while (total_read < length)
+    {
+        size_t read = usb_serial_jtag_read_bytes(buf + total_read, length - total_read, pdMS_TO_TICKS(SERIAL_TIMEOUT));
+        if (read <= 0)
+        {
+            break;
+        }
+        total_read += read;
+    }
+    return total_read;
 }
 
 size_t readBytesNoWait(uint8_t *buf, uint32_t length)
@@ -126,6 +136,7 @@ CmdType readSerial(bool wait)
     {
         if (readBytes(&startByte, 1) != 1)
         {
+            sendErr("readSerial", "Failed to read start byte");
             sendCMD(CmdType::CMD_TIMEOUT);
             return CmdType::CMD_TIMEOUT;
         }
@@ -136,11 +147,15 @@ CmdType readSerial(bool wait)
     }
 
     if (startByte != START_BYTE)
-        return CmdType::CMD_INVALID;
+    {
+        ESP_LOGW("readSerial", "Invalid start byte: 0x%02X", startByte);
+        return CmdType::NONE;
+    }
 
     uint8_t header[3];
     if (readBytes(header, 3) != 3)
     {
+        sendErr("readSerial", "Failed to read header");
         sendCMD(CmdType::CMD_TIMEOUT);
         return CmdType::CMD_TIMEOUT;
     }
@@ -154,8 +169,10 @@ CmdType readSerial(bool wait)
         return CmdType::CMD_INVALID;
     }
 
-    if (readBytes(rx_payload, rx_payload_len) != rx_payload_len)
+    size_t read = readBytes(rx_payload, rx_payload_len);
+    if (read != rx_payload_len)
     {
+        sendErr("readSerial", "Failed to read payload, got " + String(read) + " bytes, expected " + String(rx_payload_len));
         sendCMD(CmdType::CMD_TIMEOUT);
         return CmdType::CMD_TIMEOUT;
     }
@@ -171,6 +188,7 @@ CmdType readSerial(bool wait)
 
     if (readBytes((uint8_t *)&receivedCrc, 4) != 4)
     {
+        sendErr("readSerial", "Failed to read CRC");
         sendCMD(CmdType::CMD_TIMEOUT);
         return CmdType::CMD_TIMEOUT;
     }

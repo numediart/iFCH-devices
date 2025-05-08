@@ -4,8 +4,8 @@
 #include "globals.h"
 
 #define MOUNT_POINT "/sdcard"
-#define CONFIG_FILE MOUNT_POINT "/config.json"
-#define RECORD_FILE MOUNT_POINT "/record.json"
+#define CONFIG_FILE MOUNT_POINT "/config.jsn"
+#define RECORD_FILE MOUNT_POINT "/record.jsn"
 
 #define PIN_NUM_MISO 21
 #define PIN_NUM_MOSI 20

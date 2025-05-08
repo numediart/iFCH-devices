@@ -42,9 +42,15 @@ bool sendFile(String filename)
 
         while (!feof(f))
         {
+            size_t len = fread(tx_buffer + 1, 1, MAX_PAYLOAD_SIZE - 1, f);
+            if (len == 0)
+            {
+                // Already reached EOF
+                break;
+            }
+
             seqNum += 1;
             tx_buffer[0] = seqNum;
-            size_t len = fread(tx_buffer + 1, 1, MAX_PAYLOAD_SIZE - 1, f);
 
             sentOK = sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, len + 1, seqNum);
             if (!sentOK)
@@ -77,93 +83,91 @@ bool sendFile(String filename)
 String receiveFile(String filename)
 {
     String receivedName = "";
-    // TODO
 
-    // // Open the file for writing
-    // File toReceive = SD.open(filename, FILE_WRITE, true);
-    // if (!toReceive)
-    // {
-    //     sendErr("receiveFile", "Failed to open file");
-    //     errorReset(COLOR_SD);
-    //     return "";
-    // }
+    // Open the file for writing
+    FILE *f = fopen(filename.c_str(), "w");
+    if (f == NULL)
+    {
+        sendErr("receiveFile", "Failed to open file for writing: " + filename);
+        return "";
+    }
 
-    // // Wait for the first packet
-    // uint8_t expectedID = 0;
-    // rgbLedWrite(RGB_BUILTIN, COLOR_SD);
+    // Wait for the first packet
+    uint8_t expectedID = 0;
+    rgbLedWrite(RGB_BUILTIN, COLOR_SD);
 
-    // while (true)
-    // {
-    //     CmdType cmd = readSerial(true);
-    //     if (cmd == CmdType::CMD_FILE_CHUNK)
-    //     {
-    //         uint8_t receivedID = rx_payload[0];
+    while (true)
+    {
+        CmdType cmd = readSerial(true);
+        if (cmd == CmdType::CMD_FILE_CHUNK)
+        {
+            uint8_t receivedID = rx_payload[0];
 
-    //         // Check that the ID is correct
-    //         if (receivedID == expectedID)
-    //         {
-    //             // If the first byte is 0, it means that the filename is being sent
-    //             if (expectedID == 0)
-    //             {
-    //                 // Store received file name
-    //                 receivedName = String((char *)(rx_payload + 1), rx_payload_len - 1);
-    //             }
+            // Check that the ID is correct
+            if (receivedID == expectedID)
+            {
+                // If the first byte is 0, it means that the filename is being sent
+                if (expectedID == 0)
+                {
+                    // Store received file name
+                    receivedName = String((char *)(rx_payload + 1), rx_payload_len - 1);
+                }
 
-    //             // If not first packet and not empty, then write chunk to file
-    //             else if (rx_payload_len > 1)
-    //             {
-    //                 // Write the data to the file
-    //                 size_t written = toReceive.write(rx_payload + 1, rx_payload_len - 1);
+                // If not first packet and not empty, then write chunk to file
+                else if (rx_payload_len > 1)
+                {
+                    // Write the data to the file
+                    size_t written = fwrite(rx_payload + 1, 1, rx_payload_len - 1, f);
 
-    //                 // If the write failed, blink the LED and break
-    //                 if (written != rx_payload_len - 1)
-    //                 {
-    //                     sendErr("receiveFile", "Failed to write file");
-    //                     errorReset(COLOR_SD);
-    //                     receivedName = "";
-    //                     break;
-    //                 }
-    //             }
+                    // If the write failed, blink the LED and break
+                    if (written != rx_payload_len - 1)
+                    {
+                        sendErr("receiveFile", "Failed to write file");
+                        errorReset(COLOR_SD);
+                        receivedName = "";
+                        break;
+                    }
+                }
 
-    //             // Send ACK
-    //             sendFrame(CmdType::CMD_ACK, &receivedID, 1);
+                // Send ACK
+                sendFrame(CmdType::CMD_ACK, &receivedID, 1);
 
-    //             // Wait for next chunk
-    //             expectedID += 1;
+                // Wait for next chunk
+                expectedID += 1;
 
-    //             // If empty chunk received, this was the end of the file
-    //             if (rx_payload_len == 1)
-    //             {
-    //                 // If the length is 1, it means that the file transfer is finished
-    //                 break;
-    //             }
-    //         }
-    //         // If we received previous packet again
-    //         else if (expectedID == receivedID + 1)
-    //         {
-    //             // Send ACK for already received packet
-    //             sendFrame(CmdType::CMD_ACK, &receivedID, 1);
-    //         }
-    //         // Invalid chunk ID received
-    //         else
-    //         {
-    //             receivedName = "";
-    //             break;
-    //         }
-    //     }
-    //     // Invalid command received
-    //     else
-    //     {
-    //         receivedName = "";
-    //         break;
-    //     }
-    // }
+                // If empty chunk received, this was the end of the file
+                if (rx_payload_len == 1)
+                {
+                    // If the length is 1, it means that the file transfer is finished
+                    break;
+                }
+            }
+            // If we received previous packet again
+            else if (expectedID == receivedID + 1)
+            {
+                // Send ACK for already received packet
+                sendFrame(CmdType::CMD_ACK, &receivedID, 1);
+            }
+            // Invalid chunk ID received
+            else
+            {
+                receivedName = "";
+                break;
+            }
+        }
+        // Invalid command received
+        else
+        {
+            sendErr("receiveFile", "Invalid command received");
+            receivedName = "";
+            break;
+        }
+    }
 
-    // // If file exists, close it
-    // toReceive.flush();
-    // toReceive.close();
+    // If file exists, close it
+    fclose(f);
 
-    // digitalWrite(RGB_BUILTIN, 0);
+    digitalWrite(RGB_BUILTIN, 0);
 
     return receivedName;
 }

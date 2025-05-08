@@ -300,10 +300,17 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    case CmdType::CMD_INVALID:
+    {
+        // Handle invalid command
+        sendErr("CMD_INVALID", "Invalid command");
+        break;
+    }
+
     default:
     {
         // Handle other commands
-        sendErr("CMD_INVALID", "Invalid command");
+        sendErr("CMD_UNE", "Unexpected command: " + String((uint8_t)cmd));
         break;
     }
     }
