@@ -8,7 +8,7 @@ idf_component_register(SRCS "${srcs}"
     REQUIRES nvs_flash
     REQUIRES FastCRC
     REQUIRES fatfs
+    REQUIRES json
 
     # REQUIRES vfs
-    # REQUIRES json
 )

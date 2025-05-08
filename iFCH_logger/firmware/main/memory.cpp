@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
+#include "cJSON.h"
 
 bool sendFile(String filename)
 {
@@ -226,55 +227,85 @@ void setupSDCard()
 
 bool loadJsonConfig()
 {
-    // TODO
+    config.initialized = false;
 
+    struct stat st;
     // If the config file does not exist, return false
-    // if (!SD.exists(CONFIG_FILE))
-    // {
-    //     sendErr("loadJsonConfig", "Config file not found");
-    //     return false;
-    // }
+    if (stat(CONFIG_FILE, &st) != 0)
+    {
+        ESP_LOGW("loadJsonConfig", "Config file not found");
+        return false;
+    }
+    FILE *f = fopen(CONFIG_FILE, "r");
+    if (f == NULL)
+    {
+        sendErr("loadJsonConfig", "Failed to open config file");
+        errorReset(COLOR_SD);
+        return false;
+    }
 
-    // File file = SD.open(CONFIG_FILE, FILE_READ);
-    // if (!file)
-    // {
-    //     sendErr("loadJsonConfig", "Failed to open config file");
-    //     errorReset(COLOR_SD);
-    //     return false;
-    // }
+    char buffer[JSON_BUFFER_SIZE];
+    size_t len = fread(buffer, 1, JSON_BUFFER_SIZE, f);
+    fclose(f);
 
-    // Estimate the size: adjust based on your actual config
-    // StaticJsonDocument<512> doc;
+    cJSON *json = cJSON_ParseWithLength(buffer, len);
 
-    // // Use buffer to speed up SD reading
-    // ReadBufferingStream bufferedFile{file, SD_BUFFER_SIZE};
-    // DeserializationError err = deserializeJson(doc, bufferedFile);
-    // file.close();
+    if (json == NULL)
+    {
+        sendErr("loadJsonConfig", "Failed to parse config file");
+        cJSON_Delete(json);
+        return false;
+    }
 
-    // // Validate expected fields
-    // if (err ||
-    //     !doc.containsKey("sensorPaths") ||
-    //     !doc.containsKey("fetchIntervalMin") ||
-    //     !doc.containsKey("address"))
-    // {
-    //     sendErr("loadJsonConfig", "Config file corrupted");
-    //     return false;
-    // }
+    cJSON *sensorPaths = cJSON_GetObjectItemCaseSensitive(json, "sensorPaths");
+    if (sensorPaths == NULL || !cJSON_IsArray(sensorPaths))
+    {
+        sendErr("loadJsonConfig", "Invalid sensorPaths in config file");
+        cJSON_Delete(json);
+        return false;
+    }
 
-    // config.sensorPaths.clear();
-    // for (JsonVariant path : doc["sensorPaths"].as<JsonArray>())
-    // {
-    //     config.sensorPaths.push_back(path.as<String>());
-    // }
+    uint8_t index;
+    cJSON *child;
+    config.sensorPaths.clear();
 
-    // config.address = doc["address"].as<String>();
-    // config.fetchIntervalMin = doc["fetchIntervalMin"];
+    for (child = sensorPaths->child, index = 0; child != NULL; child = child->next, index++)
+    {
+        if (cJSON_IsString(child) && (child->valuestring != NULL))
+        {
+            config.sensorPaths.push_back(String(child->valuestring));
+        }
+        else
+        {
+            sendErr("loadJsonConfig", "Invalid sensorPath in config file");
+            cJSON_Delete(json);
+            return false;
+        }
+    }
 
-    // config.initialized = true;
+    cJSON *address = cJSON_GetObjectItemCaseSensitive(json, "address");
+    if (address == NULL || !cJSON_IsString(address) || (address->valuestring == NULL))
+    {
+        sendErr("loadJsonConfig", "Invalid address in config file");
+        cJSON_Delete(json);
+        return false;
+    }
+    config.address = String(address->valuestring);
 
-    // ESP_LOGI("loadJsonConfig", "Config file loaded");
+    cJSON *fetchInterval = cJSON_GetObjectItemCaseSensitive(json, "fetchIntervalMin");
+    if (fetchInterval == NULL || !cJSON_IsNumber(fetchInterval))
+    {
+        sendErr("loadJsonConfig", "Invalid fetchIntervalMin in config file");
+        cJSON_Delete(json);
+        return false;
+    }
+    config.fetchIntervalMin = fetchInterval->valueint;
 
-    return true;
+    config.initialized = true;
+    ESP_LOGI("loadJsonConfig", "Config file loaded");
+
+    cJSON_Delete(json);
+    return config.initialized;
 }
 
 bool loadJsonRecord()

@@ -13,7 +13,7 @@
 #define PIN_NUM_CS (gpio_num_t)18
 #define PIN_SD_DET (gpio_num_t)22
 
-#define SD_BUFFER_SIZE 512
+#define JSON_BUFFER_SIZE 512
 
 bool sendFile(String filename);
 

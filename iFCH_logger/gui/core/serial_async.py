@@ -89,6 +89,8 @@ class FrameProtocol(asyncio.Protocol):
         self.connected = asyncio.Event()
         self.disconnected = asyncio.Event()
 
+        self.other_rx = []
+
     # --- low‑level serial callbacks ----------------------------------
     def connection_made(self, transport):
         self.transport = transport
@@ -185,6 +187,14 @@ class FrameProtocol(asyncio.Protocol):
             # Synchronise on START_BYTE
             if self.buffer[0] != START_BYTE:
                 # discard until next possible start byte
+
+                char = self.buffer[0:1].decode()
+                self.other_rx.append(self.buffer[0:1].decode())
+
+                if char == "\n" or len(self.other_rx) > 512:
+                    logging.info("ESP RX: %s", "".join(self.other_rx))
+                    self.other_rx = []
+
                 del self.buffer[0]
                 continue
 
