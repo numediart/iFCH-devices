@@ -290,7 +290,6 @@ bool loadJsonConfig()
         cJSON_Delete(json);
         return false;
     }
-    config.address = String(address->valuestring);
 
     cJSON *fetchInterval = cJSON_GetObjectItemCaseSensitive(json, "fetchIntervalMin");
     if (fetchInterval == NULL || !cJSON_IsNumber(fetchInterval))
@@ -299,9 +298,11 @@ bool loadJsonConfig()
         cJSON_Delete(json);
         return false;
     }
-    config.fetchIntervalMin = fetchInterval->valueint;
 
+    config.address = String(address->valuestring);
+    config.fetchIntervalMin = fetchInterval->valueint;
     config.initialized = true;
+
     ESP_LOGI("loadJsonConfig", "Config file loaded");
 
     cJSON_Delete(json);
@@ -310,47 +311,61 @@ bool loadJsonConfig()
 
 bool loadJsonRecord()
 {
-    // TODO
+    struct stat st;
+    // If the record file does not exist, return false
+    if (stat(RECORD_FILE, &st) != 0)
+    {
+        ESP_LOGW("loadJsonRecord", "Record file not found");
+        return false;
+    }
+    FILE *f = fopen(RECORD_FILE, "r");
+    if (f == NULL)
+    {
+        sendErr("loadJsonRecord", "Failed to open record file");
+        errorReset(COLOR_SD);
+        return false;
+    }
 
-    // // If the record file does not exist, just use default values
-    // if (!SD.exists(RECORD_FILE))
-    // {
-    //     return false;
-    // }
+    char buffer[JSON_BUFFER_SIZE];
+    size_t len = fread(buffer, 1, JSON_BUFFER_SIZE, f);
+    fclose(f);
 
-    // File file = SD.open(RECORD_FILE, FILE_READ);
-    // if (!file)
-    // {
-    //     sendErr("loadJsonRecord", "Failed to open record file");
-    //     errorReset(COLOR_SD);
-    //     return false;
-    // }
+    cJSON *json = cJSON_ParseWithLength(buffer, len);
 
-    // // Estimate the size: adjust based on your actual config
-    // StaticJsonDocument<128> doc;
+    cJSON *lastFetch = cJSON_GetObjectItemCaseSensitive(json, "lastFetch");
+    if (lastFetch == NULL || !cJSON_IsNumber(lastFetch))
+    {
+        sendErr("loadJsonRecord", "Invalid lastFetch in record file");
+        cJSON_Delete(json);
+        blink(COLOR_RUNTIME_ERROR, 5, 50);
+        return false;
+    }
 
-    // // Use buffer to speed up SD reading
-    // ReadBufferingStream bufferedFile{file, SD_BUFFER_SIZE};
-    // DeserializationError err = deserializeJson(doc, bufferedFile);
-    // file.close();
+    cJSON *logging = cJSON_GetObjectItemCaseSensitive(json, "logging");
+    if (logging == NULL || !cJSON_IsBool(logging))
+    {
+        sendErr("loadJsonRecord", "Invalid logging in record file");
+        cJSON_Delete(json);
+        blink(COLOR_RUNTIME_ERROR, 5, 50);
+        return false;
+    }
 
-    // // Validate expected fields
-    // // If the file is corrupted, just use default values and blink
-    // if (err ||
-    //     !doc.containsKey("lastFetch") ||
-    //     !doc.containsKey("logging") ||
-    //     !doc.containsKey("id"))
-    // {
-    //     blink(COLOR_RUNTIME_ERROR, 5, 50);
-    //     return false;
-    // }
+    cJSON *id = cJSON_GetObjectItemCaseSensitive(json, "id");
+    if (id == NULL || !cJSON_IsNumber(id))
+    {
+        sendErr("loadJsonRecord", "Invalid id in record file");
+        cJSON_Delete(json);
+        blink(COLOR_RUNTIME_ERROR, 5, 50);
+        return false;
+    }
 
-    // record.lastFetch = doc["lastFetch"];
-    // record.logging = doc["logging"];
-    // record.id = doc["id"];
+    record.lastFetch = lastFetch->valueint;
+    record.logging = cJSON_IsTrue(logging);
+    record.id = id->valueint;
 
-    // ESP_LOGI("loadJsonRecord", "Record file loaded");
+    ESP_LOGI("loadJsonRecord", "Record file loaded");
 
+    cJSON_Delete(json);
     return true;
 }
 
