@@ -10,5 +10,5 @@ idf_component_register(SRCS "${srcs}"
     REQUIRES fatfs
     REQUIRES json
 
-    # REQUIRES vfs
+    # REQUIRES vfs //TODO remove?
 )

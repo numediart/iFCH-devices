@@ -7,9 +7,10 @@
 #include "services/gap/ble_svc_gap.h"
 
 #include "esp_ble.h"
+#include "utils.h"
+#include "serial_com.h"
 
-static const char *tag = "iFCH_logger";
-static int gap_event_callback(struct ble_gap_event *event, void *arg);
+static const char *tag = "iFCH_logger"; // TODO remove
 
 char *
 addr_to_str(const void *addr)
@@ -22,51 +23,6 @@ addr_to_str(const void *addr)
             u8p[5], u8p[4], u8p[3], u8p[2], u8p[1], u8p[0]);
 
     return buf;
-}
-
-/**
- * Initiates the GAP general discovery procedure.
- */
-static void
-start_ble_scan(void)
-{
-    uint8_t own_addr_type;
-    struct ble_gap_disc_params disc_params;
-    int rc;
-
-    /* Figure out address to use while advertising (no privacy for now) */
-    rc = ble_hs_id_infer_auto(0, &own_addr_type);
-    if (rc != 0)
-    {
-        ESP_LOGE(tag, "error determining address type; rc=%d\n", rc);
-        return;
-    }
-
-    /* Tell the controller to filter duplicates; we don't want to process
-     * repeated advertisements from the same device.
-     */
-    disc_params.filter_duplicates = 1;
-
-    /**
-     * Perform a passive scan.  I.e., don't send follow-up scan requests to
-     * each advertiser.
-     */
-    disc_params.passive = 0;
-
-    /* Use defaults for the rest of the parameters. */
-    disc_params.itvl = 500;
-    disc_params.window = 500;
-    disc_params.filter_policy = 0;
-    disc_params.limited = 0;
-
-    rc = ble_gap_disc(own_addr_type, 1000, &disc_params,
-                      gap_event_callback, NULL);
-    if (rc != 0)
-    {
-        ESP_LOGE(tag, "Error initiating GAP discovery procedure; rc=%d\n",
-                 rc);
-    }
-    ESP_LOGI(tag, "Scanning for devices...\n");
 }
 
 /**
@@ -87,19 +43,18 @@ static int
 gap_event_callback(struct ble_gap_event *event, void *arg)
 {
     struct ble_hs_adv_fields fields;
-    int rc;
 
     switch (event->type)
     {
     case BLE_GAP_EVENT_DISC:
     {
-        ESP_LOGI(tag, "Advertisement report; addr=%s "
-                      "length_data=%d\n",
+        ESP_LOGD(tag, "Advertisement report; addr=%s "
+                      "length_data=%d",
                  addr_to_str(event->disc.addr.val),
                  event->disc.length_data);
 
-        rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
-                                     event->disc.length_data);
+        int rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
+                                         event->disc.length_data);
         if (rc != 0)
         {
             return 0;
@@ -109,8 +64,19 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
             char name[fields.name_len + 1];
             memcpy(name, fields.name, fields.name_len);
             name[fields.name_len] = '\0';
-            ESP_LOGI(tag, "Name: %s\n", name);
+
+            String devAddress = String(addr_to_str(event->disc.addr.val));
+            String devName = String(name);
+
+            // Combine the name and the address
+            String devRepr = devName + ";" + devAddress;
+
+            ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
+
+            // Send the device representation to the serial port
+            sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
         }
+
         return 0;
     }
 
@@ -125,7 +91,7 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
         else
         {
             /* Connection attempt failed; resume scanning. */
-            ESP_LOGI(tag, "Error: Connection failed; status=%d\n",
+            ESP_LOGI(tag, "Error: Connection failed; status=%d",
                      event->link_estab.status);
         }
 
@@ -141,10 +107,11 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_DISC_COMPLETE:
     {
-        ESP_LOGI(tag, "ble scan complete; reason=%d\n",
+        ESP_LOGI("scanBleDevices", "ble scan complete; reason=%d",
                  event->disc_complete.reason);
 
-        start_ble_scan();
+        sendCMD(CmdType::CMD_SCAN);
+        digitalWrite(RGB_BUILTIN, 0);
         return 0;
     }
 
@@ -159,7 +126,7 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_NOTIFY_RX:
     { /* Peer sent us a notification or indication. */
         ESP_LOGI(tag, "received %s; conn_handle=%d attr_handle=%d "
-                      "attr_len=%d\n",
+                      "attr_len=%d",
                  event->notify_rx.indication ? "indication" : "notification",
                  event->notify_rx.conn_handle,
                  event->notify_rx.attr_handle,
@@ -172,7 +139,7 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_MTU:
     {
-        ESP_LOGI(tag, "mtu update event; conn_handle=%d cid=%d mtu=%d\n",
+        ESP_LOGI(tag, "mtu update event; conn_handle=%d cid=%d mtu=%d",
                  event->mtu.conn_handle,
                  event->mtu.channel_id,
                  event->mtu.value);
@@ -185,7 +152,7 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
          * establish a new secure link.  This app sacrifices security for
          * convenience: just throw away the old bond and accept the new link.
          */
-        ESP_LOGI(tag, "repeat pairing; conn_handle=%d\n",
+        ESP_LOGI(tag, "repeat pairing; conn_handle=%d",
                  event->repeat_pairing.conn_handle);
 
         return 0;
@@ -196,10 +163,11 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
         /* An advertisement report was received during GAP discovery. */
         struct ble_gap_ext_disc_desc *disc = (struct ble_gap_ext_disc_desc *)&event->disc;
 
-        ESP_LOGI(tag, "Extended advertisement report; addr=%s "
-                      "length_data=%d\n",
+        ESP_LOGD("scanBLEDevices", "Extended advertisement report; addr=%s "
+                                   "length_data=%d",
                  addr_to_str(disc->addr.val),
                  disc->length_data);
+
         int rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
         if (rc != 0)
         {
@@ -210,7 +178,17 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
             char name[fields.name_len + 1];
             memcpy(name, fields.name, fields.name_len);
             name[fields.name_len] = '\0';
-            ESP_LOGI(tag, "Name: %s\n", name);
+
+            String devAddress = String(addr_to_str(disc->addr.val));
+            String devName = String(name);
+
+            // Combine the name and the address
+            String devRepr = devName + ";" + devAddress;
+
+            ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
+
+            // Send the device representation to the serial port
+            sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
         }
 
         return 0;
@@ -225,38 +203,36 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
 static void
 nimble_reset_callback(int reason)
 {
-    ESP_LOGE(tag, "Resetting NimBLE host; reason=%d\n", reason);
+    sendErr("nimble_reset", "Resetting NimBLE host");
 }
 
 static void
 nimble_sync_callback(void)
 {
-    ESP_LOGI(tag, "NimBLE host sync\n");
+    ESP_LOGI("nimble_sync", "NimBLE host sync");
 
     /* Make sure we have proper identity address set (public preferred) */
-    int rc;
-    rc = ble_hs_util_ensure_addr(0);
-    assert(rc == 0);
-
-    /* Begin scanning for a peripheral to connect to. */
-    start_ble_scan();
+    int rc = ble_hs_util_ensure_addr(0);
+    if (rc != 0)
+    {
+        sendErr("nimble_sync", "Failed to set address");
+        errorReset(COLOR_BLE);
+        return;
+    }
 }
 
 void nimble_host_task(void *param)
 {
-    ESP_LOGI(tag, "BLE Host Task Started");
+    ESP_LOGI("nimble_host", "BLE Host Task Started");
     /* This function will return only when nimble_port_stop() is executed */
     nimble_port_run();
 
     nimble_port_freertos_deinit();
-    ESP_LOGI(tag, "BLE Host Task Stopped");
+    ESP_LOGI("nimble_host", "BLE Host Task Stopped");
 }
 
-void app_main(void)
+void setupBLE()
 {
-    ESP_LOGI(tag, "App main started");
-
-    int rc;
     /* Initialize NVS — it is used to store PHY calibration data */
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
@@ -269,7 +245,8 @@ void app_main(void)
     ret = nimble_port_init();
     if (ret != ESP_OK)
     {
-        ESP_LOGE(tag, "Failed to init nimble %d ", ret);
+        sendErr("setupBLE", "Failed to init nimble");
+        errorReset(COLOR_BLE);
         return;
     }
 
@@ -278,15 +255,48 @@ void app_main(void)
     ble_hs_cfg.sync_cb = nimble_sync_callback;
 
     /* Set the default device name. */
-    rc = ble_svc_gap_device_name_set("iFCH_logger");
-    assert(rc == 0);
+    int rc = ble_svc_gap_device_name_set("iFCH_logger");
+    if (rc != 0)
+    {
+        sendErr("setupBLE", "Failed to set device name");
+        errorReset(COLOR_BLE);
+        return;
+    }
 
     nimble_port_freertos_init(nimble_host_task);
 }
 
-void setupBLE() {}
+void scanBLEDevices()
+{
+    uint8_t own_addr_type;
+    struct ble_gap_disc_params disc_params;
+    int rc;
 
-void scanBLEDevices() {}
+    rc = ble_hs_id_infer_auto(0, &own_addr_type);
+    if (rc != 0)
+    {
+        sendErr("scanBLEDevices", "error determining address type");
+        return;
+    }
+
+    disc_params.filter_duplicates = 1;
+    disc_params.passive = 0;
+
+    disc_params.itvl = BLE_SCAN_INTERVAL;
+    disc_params.window = BLE_SCAN_WINDOW;
+    disc_params.filter_policy = 0;
+    disc_params.limited = 0;
+
+    rc = ble_gap_disc(own_addr_type, BLE_SCAN_TIME, &disc_params,
+                      gap_event_callback, NULL);
+    if (rc != 0)
+    {
+        sendErr("scanBLEDevices", "Error initiating GAP discovery procedure: " + String(rc));
+    }
+
+    rgbLedWrite(RGB_BUILTIN, COLOR_BLE);
+    ESP_LOGI("scanBLEDevices", "Scanning for devices...");
+}
 
 bool connectMovesense() { return false; }
 void disconnectMovesense() {}
