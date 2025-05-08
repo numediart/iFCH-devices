@@ -371,41 +371,43 @@ bool loadJsonRecord()
 
 bool saveJsonRecord()
 {
-    // TODO
+    // Create a JSON object and add the record data
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddNumberToObject(json, "lastFetch", record.lastFetch);
+    cJSON_AddBoolToObject(json, "logging", record.logging);
+    cJSON_AddNumberToObject(json, "id", record.id);
 
-    // // Create a JSON document
-    // StaticJsonDocument<128> doc;
+    // Open the file for writing
+    FILE *f = fopen(RECORD_FILE, "w");
+    if (f == NULL)
+    {
+        sendErr("saveJsonRecord", "Failed to open record file");
+        errorReset(COLOR_SD);
+        return false;
+    }
 
-    // // Add the record data to the JSON document
-    // doc["lastFetch"] = record.lastFetch;
-    // doc["logging"] = record.logging;
-    // doc["id"] = record.id;
+    char *json_str = cJSON_PrintUnformatted(json);
 
-    // // Open the file for writing
-    // File file = SD.open(RECORD_FILE, FILE_WRITE, true);
-    // if (!file)
-    // {
-    //     sendErr("saveJsonRecord", "Failed to open record file");
-    //     errorReset(COLOR_SD);
-    //     return false;
-    // }
+    int ret = fputs(json_str, f);
 
-    // // Serialize the JSON document to the file
-    // if (serializeJson(doc, file) == 0)
-    // {
-    //     sendErr("saveJsonRecord", "Failed to write record file");
-    //     errorReset(COLOR_RUNTIME_ERROR);
-    //     file.close();
-    //     return false;
-    // }
+    if (ret > 0)
+    {
+        sendErr("saveJsonRecord", "Failed to write record file");
+        errorReset(COLOR_SD);
 
-    // // Close the file
-    // file.flush();
-    // file.close();
+        fclose(f);
+        cJSON_free(json_str);
+        cJSON_Delete(json);
+        return false;
+    }
 
-    // blink(COLOR_SD, 1, 150);
+    fclose(f);
+    cJSON_free(json_str);
+    cJSON_Delete(json);
 
-    // ESP_LOGI("saveJsonRecord", "Record file saved");
+    blink(COLOR_SD, 1, 150);
+
+    ESP_LOGI("saveJsonRecord", "Record file saved");
 
     return true;
 }

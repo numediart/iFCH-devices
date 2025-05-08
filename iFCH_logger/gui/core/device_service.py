@@ -122,12 +122,12 @@ class DeviceService:
         if self.config["address"] is None:
             raise RuntimeError("No address set in config")
 
-        logging.debug("Sending config file: %s", self.config)
         # Step 1 – tell the ESP32 a config upload is starting
         self.proto.send_frame(Commands.CMD_CONFIG_PUT)
 
         # Step 2 - send the file
-        config_data = json.dumps(self.config).encode("utf-8")
+        config_data = json.dumps(self.config, separators=(",", ":")).encode("utf-8")
+        logging.debug("Sending config file: %s", config_data)
         ok = await self.proto.send_file(config_data, self.CONFIG_FILE)
 
         if not ok:

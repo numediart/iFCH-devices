@@ -192,7 +192,7 @@ class FrameProtocol(asyncio.Protocol):
                 self.other_rx.append(self.buffer[0:1].decode())
 
                 if char == "\n" or len(self.other_rx) > 512:
-                    logging.info("ESP RX: %s", "".join(self.other_rx))
+                    logging.debug("ESP RX: %s", "".join(self.other_rx))
                     self.other_rx = []
 
                 del self.buffer[0]
