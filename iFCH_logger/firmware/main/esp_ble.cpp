@@ -1,16 +1,26 @@
 #include "nvs_flash.h"
-/* BLE */
+
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
+
 #include "host/ble_hs.h"
 #include "host/util/util.h"
+
 #include "services/gap/ble_svc_gap.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #include "esp_ble.h"
 #include "utils.h"
 #include "serial_com.h"
 
+SemaphoreHandle_t bleConnectSemaphore = NULL;
+SemaphoreHandle_t bleScanSemaphore = NULL;
+
 static const char *tag = "iFCH_logger"; // TODO remove
+volatile bool isMovesenseConnected = false;
+uint8_t handle;
 
 char *
 addr_to_str(const void *addr)
@@ -46,80 +56,53 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
 
     switch (event->type)
     {
-    case BLE_GAP_EVENT_DISC:
+    case BLE_GAP_EVENT_CONNECT:
     {
-        ESP_LOGD(tag, "Advertisement report; addr=%s "
-                      "length_data=%d",
-                 addr_to_str(event->disc.addr.val),
-                 event->disc.length_data);
-
-        int rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
-                                         event->disc.length_data);
-        if (rc != 0)
+        /* A new connection was established or a connection attempt failed. */
+        if (event->connect.status == 0)
         {
-            return 0;
+            isMovesenseConnected = true;
+            handle = event->connect.conn_handle;
+
+            /* Connection successfully established. */
+            ESP_LOGI(tag, "Connection established; conn_handle=%d",
+                     event->connect.conn_handle);
         }
-        if (fields.name != NULL)
+        else
         {
-            char name[fields.name_len + 1];
-            memcpy(name, fields.name, fields.name_len);
-            name[fields.name_len] = '\0';
+            /* Connection attempt failed */
+            isMovesenseConnected = false;
 
-            String devAddress = String(addr_to_str(event->disc.addr.val));
-            String devName = String(name);
+            ESP_LOGE(tag, "Error: Connection failed; status=%d",
+                     event->connect.status);
+        }
 
-            // Combine the name and the address
-            String devRepr = devName + ";" + devAddress;
-
-            ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
-
-            // Send the device representation to the serial port
-            sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
+        // Signal that connection procedure is over
+        if (bleConnectSemaphore != NULL)
+        {
+            xSemaphoreGive(bleConnectSemaphore);
         }
 
         return 0;
     }
 
-    case BLE_GAP_EVENT_LINK_ESTAB:
+    case BLE_GAP_EVENT_CONN_UPDATE:
     {
-        /* A new connection was established or a connection attempt failed. */
-        if (event->link_estab.status == 0)
+        if (event->conn_update.status != 0)
         {
-            /* Connection successfully established. */
-            ESP_LOGI(tag, "Connection established ");
-        }
-        else
-        {
-            /* Connection attempt failed; resume scanning. */
-            ESP_LOGI(tag, "Error: Connection failed; status=%d",
-                     event->link_estab.status);
-        }
+            ESP_LOGW("BLE_GAP_EVENT_CONN_UPDATE", "Connection lost: %d",
+                     event->conn_update.status);
 
+            isMovesenseConnected = false;
+        }
         return 0;
     }
 
     case BLE_GAP_EVENT_DISCONNECT:
     {
-        /* Connection terminated. */
         ESP_LOGI(tag, "disconnect; reason=%d ", event->disconnect.reason);
-        return 0;
-    }
+        isMovesenseConnected = false;
 
-    case BLE_GAP_EVENT_DISC_COMPLETE:
-    {
-        ESP_LOGI("scanBleDevices", "ble scan complete; reason=%d",
-                 event->disc_complete.reason);
-
-        sendCMD(CmdType::CMD_SCAN);
-        digitalWrite(RGB_BUILTIN, 0);
-        return 0;
-    }
-
-    case BLE_GAP_EVENT_ENC_CHANGE:
-    {
-        /* Encryption has been enabled or disabled for this connection. */
-        ESP_LOGI(tag, "encryption change event; status=%d ",
-                 event->enc_change.status);
         return 0;
     }
 
@@ -137,26 +120,6 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
         return 0;
     }
 
-    case BLE_GAP_EVENT_MTU:
-    {
-        ESP_LOGI(tag, "mtu update event; conn_handle=%d cid=%d mtu=%d",
-                 event->mtu.conn_handle,
-                 event->mtu.channel_id,
-                 event->mtu.value);
-        return 0;
-    }
-
-    case BLE_GAP_EVENT_REPEAT_PAIRING:
-    {
-        /* We already have a bond with the peer, but it is attempting to
-         * establish a new secure link.  This app sacrifices security for
-         * convenience: just throw away the old bond and accept the new link.
-         */
-        ESP_LOGI(tag, "repeat pairing; conn_handle=%d",
-                 event->repeat_pairing.conn_handle);
-
-        return 0;
-    }
     case BLE_GAP_EVENT_EXT_DISC:
     {
 
@@ -193,7 +156,53 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
 
         return 0;
     }
+
+    case BLE_GAP_EVENT_DISC: // This should never happen
+    {
+        ESP_LOGD(tag, "Advertisement report; addr=%s "
+                      "length_data=%d",
+                 addr_to_str(event->disc.addr.val),
+                 event->disc.length_data);
+
+        int rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
+                                         event->disc.length_data);
+        if (rc != 0)
+        {
+            return 0;
+        }
+        if (fields.name != NULL)
+        {
+            char name[fields.name_len + 1];
+            memcpy(name, fields.name, fields.name_len);
+            name[fields.name_len] = '\0';
+
+            String devAddress = String(addr_to_str(event->disc.addr.val));
+            String devName = String(name);
+
+            // Combine the name and the address
+            String devRepr = devName + ";" + devAddress;
+
+            ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
+
+            // Send the device representation to the serial port
+            sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
+        }
+
+        return 0;
+    }
+
+    case BLE_GAP_EVENT_DISC_COMPLETE:
+    {
+        ESP_LOGI("scanBleDevices", "ble scan complete; reason=%d",
+                 event->disc_complete.reason);
+
+        xSemaphoreGive(bleScanSemaphore);
+
+        return 0;
+    }
+
     default:
+        ESP_LOGW("GAP_EVENT", "unhandled event; event_type=%d", event->type);
         return 0;
     }
 
@@ -204,6 +213,7 @@ static void
 nimble_reset_callback(int reason)
 {
     sendErr("nimble_reset", "Resetting NimBLE host");
+    isMovesenseConnected = false;
 }
 
 static void
@@ -233,6 +243,7 @@ void nimble_host_task(void *param)
 
 void setupBLE()
 {
+
     /* Initialize NVS — it is used to store PHY calibration data */
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
@@ -264,9 +275,22 @@ void setupBLE()
     }
 
     nimble_port_freertos_init(nimble_host_task);
+
+    isMovesenseConnected = false;
+
+    // Initialize the semaphores
+    bleConnectSemaphore = xSemaphoreCreateBinary();
+    bleScanSemaphore = xSemaphoreCreateBinary();
+
+    if (bleConnectSemaphore == NULL || bleScanSemaphore == NULL)
+    {
+        sendErr("setupBLE", "Failed to create BLE semaphores");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return;
+    }
 }
 
-void scanBLEDevices()
+bool scanBLEDevices()
 {
     uint8_t own_addr_type;
     struct ble_gap_disc_params disc_params;
@@ -276,7 +300,7 @@ void scanBLEDevices()
     if (rc != 0)
     {
         sendErr("scanBLEDevices", "error determining address type");
-        return;
+        return false;
     }
 
     disc_params.filter_duplicates = 1;
@@ -296,11 +320,89 @@ void scanBLEDevices()
 
     rgbLedWrite(RGB_BUILTIN, COLOR_BLE);
     ESP_LOGI("scanBLEDevices", "Scanning for devices...");
+
+    bool scanSuccess = false;
+
+    if (bleScanSemaphore != NULL)
+    {
+        if (xSemaphoreTake(bleScanSemaphore, pdMS_TO_TICKS(2 * BLE_SCAN_TIME)) == pdTRUE)
+        {
+            scanSuccess = true;
+        }
+        else
+        {
+            ESP_LOGE("scanBLEDevices", "Semaphore timed out");
+        }
+    }
+
+    digitalWrite(RGB_BUILTIN, 0);
+
+    return scanSuccess;
 }
 
-bool connectMovesense() { return false; }
-void disconnectMovesense() {}
-bool isMovesenseConnected() { return false; }
+bool connectMovesense()
+{
+    uint8_t own_addr_type;
+    int rc;
+
+    // Parse a “AA:BB:CC:DD:EE:FF”‐style String into a ble_addr_t
+    ble_addr_t peer_addr;
+    uint8_t mac[6];
+    sscanf(config.address.c_str(),
+           "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+           &mac[5], &mac[4], &mac[3],
+           &mac[2], &mac[1], &mac[0]);
+    peer_addr.type = BLE_ADDR_PUBLIC;
+    memcpy(peer_addr.val, mac, sizeof(mac));
+
+    rc = ble_hs_id_infer_auto(0, &own_addr_type);
+    if (rc != 0)
+    {
+        ESP_LOGE("connectMovesense", "error determining address type");
+        return false;
+    }
+
+    rc = ble_gap_connect(own_addr_type, &peer_addr, BLE_CONNECT_TIMEOUT, NULL,
+                         gap_event_callback, NULL);
+    if (rc != 0)
+    {
+        ESP_LOGE("connectMovesense", "Error: Failed to connect to device; addr_type=%d "
+                                     "addr=%s; rc=%d\n",
+                 peer_addr.type, addr_to_str(peer_addr.val), rc);
+        return false;
+    }
+
+    ESP_LOGI("connectMovesense", "Connecting to Movesense...");
+
+    // Wait for the connection to be established
+    if (bleConnectSemaphore != NULL)
+    {
+        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(2 * BLE_CONNECT_TIMEOUT)) == pdTRUE)
+        {
+            return isMovesenseConnected;
+        }
+        else
+        {
+            ESP_LOGE("connectMovesense", "Semaphore timed out");
+            return false;
+        }
+    }
+
+    return false;
+}
+
+void disconnectMovesense()
+{
+    int rc = ble_gap_terminate(handle, BLE_ERR_REM_USER_CONN_TERM);
+    if (rc != 0)
+    {
+        ESP_LOGE("disconnectMovesense", "Error: Failed to disconnect; rc=%d\n", rc);
+    }
+    else
+    {
+        ESP_LOGI("disconnectMovesense", "Disconnected from Movesense");
+    }
+}
 
 bool getMovesenseBattery(uint8_t &batteryLevel) { return false; }
 bool helloMovesense() { return false; }

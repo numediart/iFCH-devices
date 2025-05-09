@@ -10,6 +10,7 @@ from .movesense_decoder import decode_stream_packet
 from .serial_async import Commands, open_connection
 
 BLE_TIMEOUT_S = 3
+BLE_CONNECT_TIMEOUT_S = 6
 PLOT_SAMPLES = 12 * 200
 
 
@@ -82,7 +83,7 @@ class DeviceService:
                 # self.plot_y.extend([sample[0] for sample in samples])
 
     async def scan(self, retries=5, filter_movesense=True):
-        scanned = []
+        scanned = set()
 
         for _ in range(retries):
             self.proto.send_frame(Commands.CMD_SCAN)
@@ -102,7 +103,7 @@ class DeviceService:
                         continue
 
                     logging.debug("Found device %s", result)
-                    scanned.append(result)
+                    scanned.add(result)
 
                 else:
                     logging.error("BLE scan timed out")
@@ -113,7 +114,7 @@ class DeviceService:
 
             await asyncio.sleep(0.5)
 
-        return scanned
+        return list(scanned)
 
     async def put_config(self, chunk_timeout: float = BLE_TIMEOUT_S) -> bool:
         if not self.proto:
@@ -238,7 +239,7 @@ class DeviceService:
     async def connect(self, require_hello=True):
         self.proto.send_frame(Commands.CMD_CONNECT)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_CONNECT, timeout=BLE_TIMEOUT_S
+            Commands.CMD_CONNECT, timeout=BLE_CONNECT_TIMEOUT_S
         )
         self.connected = False
 

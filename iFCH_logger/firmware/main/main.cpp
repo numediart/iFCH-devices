@@ -47,7 +47,7 @@ void handleSerialCommand(CmdType cmd)
 
     case CmdType::CMD_SCAN:
     {
-        if (isMovesenseConnected())
+        if (isMovesenseConnected)
         {
             sendErr("CMD_SCAN", "Movesense connected, cannot scan");
             break;
@@ -59,7 +59,14 @@ void handleSerialCommand(CmdType cmd)
         }
 
         // Scan for BLE devices
-        scanBLEDevices();
+        if (scanBLEDevices())
+        {
+            sendCMD(CmdType::CMD_SCAN);
+        }
+        else
+        {
+            sendErr("CMD_SCAN", "Failed to scan for devices");
+        }
         break;
     }
 
@@ -75,7 +82,7 @@ void handleSerialCommand(CmdType cmd)
 
     case CmdType::CMD_CONFIG_PUT:
     {
-        if (isMovesenseConnected())
+        if (isMovesenseConnected)
         {
             sendErr("CMD_CONFIG_PUT", "Movesense connected, cannot update config");
             break;
@@ -190,7 +197,7 @@ void handleSerialCommand(CmdType cmd)
     case CmdType::CMD_BLE_HELLO:
     {
         // Send a hello message to the Movesense
-        if (!isMovesenseConnected())
+        if (!isMovesenseConnected)
         {
             sendErr("CMD_BLE_HELLO", "Movesense not connected");
             break;
@@ -216,7 +223,7 @@ void handleSerialCommand(CmdType cmd)
     case CmdType::CMD_MOV_BATTERY_GET:
     {
         // Send the Movesense battery level
-        if (!isMovesenseConnected())
+        if (!isMovesenseConnected)
         {
             sendErr("CMD_MOV_BATTERY_GET", "Movesense not connected");
             break;
@@ -237,7 +244,7 @@ void handleSerialCommand(CmdType cmd)
     case CmdType::CMD_MOV_SUB:
     {
         // Subscribe to the Movesense
-        if (!isMovesenseConnected())
+        if (!isMovesenseConnected)
         {
             sendErr("CMD_MOV_SUB", "Movesense not connected");
             break;
@@ -270,7 +277,7 @@ void handleSerialCommand(CmdType cmd)
     case CmdType::CMD_MOV_UNSUB:
     {
         // Unsubscribe from the Movesense
-        if (!isMovesenseConnected())
+        if (!isMovesenseConnected)
         {
             sendErr("CMD_MOV_UNSUB", "Movesense not connected");
             break;
@@ -358,7 +365,7 @@ void setup()
     // TODO do not sleep if the Movesense is connected
     else
     {
-        if (isMovesenseConnected())
+        if (isMovesenseConnected)
         {
             disconnectMovesense();
         }
@@ -420,7 +427,7 @@ void loop()
     // TODO do not sleep if the Movesense is connected
     if (digitalRead(VUSB_PIN) == LOW)
     {
-        if (isMovesenseConnected())
+        if (isMovesenseConnected)
         {
             disconnectMovesense();
         }

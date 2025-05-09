@@ -8,7 +8,7 @@
 #define SERIAL_SEND_RETRIES 3
 #define SERIAL_BUF_SIZE 2048
 
-const uint8_t START_BYTE = 0x7E;
+const uint8_t START_BYTE = 0xFA;
 extern uint8_t rx_payload[MAX_PAYLOAD_SIZE];
 extern uint16_t rx_payload_len;
 

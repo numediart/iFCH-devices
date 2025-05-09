@@ -8,7 +8,7 @@ import zlib
 import serial.tools.list_ports
 import serial_asyncio
 
-START_BYTE = 0x7E
+START_BYTE = 0xFA
 MAX_PAYLOAD_SIZE = 512
 BAUD = 921_600
 SERIAL_TIMEOUT_S = 1
@@ -268,7 +268,7 @@ class FrameProtocol(asyncio.Protocol):
 
                 if cmd == wanted:
                     return payload
-                else:
+                elif not cmd == Commands.CMD_ERROR:
                     logging.warning("Unexpected command: %s", cmd.name)
 
         except asyncio.TimeoutError:

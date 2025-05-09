@@ -4,19 +4,21 @@
 #include "globals.h"
 
 #define BLE_MTU 158
-#define BLE_SCAN_TIME 1000    // milliseconds
-#define BLE_SCAN_INTERVAL 500 // milliseconds
-#define BLE_SCAN_WINDOW 500   // milliseconds
-#define BLE_TIMEOUT 2000      // milliseconds
+#define BLE_SCAN_TIME 1000       // milliseconds
+#define BLE_SCAN_INTERVAL 500    // milliseconds
+#define BLE_SCAN_WINDOW 500      // milliseconds
+#define BLE_TIMEOUT 2000         // milliseconds
+#define BLE_CONNECT_TIMEOUT 5000 // milliseconds
 #define BLE_QUEUE_LENGTH 25
+
+extern volatile bool isMovesenseConnected;
 
 void setupBLE();
 
-void scanBLEDevices();
+bool scanBLEDevices();
 
 bool connectMovesense();
 void disconnectMovesense();
-bool isMovesenseConnected();
 
 bool getMovesenseBattery(uint8_t &batteryLevel);
 bool helloMovesense();
