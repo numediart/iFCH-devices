@@ -15,6 +15,7 @@
 #include "utils.h"
 #include "serial_com.h"
 
+SemaphoreHandle_t bleGattSemaphore = NULL;
 SemaphoreHandle_t bleConnectSemaphore = NULL;
 SemaphoreHandle_t bleRegCharsSemaphore = NULL;
 SemaphoreHandle_t bleScanSemaphore = NULL;
@@ -188,6 +189,47 @@ int registerCharacteristics()
     {
         ESP_LOGE("registerCharacteristics", "Failed to register all characteristics, only %d registered", registered);
         return BLE_HS_EBADDATA;
+    }
+
+    return 0;
+}
+
+// Callback for GATT read operation, extracts a uint8_t from the response
+static int gatt_read_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
+                        struct ble_gatt_attr *attr, void *arg)
+{
+
+    if (error != NULL && error->status != 0)
+    {
+        ESP_LOGE("gatt_read_cb", "Read failed; status=%d", error->status);
+    }
+    else if (attr != NULL && attr->om != NULL)
+    {
+        if (OS_MBUF_PKTLEN(attr->om) == 1)
+        {
+            // Pull up the response to get a uint8_t
+            os_mbuf *data = os_mbuf_pullup(attr->om, 1);
+
+            if (data == NULL)
+            {
+                ESP_LOGE("gatt_read_cb", "Failed to pull up uint8_t");
+            }
+            else
+            {
+                uint8_t *pResponse = (uint8_t *)arg;
+                *pResponse = *OS_MBUF_DATA(data, uint8_t *);
+                ESP_LOGI("gatt_read_cb", "Read uint8_t: %d", *pResponse);
+
+                if (bleGattSemaphore != NULL)
+                {
+                    xSemaphoreGive(bleGattSemaphore);
+                }
+            }
+        }
+        else
+        {
+            ESP_LOGE("gatt_read_cb", "Invalid read response for uint8_t");
+        }
     }
 
     return 0;
@@ -431,6 +473,7 @@ void setupBLE()
     bleConnectSemaphore = xSemaphoreCreateBinary();
     bleRegCharsSemaphore = xSemaphoreCreateBinary();
     bleScanSemaphore = xSemaphoreCreateBinary();
+    bleGattSemaphore = xSemaphoreCreateBinary();
 
     if (bleConnectSemaphore == NULL || bleScanSemaphore == NULL)
     {
@@ -565,7 +608,28 @@ void disconnectMovesense()
     }
 }
 
-bool getMovesenseBattery(uint8_t &batteryLevel) { return false; }
+bool getMovesenseBattery(uint8_t &batteryLevel)
+{
+
+    int rc = ble_gattc_read(movesense_handle, bat_char_handle, gatt_read_cb, &batteryLevel);
+    if (rc != 0)
+    {
+        sendErr("getMovesenseBattery", "Error initiating GATT read; rc=" + String(rc));
+    }
+
+    if (bleGattSemaphore != NULL)
+    {
+        if (xSemaphoreTake(bleGattSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
+        {
+            ESP_LOGE("getMovesenseBattery", "GATT read timed out");
+            return false;
+        }
+    }
+
+    ESP_LOGI("getMovesenseBattery", "Battery level read");
+    ESP_LOGI("getMovesenseBattery", "Battery level: %d%%", batteryLevel);
+    return true;
+}
 bool helloMovesense() { return false; }
 
 bool subscribeMovesense() { return false; }
