@@ -16,14 +16,22 @@
 #include "serial_com.h"
 
 SemaphoreHandle_t bleConnectSemaphore = NULL;
+SemaphoreHandle_t bleRegCharsSemaphore = NULL;
 SemaphoreHandle_t bleScanSemaphore = NULL;
 
 static const char *tag = "iFCH_logger"; // TODO remove
 volatile bool isMovesenseConnected = false;
-uint8_t handle;
 
-char *
-addr_to_str(const void *addr)
+static uint16_t movesense_handle;
+
+static uint16_t bat_char_handle;
+static uint16_t command_char_handle;
+static uint16_t data_char_handle;
+static uint16_t response_char_handle;
+static uint16_t log_char_handle;
+
+// Convert a 6-byte address to a string
+char *addr_to_str(const void *addr)
 {
     static char buf[6 * 2 + 5 + 1];
     const uint8_t *u8p;
@@ -35,34 +43,172 @@ addr_to_str(const void *addr)
     return buf;
 }
 
-/**
- * The nimble host executes this callback when a GAP event occurs.  The
- * application associates a GAP event callback with each connection that is
- * established.  blecent uses the same callback for all connections.
- *
- * @param event                 The event being signalled.
- * @param arg                   Application-specified argument; unused by
- *                                  blecent.
- *
- * @return                      0 if the application successfully handled the
- *                                  event; nonzero on failure.  The semantics
- *                                  of the return code is specific to the
- *                                  particular GAP event being signalled.
- */
-static int
-gap_event_callback(struct ble_gap_event *event, void *arg)
+// Discovery callback for characteristics, saves the handle
+static int disc_chr_cb(uint16_t conn_handle,
+                       const struct ble_gatt_error *error,
+                       const struct ble_gatt_chr *chr,
+                       void *arg)
+{
+    uint8_t *registered = (uint8_t *)arg;
+
+    if (error->status == 0 && chr != NULL)
+    {
+        /* Store the discovered characteristic handle */
+        // *((uint16_t *)arg) = chr->val_handle;
+
+        if (ble_uuid_cmp(
+                (ble_uuid_t *)&chr->uuid.u,
+                (ble_uuid_t *)&command_chr_uuid) == 0)
+        {
+            command_char_handle = chr->val_handle;
+            *registered += 1;
+            ESP_LOGI("disc_chr_cb", "Discovered command characteristic");
+        }
+        else if (ble_uuid_cmp(
+                     (ble_uuid_t *)&chr->uuid.u,
+                     (ble_uuid_t *)&data_chr_uuid) == 0)
+        {
+            data_char_handle = chr->val_handle;
+            *registered += 1;
+            ESP_LOGI("disc_chr_cb", "Discovered data characteristic");
+        }
+        else if (ble_uuid_cmp(
+                     (ble_uuid_t *)&chr->uuid.u,
+                     (ble_uuid_t *)&response_chr_uuid) == 0)
+        {
+            response_char_handle = chr->val_handle;
+            *registered += 1;
+            ESP_LOGI("disc_chr_cb", "Discovered response characteristic");
+        }
+        else if (ble_uuid_cmp(
+                     (ble_uuid_t *)&chr->uuid.u,
+                     (ble_uuid_t *)&log_chr_uuid) == 0)
+        {
+            log_char_handle = chr->val_handle;
+            *registered += 1;
+            ESP_LOGI("disc_chr_cb", "Discovered log characteristic");
+        }
+        else if (ble_uuid_cmp(
+                     (ble_uuid_t *)&chr->uuid.u,
+                     (ble_uuid_t *)&bat_chr_uuid) == 0)
+        {
+            bat_char_handle = chr->val_handle;
+            *registered += 1;
+            ESP_LOGI("disc_chr_cb", "Discovered battery characteristic");
+        }
+    }
+
+    else if (error->status == BLE_HS_EDONE)
+    {
+        ESP_LOGI("disc_chr_cb", "Characteristic discovery complete");
+        if (bleRegCharsSemaphore != NULL)
+        {
+            xSemaphoreGive(bleRegCharsSemaphore);
+        }
+    }
+    else
+    {
+        ESP_LOGE("disc_chr_cb", "Failed to discover characteristic: %d", error->status);
+    }
+
+    return error->status;
+}
+
+// Discovery callback for the services, registers the characteristics
+int disc_svc_cb(uint16_t conn_handle,
+                const struct ble_gatt_error *error,
+                const struct ble_gatt_svc *service,
+                void *arg)
+{
+    if (error->status == 0 && service != NULL)
+    {
+        ESP_LOGI("disc_svc_cb", "Discovered service");
+        int rc = ble_gattc_disc_all_chrs(conn_handle, service->start_handle,
+                                         service->end_handle, disc_chr_cb, arg);
+
+        if (rc != 0)
+        {
+            ESP_LOGE("disc_svc_cb", "Failed to discover all characteristics: %d", rc);
+            return rc;
+        }
+    }
+    else if (error->status == BLE_HS_EDONE)
+    {
+        ESP_LOGE("disc_svc_cb", "Service discovery complete");
+    }
+    else
+    {
+        ESP_LOGE("disc_svc_cb", "Failed to discover service: %d", error->status);
+    }
+    return error->status;
+}
+
+// Register the characteristics for the battery service and ifch service
+int registerCharacteristics()
+{
+    uint8_t registered = 0;
+
+    // Discover the battery service
+    int ret = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&bat_svc_uuid, disc_svc_cb, &registered);
+    if (ret != 0)
+    {
+        ESP_LOGE(tag, "Failed to discover battery service: %d", ret);
+        return ret;
+    }
+
+    // Wait for the characteristics to be registered
+    if (bleRegCharsSemaphore != NULL)
+    {
+        if (xSemaphoreTake(bleRegCharsSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
+        {
+            ESP_LOGE("registerCharacteristics", "Battery registration timed out");
+            return BLE_HS_ETIMEOUT;
+        }
+    }
+
+    // Discover the ifch service
+    ret = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&ifch_svc_uuid, disc_svc_cb, &registered);
+    if (ret != 0)
+    {
+        ESP_LOGE(tag, "Failed to discover ifch service: %d", ret);
+        return ret;
+    }
+
+    // Wait for the characteristics to be registered
+    if (bleRegCharsSemaphore != NULL)
+    {
+        if (xSemaphoreTake(bleRegCharsSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
+        {
+            ESP_LOGE("registerCharacteristics", "ifch registration timed out");
+            return BLE_HS_ETIMEOUT;
+        }
+    }
+
+    if (registered != NUM_CHARS)
+    {
+        ESP_LOGE("registerCharacteristics", "Failed to register all characteristics, only %d registered", registered);
+        return BLE_HS_EBADDATA;
+    }
+
+    return 0;
+}
+
+// Callback for GAP events
+static int gap_event_callback(struct ble_gap_event *event, void *arg)
 {
     struct ble_hs_adv_fields fields;
 
     switch (event->type)
     {
+
+    // Connection procedure finished
     case BLE_GAP_EVENT_CONNECT:
     {
         /* A new connection was established or a connection attempt failed. */
         if (event->connect.status == 0)
         {
             isMovesenseConnected = true;
-            handle = event->connect.conn_handle;
+            movesense_handle = event->connect.conn_handle;
 
             /* Connection successfully established. */
             ESP_LOGI(tag, "Connection established; conn_handle=%d",
@@ -86,6 +232,7 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
         return 0;
     }
 
+    // Connection update event, also when connection is lost
     case BLE_GAP_EVENT_CONN_UPDATE:
     {
         if (event->conn_update.status != 0)
@@ -98,6 +245,7 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
         return 0;
     }
 
+    // Disconnection event
     case BLE_GAP_EVENT_DISCONNECT:
     {
         ESP_LOGI(tag, "disconnect; reason=%d ", event->disconnect.reason);
@@ -120,6 +268,7 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
         return 0;
     }
 
+    // Extended advertisement report
     case BLE_GAP_EVENT_EXT_DISC:
     {
 
@@ -157,6 +306,7 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
         return 0;
     }
 
+    // Normal advertisement report
     case BLE_GAP_EVENT_DISC: // This should never happen
     {
         ESP_LOGD(tag, "Advertisement report; addr=%s "
@@ -191,6 +341,7 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
         return 0;
     }
 
+    // End of scanning procedure
     case BLE_GAP_EVENT_DISC_COMPLETE:
     {
         ESP_LOGI("scanBleDevices", "ble scan complete; reason=%d",
@@ -209,15 +360,13 @@ gap_event_callback(struct ble_gap_event *event, void *arg)
     return 0;
 }
 
-static void
-nimble_reset_callback(int reason)
+static void nimble_reset_callback(int reason)
 {
     sendErr("nimble_reset", "Resetting NimBLE host");
     isMovesenseConnected = false;
 }
 
-static void
-nimble_sync_callback(void)
+static void nimble_sync_callback(void)
 {
     ESP_LOGI("nimble_sync", "NimBLE host sync");
 
@@ -280,6 +429,7 @@ void setupBLE()
 
     // Initialize the semaphores
     bleConnectSemaphore = xSemaphoreCreateBinary();
+    bleRegCharsSemaphore = xSemaphoreCreateBinary();
     bleScanSemaphore = xSemaphoreCreateBinary();
 
     if (bleConnectSemaphore == NULL || bleScanSemaphore == NULL)
@@ -362,6 +512,7 @@ bool connectMovesense()
         return false;
     }
 
+    // Initiate a connection to the Movesense device
     rc = ble_gap_connect(own_addr_type, &peer_addr, BLE_CONNECT_TIMEOUT, NULL,
                          gap_event_callback, NULL);
     if (rc != 0)
@@ -377,23 +528,33 @@ bool connectMovesense()
     // Wait for the connection to be established
     if (bleConnectSemaphore != NULL)
     {
-        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(2 * BLE_CONNECT_TIMEOUT)) == pdTRUE)
+        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(2 * BLE_CONNECT_TIMEOUT)) != pdTRUE)
         {
-            return isMovesenseConnected;
-        }
-        else
-        {
-            ESP_LOGE("connectMovesense", "Semaphore timed out");
+            ESP_LOGE("connectMovesense", "Connection timed out");
             return false;
         }
     }
 
-    return false;
+    ESP_LOGI("connectMovesense", "Registering characteristics...");
+
+    // Register the necessary characteristics
+    rc = registerCharacteristics();
+    if (rc != 0)
+    {
+        ESP_LOGE("connectMovesense", "Failed to register characteristics: %d", rc);
+
+        disconnectMovesense();
+        return false;
+    }
+
+    ESP_LOGI("connectMovesense", "Connected to Movesense");
+
+    return isMovesenseConnected;
 }
 
 void disconnectMovesense()
 {
-    int rc = ble_gap_terminate(handle, BLE_ERR_REM_USER_CONN_TERM);
+    int rc = ble_gap_terminate(movesense_handle, BLE_ERR_REM_USER_CONN_TERM);
     if (rc != 0)
     {
         ESP_LOGE("disconnectMovesense", "Error: Failed to disconnect; rc=%d\n", rc);

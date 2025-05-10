@@ -1,6 +1,8 @@
 #ifndef ESP_BLE_H
 #define ESP_BLE_H
 
+#include "host/ble_uuid.h"
+
 #include "globals.h"
 
 #define BLE_MTU 158
@@ -26,13 +28,26 @@ bool helloMovesense();
 bool subscribeMovesense();
 bool unsubscribeMovesense();
 
-// const BLEUUID BLE_IFCH_SERVICE_UUID("34802252-7185-4d5d-b431-630e7050e8f0");
-// const BLEUUID BLE_CMD_CHARACTERISTIC_UUID("34800001-7185-4d5d-b431-630e7050e8f0");
-// const BLEUUID BLE_DATA_CHARACTERISTIC_UUID("34800002-7185-4d5d-b431-630e7050e8f0");
-// const BLEUUID BLE_RESPONSE_CHARACTERISTIC_UUID("34800003-7185-4d5d-b431-630e7050e8f0");
-// const BLEUUID BLE_LOG_CHARACTERISTIC_UUID("34800004-7185-4d5d-b431-630e7050e8f0");
+const ble_uuid128_t ifch_svc_uuid =
+    BLE_UUID128_INIT(0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x31, 0xb4,
+                     0x5d, 0x4d, 0x85, 0x71, 0x52, 0x22, 0x80, 0x34);
 
-// const BLEUUID BLE_BATTERY_SERVICE_UUID("0000180f-0000-1000-8000-00805f9b34fb");
-// const BLEUUID BLE_BATTERY_CHARACTERISTIC_UUID("00002a19-0000-1000-8000-00805f9b34fb");
+const ble_uuid128_t command_chr_uuid =
+    BLE_UUID128_INIT(0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x31, 0xb4,
+                     0x5d, 0x4d, 0x85, 0x71, 0x01, 0x00, 0x80, 0x34);
+const ble_uuid128_t data_chr_uuid =
+    BLE_UUID128_INIT(0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x31, 0xb4,
+                     0x5d, 0x4d, 0x85, 0x71, 0x02, 0x00, 0x80, 0x34);
+const ble_uuid128_t response_chr_uuid =
+    BLE_UUID128_INIT(0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x31, 0xb4,
+                     0x5d, 0x4d, 0x85, 0x71, 0x03, 0x00, 0x80, 0x34);
+const ble_uuid128_t log_chr_uuid =
+    BLE_UUID128_INIT(0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x31, 0xb4,
+                     0x5d, 0x4d, 0x85, 0x71, 0x04, 0x00, 0x80, 0x34);
+
+const ble_uuid16_t bat_svc_uuid = BLE_UUID16_INIT(0x180f); // Battery Service UUID
+const ble_uuid16_t bat_chr_uuid = BLE_UUID16_INIT(0x2a19); // Battery Level Characteristic UUID
+
+#define NUM_CHARS 5
 
 #endif // ESP_BLE_H
