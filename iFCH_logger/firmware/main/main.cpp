@@ -17,7 +17,7 @@ QueueHandle_t logQueue;
 
 bool isStreaming = false;
 
-uint8_t queueNotif[BLE_MTU + 1]; // +1 for the length byte
+uint8_t queueNotif[BLE_MTU - 3 + 1]; // +1 for the length byte
 
 void fetchMovesenseData()
 {

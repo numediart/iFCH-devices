@@ -5,7 +5,7 @@
 
 #include "globals.h"
 
-#define BLE_MTU 158
+#define BLE_MTU 161
 #define BLE_SCAN_TIME 1000       // milliseconds
 #define BLE_SCAN_INTERVAL 500    // milliseconds
 #define BLE_SCAN_WINDOW 500      // milliseconds

@@ -20,7 +20,6 @@ SemaphoreHandle_t bleConnectSemaphore = NULL;
 SemaphoreHandle_t bleRegCharsSemaphore = NULL;
 SemaphoreHandle_t bleScanSemaphore = NULL;
 
-static const char *tag = "iFCH_logger"; // TODO remove
 volatile bool isMovesenseConnected = false;
 
 static uint16_t movesense_handle;
@@ -135,7 +134,7 @@ int disc_svc_cb(uint16_t conn_handle,
     }
     else if (error->status == BLE_HS_EDONE)
     {
-        ESP_LOGE("disc_svc_cb", "Service discovery complete");
+        ESP_LOGI("disc_svc_cb", "Service discovery complete");
     }
     else
     {
@@ -153,7 +152,7 @@ int registerCharacteristics()
     int ret = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&bat_svc_uuid, disc_svc_cb, &registered);
     if (ret != 0)
     {
-        ESP_LOGE(tag, "Failed to discover battery service: %d", ret);
+        ESP_LOGE("registerCharacteristics", "Failed to discover battery service: %d", ret);
         return ret;
     }
 
@@ -171,7 +170,7 @@ int registerCharacteristics()
     ret = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&ifch_svc_uuid, disc_svc_cb, &registered);
     if (ret != 0)
     {
-        ESP_LOGE(tag, "Failed to discover ifch service: %d", ret);
+        ESP_LOGE("registerCharacteristics", "Failed to discover ifch service: %d", ret);
         return ret;
     }
 
@@ -253,7 +252,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             movesense_handle = event->connect.conn_handle;
 
             /* Connection successfully established. */
-            ESP_LOGI(tag, "Connection established; conn_handle=%d",
+            ESP_LOGI("BLE_GAP_EVENT_CONNECT", "Connection established; conn_handle=%d",
                      event->connect.conn_handle);
         }
         else
@@ -261,7 +260,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             /* Connection attempt failed */
             isMovesenseConnected = false;
 
-            ESP_LOGE(tag, "Error: Connection failed; status=%d",
+            ESP_LOGE("BLE_GAP_EVENT_CONNECT", "Error: Connection failed; status=%d",
                      event->connect.status);
         }
 
@@ -290,16 +289,36 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
     // Disconnection event
     case BLE_GAP_EVENT_DISCONNECT:
     {
-        ESP_LOGI(tag, "disconnect; reason=%d ", event->disconnect.reason);
+        ESP_LOGI("BLE_GAP_EVENT_DISCONNECT", "disconnect; reason=%d ", event->disconnect.reason);
         isMovesenseConnected = false;
 
         return 0;
     }
 
+    case BLE_GAP_EVENT_L2CAP_UPDATE_REQ:
+    {
+
+        const struct ble_gap_upd_params *params = event->conn_update_req.peer_params;
+
+        ESP_LOGI("BLE_GAP_EVENT_L2CAP_UPDATE_REQ", "L2CAP update request: itvl_min=%u itvl_max=%u latency=%u timeout=%u",
+                 params->itvl_min, params->itvl_max, params->latency, params->supervision_timeout);
+
+        int rc = ble_gap_update_params(event->conn_update_req.conn_handle, params);
+        if (rc != 0)
+        {
+            ESP_LOGE("BLE_GAP_EVENT_L2CAP_UPDATE_REQ", "Failed to update connection params: rc=%d", rc);
+        }
+        return 0;
+    }
+
+    case BLE_GAP_EVENT_MTU:
+        ESP_LOGI("BLE_GAP_EVENT_MTU", "MTU updated: %d", event->mtu.value);
+        break;
+
     case BLE_GAP_EVENT_NOTIFY_RX:
     { /* Peer sent us a notification or indication. */
-        ESP_LOGI(tag, "received %s; conn_handle=%d attr_handle=%d "
-                      "attr_len=%d",
+        ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "received %s; conn_handle=%d attr_handle=%d "
+                                            "attr_len=%d",
                  event->notify_rx.indication ? "indication" : "notification",
                  event->notify_rx.conn_handle,
                  event->notify_rx.attr_handle,
@@ -351,8 +370,8 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
     // Normal advertisement report
     case BLE_GAP_EVENT_DISC: // This should never happen
     {
-        ESP_LOGD(tag, "Advertisement report; addr=%s "
-                      "length_data=%d",
+        ESP_LOGD("BLE_GAP_EVENT_DISC", "Advertisement report; addr=%s "
+                                       "length_data=%d",
                  addr_to_str(event->disc.addr.val),
                  event->disc.length_data);
 
