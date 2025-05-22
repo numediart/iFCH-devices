@@ -188,14 +188,17 @@ class FrameProtocol(asyncio.Protocol):
             if self.buffer[0] != START_BYTE:
                 # discard until next possible start byte
 
-                char = self.buffer[0:1].decode()
-                self.other_rx.append(self.buffer[0:1].decode())
+                try:
+                    char = self.buffer[0:1].decode()
+                    self.other_rx.append(self.buffer[0:1].decode())
 
-                if char == "\n" or len(self.other_rx) > 512:
-                    while self.other_rx[-1] == "\n":
-                        self.other_rx.pop(-1)
-                    logging.info("ESP RX: %s", "".join(self.other_rx))
-                    self.other_rx = []
+                    if char == "\n" or len(self.other_rx) > 512:
+                        while self.other_rx[-1] == "\n":
+                            self.other_rx.pop(-1)
+                        logging.info("ESP RX: %s", "".join(self.other_rx))
+                        self.other_rx = []
+                except UnicodeDecodeError:
+                    pass
 
                 del self.buffer[0]
                 continue
@@ -348,6 +351,8 @@ class FrameProtocol(asyncio.Protocol):
 
 async def _probe(port: str, probe_timeout: float) -> tuple[str, bytes] | None:
     proto = await open_connection(port)
+    if proto is None:
+        return None
     proto.send_frame(Commands.CMD_VERSION)
 
     logging.debug("Probing %s", port)
@@ -385,22 +390,30 @@ async def detect_device(
 
 async def _reset_port(port: str, baud: int = BAUD):
     logging.warning("RESET DTR on %s", port)
-    with serial.Serial(port, baud) as s:
-        s.dtr = False
-        await asyncio.sleep(0.25)
-        s.dtr = True
-    await asyncio.sleep(0.5)
+    try:
+        with serial.Serial(port, baud) as s:
+            s.dtr = False
+            await asyncio.sleep(0.25)
+            s.dtr = True
+        await asyncio.sleep(0.5)
+    except serial.SerialException as e:
+        logging.warning(f"Failed to reset port {port}: {e}")
+        return None
 
 
 async def open_connection(port: str, baud: int = BAUD):
     loop = asyncio.get_running_loop()
-    _, protocol = await serial_asyncio.create_serial_connection(
-        loop,
-        lambda: FrameProtocol(loop),
-        port,
-        baudrate=baud,
-        timeout=SERIAL_TIMEOUT_S,
-    )
-    await protocol.connected.wait()
+    try:
+        _, protocol = await serial_asyncio.create_serial_connection(
+            loop,
+            lambda: FrameProtocol(loop),
+            port,
+            baudrate=baud,
+            timeout=SERIAL_TIMEOUT_S,
+        )
+        await protocol.connected.wait()
+    except serial.SerialException as e:
+        logging.warning(f"Failed to open serial port {port}: {e}")
+        return None
 
     return protocol
