@@ -1,4 +1,4 @@
-set(srcs "main.cpp" "utils.cpp" "memory.cpp" "serial_com.cpp" "rtc_time.cpp" "power.cpp" "esp_ble.cpp")
+set(srcs "main.cpp" "utils.cpp" "memory.cpp" "serial_com.cpp" "rtc_time.cpp" "power.cpp" "ble_com.cpp")
 
 idf_component_register(SRCS "${srcs}"
     INCLUDE_DIRS "."
@@ -6,6 +6,7 @@ idf_component_register(SRCS "${srcs}"
     REQUIRES bt
     REQUIRES fatfs
     REQUIRES json
+    REQUIRES led_strip
     REQUIRES arduino
     REQUIRES SparkFun_RV8803
     REQUIRES SparkFun_MAX1704x

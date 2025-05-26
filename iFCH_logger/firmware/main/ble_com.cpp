@@ -11,7 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
-#include "esp_ble.h"
+#include "ble_com.h"
 #include "utils.h"
 #include "serial_com.h"
 
@@ -530,7 +530,7 @@ bool scanBLEDevices()
         sendErr("scanBLEDevices", "Error initiating GAP discovery procedure: " + String(rc));
     }
 
-    rgbLedWrite(RGB_BUILTIN, COLOR_BLE);
+    ledWrite(COLOR_BLE);
     ESP_LOGI("scanBLEDevices", "Scanning for devices...");
 
     bool scanSuccess = false;
@@ -547,7 +547,7 @@ bool scanBLEDevices()
         }
     }
 
-    digitalWrite(RGB_BUILTIN, 0);
+    ledWrite(false);
 
     return scanSuccess;
 }

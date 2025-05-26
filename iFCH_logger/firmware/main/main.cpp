@@ -6,7 +6,7 @@
 #include "power.h"
 #include "memory.h"
 #include "serial_com.h"
-#include "esp_ble.h"
+#include "ble_com.h"
 
 Config config;
 Record record;
@@ -327,17 +327,18 @@ void setup()
 {
     ESP_LOGI("setup", "Starting %s", VERSION);
 
-    // Blink signal to indicate the board is starting
-    blink(RGB_MAX, RGB_MAX, RGB_MAX, 2, 150);
-
+    // Initialize variables
     dataQueue = xQueueCreate(BLE_QUEUE_LENGTH, BLE_MTU);
     commandQueue = xQueueCreate(BLE_QUEUE_LENGTH, BLE_MTU);
     logQueue = xQueueCreate(BLE_QUEUE_LENGTH, BLE_MTU);
 
     isStreaming = false;
 
-    // Set up all peripherals
+    // Blink signal to indicate the board is starting
     setupGPIO();
+    blink(RGB_MAX, RGB_MAX, RGB_MAX, 2, 150);
+
+    // Set up all peripherals
     setupSDCard();
     setupRTC();
     setupGauge();
@@ -357,7 +358,7 @@ void setup()
     }
 
     // If USB is connected, start the Serial interface
-    if (digitalRead(VUSB_PIN) == HIGH)
+    if (isUSBConnected())
     {
         setupSerial();
     }
@@ -425,7 +426,7 @@ void loop()
 
     // If the USB is disconnected, enter hibernation
     // TODO do not sleep if the Movesense is connected
-    if (digitalRead(VUSB_PIN) == LOW)
+    if (isUSBConnected() == false)
     {
         if (isMovesenseConnected)
         {

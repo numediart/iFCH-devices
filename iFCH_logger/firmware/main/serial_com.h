@@ -65,4 +65,7 @@ void sendCMD(CmdType type);
 // Send an error message
 void sendErr(String tag, String errMsg);
 
+// Check if the USB is connected
+bool isUSBConnected();
+
 #endif // SERIAL_COM_H

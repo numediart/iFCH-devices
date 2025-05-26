@@ -6,8 +6,11 @@
 #include <string.h>
 #include <sys/unistd.h>
 #include <sys/stat.h>
+
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
+#include "driver/sdmmc_host.h"
+
 #include "cJSON.h"
 
 bool sendFile(String filename)
@@ -31,7 +34,7 @@ bool sendFile(String filename)
             return false;
         }
 
-        rgbLedWrite(RGB_BUILTIN, COLOR_SD);
+        ledWrite(COLOR_SD);
 
         FILE *f = fopen(filename.c_str(), "r");
         if (f == NULL)
@@ -77,7 +80,7 @@ bool sendFile(String filename)
         sendErr("sendFile", "File not found");
     }
 
-    digitalWrite(RGB_BUILTIN, 0);
+    ledWrite(false);
     return sentOK;
 }
 
@@ -95,7 +98,7 @@ String receiveFile(String filename)
 
     // Wait for the first packet
     uint8_t expectedID = 0;
-    rgbLedWrite(RGB_BUILTIN, COLOR_SD);
+    ledWrite(COLOR_SD);
 
     while (true)
     {
@@ -168,7 +171,7 @@ String receiveFile(String filename)
     // If file exists, close it
     fclose(f);
 
-    digitalWrite(RGB_BUILTIN, 0);
+    ledWrite(false);
 
     return receivedName;
 }
@@ -184,37 +187,22 @@ void setupSDCard()
     sdmmc_card_t *card;
     const char mount_point[] = MOUNT_POINT;
 
-    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
 
-    spi_bus_config_t bus_cfg = {
-        .mosi_io_num = PIN_NUM_MOSI,
-        .miso_io_num = PIN_NUM_MISO,
-        .sclk_io_num = PIN_NUM_CLK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 4000,
-    };
-
-    ESP_LOGI("setupSDCard", "Initializing SD card");
-
-    // Initialize the SPI bus
-    ret = spi_bus_initialize((spi_host_device_t)host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
-    if (ret != ESP_OK)
-    {
-        sendErr("setupSDCard", "Failed to initialize bus");
-        errorReset(COLOR_SD);
-        return;
-    }
-
-    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot_config.gpio_cs = PIN_NUM_CS;
-    slot_config.host_id = (spi_host_device_t)host.slot;
-    slot_config.gpio_cd = PIN_SD_DET;
+    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot_config.width = 4;
+    slot_config.clk = SD_CLK_PIN;
+    slot_config.cmd = SD_CMD_PIN;
+    slot_config.d0 = SD_D0_PIN;
+    slot_config.d1 = SD_D1_PIN;
+    slot_config.d2 = SD_D2_PIN;
+    slot_config.d3 = SD_D3_PIN;
 
     ESP_LOGI("setupSDCard", "Mounting filesystem");
 
     // Mount the SD card
-    ret = esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_config, &card);
+    ret = esp_vfs_fat_sdmmc_mount(mount_point, &host, &slot_config, &mount_config, &card);
 
     if (ret != ESP_OK)
     {

@@ -1,5 +1,5 @@
-#ifndef ESP_BLE_H
-#define ESP_BLE_H
+#ifndef BLE_COM_H
+#define BLE_COM_H
 
 #include "host/ble_uuid.h"
 
@@ -50,4 +50,4 @@ const ble_uuid16_t bat_chr_uuid = BLE_UUID16_INIT(0x2a19); // Battery Level Char
 
 #define NUM_CHARS 5
 
-#endif // ESP_BLE_H
+#endif // BLE_COM_H
