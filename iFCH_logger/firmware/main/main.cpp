@@ -339,6 +339,7 @@ void setup()
     blink(RGB_MAX, RGB_MAX, RGB_MAX, 2, 150);
 
     // Set up all peripherals
+    setupVUSB();
     setupSDCard();
     setupRTC();
     setupGauge();
@@ -358,7 +359,7 @@ void setup()
     }
 
     // If USB is connected, start the Serial interface
-    if (isUSBConnected())
+    if (isVUSBConnected())
     {
         setupSerial();
     }
@@ -426,7 +427,7 @@ void loop()
 
     // If the USB is disconnected, enter hibernation
     // TODO do not sleep if the Movesense is connected
-    if (isUSBConnected() == false)
+    if (isVUSBConnected() == false)
     {
         if (isMovesenseConnected)
         {

@@ -3,11 +3,9 @@ iFCH Logger
 
 ## Arduino
 
-Use SparkFun ESP32-C6 Thing Plus
+Use SparkFun ESP32-S3 Thing Plus
 
-Solder 1M resistor between GND and IO2, and 560k between IO2 and VUSB
-
-Also works with 220k and 100k.
+Solder 56k resistor between GND and IO15, and 100k between IO15 and VUSB
 
 ## ESP-IDF
 

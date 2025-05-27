@@ -6,12 +6,53 @@
 #include "utils.h"
 
 #include <esp_sleep.h>
-// #include "driver/rtc_io.h"
+#include <driver/adc.h>
 
 #include <Wire.h>
 #include <SparkFun_MAX1704x_Fuel_Gauge_Arduino_Library.h>
 
 SFE_MAX1704X lipo(MAX1704X_MAX17048); // Create a MAX17048
+
+void setupVUSB()
+{
+
+    esp_err_t rc;
+    gpio_num_t adc_gpio_num;
+
+    rc = adc2_pad_get_io_num(VUSB_ADC_CHANNEL, &adc_gpio_num);
+    if (rc != ESP_OK)
+    {
+        sendErr("setupVUSB", "Failed to get ADC2 pad IO number");
+        errorReset(COLOR_POWER);
+        return;
+    }
+
+    ESP_LOGI("setupVUSB", "ADC2 channel %d @ GPIO %d", VUSB_ADC_CHANNEL, adc_gpio_num);
+
+    rc = adc2_config_channel_atten(VUSB_ADC_CHANNEL, ADC_ATTEN_DB_6);
+    if (rc != ESP_OK)
+    {
+        sendErr("setupVUSB", "Failed to configure ADC2 channel");
+        errorReset(COLOR_POWER);
+        return;
+    }
+}
+
+bool isVUSBConnected()
+{
+
+    int vusb;
+    esp_err_t rc = adc2_get_raw(VUSB_ADC_CHANNEL, ADC_WIDTH_BIT_12, &vusb);
+    if (rc != ESP_OK)
+    {
+        sendErr("isVUSBConnected", "Failed to read VUSB ADC value");
+        return true;
+    }
+
+    ESP_LOGD("isVUSBConnected", "VUSB ADC value: %d", vusb);
+
+    return vusb > VUSB_THRESHOLD;
+}
 
 void setupGauge()
 {

@@ -201,8 +201,3 @@ CmdType readSerial(bool wait)
 
     return (CmdType)cmd;
 }
-
-bool isUSBConnected()
-{
-    return usb_serial_jtag_is_connected();
-}
