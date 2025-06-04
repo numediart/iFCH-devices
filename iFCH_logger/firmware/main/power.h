@@ -4,8 +4,8 @@
 #include "globals.h"
 
 #define VUSB_PIN (gpio_num_t)15
-#define VUSB_ADC_CHANNEL (adc2_channel_t)4
-#define VUSB_THRESHOLD 3750
+#define VUSB_ADC_CHANNEL ADC_CHANNEL_4
+#define VUSB_THRESHOLD 3700
 
 #define WAKEUP_PIN_MASK (1ULL << VUSB_PIN)
 

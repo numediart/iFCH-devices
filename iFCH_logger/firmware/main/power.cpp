@@ -6,34 +6,42 @@
 #include "utils.h"
 
 #include <esp_sleep.h>
-#include <driver/adc.h>
+#include <esp_adc/adc_oneshot.h>
 
 #include <Wire.h>
 #include <SparkFun_MAX1704x_Fuel_Gauge_Arduino_Library.h>
 
 SFE_MAX1704X lipo(MAX1704X_MAX17048); // Create a MAX17048
 
+static adc_oneshot_unit_handle_t adc_handle;
+
 void setupVUSB()
 {
-
     esp_err_t rc;
-    gpio_num_t adc_gpio_num;
 
-    rc = adc2_pad_get_io_num(VUSB_ADC_CHANNEL, &adc_gpio_num);
+    adc_oneshot_unit_init_cfg_t adc_config = {
+        .unit_id = ADC_UNIT_2,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+
+    rc = adc_oneshot_new_unit(&adc_config, &adc_handle);
     if (rc != ESP_OK)
     {
-        sendErr("setupVUSB", "Failed to get ADC2 pad IO number");
-        errorReset(COLOR_POWER);
+        sendErr("setupVUSB", "Failed to initialize ADC");
+        errorReset(COLOR_RUNTIME_ERROR);
         return;
     }
 
-    ESP_LOGI("setupVUSB", "ADC2 channel %d @ GPIO %d", VUSB_ADC_CHANNEL, adc_gpio_num);
+    adc_oneshot_chan_cfg_t config = {
+        .atten = ADC_ATTEN_DB_6,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
 
-    rc = adc2_config_channel_atten(VUSB_ADC_CHANNEL, ADC_ATTEN_DB_6);
+    rc = adc_oneshot_config_channel(adc_handle, VUSB_ADC_CHANNEL, &config);
     if (rc != ESP_OK)
     {
-        sendErr("setupVUSB", "Failed to configure ADC2 channel");
-        errorReset(COLOR_POWER);
+        sendErr("setupVUSB", "Failed to configure ADC channel");
+        errorReset(COLOR_RUNTIME_ERROR);
         return;
     }
 }
@@ -42,7 +50,7 @@ bool isVUSBConnected()
 {
 
     int vusb;
-    esp_err_t rc = adc2_get_raw(VUSB_ADC_CHANNEL, ADC_WIDTH_BIT_12, &vusb);
+    esp_err_t rc = adc_oneshot_read(adc_handle, VUSB_ADC_CHANNEL, &vusb);
     if (rc != ESP_OK)
     {
         sendErr("isVUSBConnected", "Failed to read VUSB ADC value");
