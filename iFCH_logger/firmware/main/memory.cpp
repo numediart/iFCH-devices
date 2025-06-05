@@ -7,11 +7,11 @@
 #include <sys/unistd.h>
 #include <sys/stat.h>
 
-#include "esp_vfs_fat.h"
-#include "sdmmc_cmd.h"
-#include "driver/sdmmc_host.h"
+#include <esp_vfs_fat.h>
+#include <sdmmc_cmd.h>
+#include <driver/sdmmc_host.h>
 
-#include "cJSON.h"
+#include <cJSON.h>
 
 bool sendFile(std::string filename)
 {

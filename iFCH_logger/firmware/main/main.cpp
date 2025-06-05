@@ -323,59 +323,6 @@ void handleSerialCommand(CmdType cmd)
     }
 }
 
-void setup()
-{
-    ESP_LOGI("setup", "Starting %s", VERSION);
-
-    // Initialize variables
-    dataQueue = xQueueCreate(BLE_QUEUE_LENGTH, BLE_MTU);
-    commandQueue = xQueueCreate(BLE_QUEUE_LENGTH, BLE_MTU);
-    logQueue = xQueueCreate(BLE_QUEUE_LENGTH, BLE_MTU);
-
-    isStreaming = false;
-
-    // Blink signal to indicate the board is starting
-    setupBoard();
-    blink(RGB_MAX, RGB_MAX, RGB_MAX, 2, 150);
-
-    // Set up all peripherals
-    setupVUSB();
-    setupSDCard();
-    setupRTC();
-    // setupGauge();
-    setupBLE();
-
-    // Load the saved record and config files
-    loadJsonRecord();
-    if (!loadJsonConfig())
-    {
-        blink(COLOR_SD, 5, 50);
-    }
-
-    // If the clock interrupt is active, fetch data
-    if ((esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER || timerIsOver()) && record.logging)
-    {
-        fetchMovesenseData();
-    }
-
-    // If USB is connected, start the Serial interface
-    if (isVUSBConnected())
-    {
-        setupSerial();
-    }
-    // If the USB is not connected, enter hibernation
-    // TODO do not sleep if the Movesense is connected
-    else
-    {
-        if (isMovesenseConnected)
-        {
-            disconnectMovesense();
-        }
-
-        enterHibernation(true); // TODO: set the waketimer
-    }
-}
-
 void loop()
 {
     // The clock interrupt is active, fetch data
@@ -436,6 +383,63 @@ void loop()
 
         enterHibernation(true); // TODO: set the waketimer
     }
+}
 
-    vTaskDelay(pdMS_TO_TICKS(10)); // Prevent watchdog timeout
+extern "C" void app_main()
+{
+    ESP_LOGI("setup", "Starting %s", VERSION);
+
+    // Initialize variables
+    dataQueue = xQueueCreate(BLE_QUEUE_LENGTH, BLE_MTU);
+    commandQueue = xQueueCreate(BLE_QUEUE_LENGTH, BLE_MTU);
+    logQueue = xQueueCreate(BLE_QUEUE_LENGTH, BLE_MTU);
+
+    isStreaming = false;
+
+    // Blink signal to indicate the board is starting
+    setupBoard();
+    blink(RGB_MAX, RGB_MAX, RGB_MAX, 2, 150);
+
+    // Set up all peripherals
+    setupVUSB();
+    setupSDCard();
+    setupRTC();
+    // setupGauge();
+    setupBLE();
+
+    // Load the saved record and config files
+    loadJsonRecord();
+    if (!loadJsonConfig())
+    {
+        blink(COLOR_SD, 5, 50);
+    }
+
+    // If the clock interrupt is active, fetch data
+    if ((esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER || timerIsOver()) && record.logging)
+    {
+        fetchMovesenseData();
+    }
+
+    // If USB is connected, start the Serial interface
+    if (isVUSBConnected())
+    {
+        setupSerial();
+    }
+    // If the USB is not connected, enter hibernation
+    // TODO do not sleep if the Movesense is connected
+    else
+    {
+        if (isMovesenseConnected)
+        {
+            disconnectMovesense();
+        }
+
+        enterHibernation(true); // TODO: set the waketimer
+    }
+
+    while (true)
+    {
+        loop();
+        vTaskDelay(pdMS_TO_TICKS(10)); // Prevent watchdog timeout
+    }
 }

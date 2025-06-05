@@ -1,19 +1,18 @@
-#include "nvs_flash.h"
-
-#include "nimble/nimble_port.h"
-#include "nimble/nimble_port_freertos.h"
-
-#include "host/ble_hs.h"
-#include "host/util/util.h"
-
-#include "services/gap/ble_svc_gap.h"
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
-
 #include "ble_com.h"
 #include "utils.h"
 #include "serial_com.h"
+
+#include <nvs_flash.h>
+
+#include <nimble/nimble_port.h>
+#include <nimble/nimble_port_freertos.h>
+
+#include <host/ble_hs.h>
+#include <host/util/util.h>
+
+#include <services/gap/ble_svc_gap.h>
+
+#include <freertos/semphr.h>
 
 SemaphoreHandle_t bleGattSemaphore = NULL;
 SemaphoreHandle_t bleConnectSemaphore = NULL;

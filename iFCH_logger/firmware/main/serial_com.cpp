@@ -2,7 +2,7 @@
 #include "utils.h"
 
 #include <FastCRC.h>
-#include "driver/usb_serial_jtag.h"
+#include <driver/usb_serial_jtag.h>
 
 FastCRC32 CRC32;
 uint8_t rx_payload[MAX_PAYLOAD_SIZE];
