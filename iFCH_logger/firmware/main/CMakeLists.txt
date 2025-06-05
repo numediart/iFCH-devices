@@ -9,7 +9,6 @@ idf_component_register(SRCS "${srcs}"
     REQUIRES led_strip
     REQUIRES SparkFun_MAX1704x
     REQUIRES nvs_flash
-    REQUIRES FastCRC
 
     # REQUIRES vfs //TODO remove?
 )

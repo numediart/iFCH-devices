@@ -1,10 +1,9 @@
 #include "serial_com.h"
 #include "utils.h"
 
-#include <FastCRC.h>
 #include <driver/usb_serial_jtag.h>
+#include <rom/crc.h>
 
-FastCRC32 CRC32;
 uint8_t rx_payload[MAX_PAYLOAD_SIZE];
 uint16_t rx_payload_len = 0;
 
@@ -82,7 +81,7 @@ void sendFrame(CmdType cmd, uint8_t *payload, uint16_t len)
     if (len > 0)
         memcpy(txBuf + 3, payload, len);
 
-    uint32_t crc = CRC32.crc32(txBuf, len + 3);
+    uint32_t crc = crc32_le(0, txBuf, len + 3);
 
     if (!writeBytes(txBuf, len + 3) || !writeBytes((uint8_t *)&crc, 4))
         return;
@@ -182,7 +181,7 @@ CmdType readSerial(bool wait)
     crcBuf[1] = rx_payload_len >> 8;
     crcBuf[2] = rx_payload_len & 0xFF;
     memcpy(crcBuf + 3, rx_payload, rx_payload_len);
-    uint32_t expectedCrc = CRC32.crc32(crcBuf, rx_payload_len + 3);
+    uint32_t expectedCrc = crc32_le(0, crcBuf, rx_payload_len + 3);
 
     uint32_t receivedCrc = 0;
 
