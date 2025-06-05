@@ -9,6 +9,8 @@
 
 #define WAKEUP_PIN_MASK (1ULL << VUSB_PIN)
 
+#define I2C_MAX17048_ADDR 0x36
+
 void setupGauge();
 
 void setupVUSB();

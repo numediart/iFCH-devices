@@ -404,7 +404,7 @@ extern "C" void app_main()
     setupVUSB();
     setupSDCard();
     setupRTC();
-    // setupGauge();
+    setupGauge();
     setupBLE();
 
     // Load the saved record and config files

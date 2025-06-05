@@ -8,12 +8,10 @@
 #include <esp_sleep.h>
 #include <esp_adc/adc_oneshot.h>
 
-#include <Wire.h>
-#include <SparkFun_MAX1704x_Fuel_Gauge_Arduino_Library.h>
-
-SFE_MAX1704X lipo(MAX1704X_MAX17048); // Create a MAX17048
-
 static adc_oneshot_unit_handle_t adc_handle;
+static i2c_master_dev_handle_t max17048_handle = nullptr;
+
+const static uint8_t SOC_REG_ADDR = 0x04;
 
 void setupVUSB()
 {
@@ -64,22 +62,39 @@ bool isVUSBConnected()
 
 void setupGauge()
 {
-    if (lipo.begin() == false)
+
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = I2C_MAX17048_ADDR,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+    };
+
+    esp_err_t rc = i2c_master_bus_add_device(i2c_handle, &dev_cfg, &max17048_handle);
+    if (rc != ESP_OK)
     {
-        sendErr("setupGauge", "Failed to initialize fuel gauge");
+        sendErr("setupGauge", "Failed to add battery gauge device");
         errorReset(COLOR_POWER);
         return;
     }
 
-    lipo.quickStart();
-
-    ESP_LOGI("setupGauge", "Fuel gauge initialized");
+    ESP_LOGI("setupGauge", "battery gauge device added with address 0x%02X", I2C_MAX17048_ADDR);
 }
 
 float getBattery()
 {
-    lipo.quickStart();
-    return lipo.getSOC();
+    esp_err_t rc;
+
+    uint8_t soc[2];
+    rc = i2c_master_transmit_receive(max17048_handle, &SOC_REG_ADDR, 1, soc, sizeof(soc), I2C_TIMEOUT_MS);
+    if (rc != ESP_OK)
+    {
+        sendErr("getBattery", "Failed to read battery SOC");
+        return -1.0f;
+    }
+
+    float batteryLevel = (float)(soc[0]) + (float)(soc[1]) / 256.0f;
+
+    return batteryLevel;
 }
 
 void enterHibernation(bool waketimer)
