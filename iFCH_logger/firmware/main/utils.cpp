@@ -1,10 +1,9 @@
 #include "utils.h"
 
-#include <Wire.h>
-
 #include "led_strip.h"
 
 static led_strip_handle_t rgb_led = nullptr;
+i2c_master_bus_handle_t i2c_handle = nullptr;
 
 void ledWrite(uint8_t r_val, uint8_t g_val, uint8_t b_val)
 {
@@ -47,9 +46,9 @@ void blink(uint8_t r_val, uint8_t g_val, uint8_t b_val, uint8_t times, uint32_t 
     for (uint8_t i = 0; i < times; i++)
     {
         ledWrite(r_val, g_val, b_val);
-        delay(duration);
+        vTaskDelay(pdMS_TO_TICKS(duration));
         ledWrite(false);
-        delay(duration);
+        vTaskDelay(pdMS_TO_TICKS(duration));
     }
 }
 
@@ -98,12 +97,36 @@ led_strip_handle_t setupLED(void)
     return led_strip;
 }
 
-void setupGPIO()
+i2c_master_bus_handle_t setupI2C()
 {
-    ESP_LOGI("setupGPIO", "Setting up GPIO pins");
+    i2c_master_bus_config_t i2c_mst_config = {
+        .i2c_port = I2C_MASTER_PORT,
+        .sda_io_num = I2C_MASTER_SDA_IO,
+        .scl_io_num = I2C_MASTER_SCL_IO,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+    };
+    i2c_mst_config.flags.enable_internal_pullup = false;
 
-    // For both RTC and fuel gauge
-    Wire.begin();
+    i2c_master_bus_handle_t bus_handle;
+    int rc = i2c_new_master_bus(&i2c_mst_config, &bus_handle);
+    if (rc != ESP_OK)
+    {
+        ESP_LOGE("setupI2C", "Failed to create I2C bus: %s", esp_err_to_name(rc));
+        errorReset(COLOR_RUNTIME_ERROR);
+        return nullptr; // Return null if the I2C bus creation failed
+    }
+
+    ESP_LOGI("setupI2C", "Created I2C bus with port %d", I2C_MASTER_PORT);
+
+    return bus_handle;
+}
+
+void setupBoard()
+{
+    ESP_LOGI("setupBoard", "Setting up ESP board peripherals");
 
     rgb_led = setupLED();
+
+    i2c_handle = setupI2C();
 }

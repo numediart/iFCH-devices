@@ -13,7 +13,7 @@
 
 #include "cJSON.h"
 
-bool sendFile(String filename)
+bool sendFile(std::string filename)
 {
     // Check if the file exists
     struct stat st;
@@ -84,9 +84,9 @@ bool sendFile(String filename)
     return sentOK;
 }
 
-String receiveFile(String filename)
+std::string receiveFile(std::string filename)
 {
-    String receivedName = "";
+    std::string receivedName = "";
 
     // Open the file for writing
     FILE *f = fopen(filename.c_str(), "w");
@@ -114,7 +114,7 @@ String receiveFile(String filename)
                 if (expectedID == 0)
                 {
                     // Store received file name
-                    receivedName = String((char *)(rx_payload + 1), rx_payload_len - 1);
+                    receivedName = std::string((char *)(rx_payload + 1), rx_payload_len - 1);
                 }
 
                 // If not first packet and not empty, then write chunk to file
@@ -261,7 +261,7 @@ bool loadJsonConfig()
     {
         if (cJSON_IsString(child) && (child->valuestring != NULL))
         {
-            config.sensorPaths.push_back(String(child->valuestring));
+            config.sensorPaths.push_back(std::string(child->valuestring));
         }
         else
         {
@@ -287,7 +287,7 @@ bool loadJsonConfig()
         return false;
     }
 
-    config.address = String(address->valuestring);
+    config.address = std::string(address->valuestring);
     config.fetchIntervalMin = fetchInterval->valueint;
     config.initialized = true;
 

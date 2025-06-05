@@ -7,8 +7,6 @@ idf_component_register(SRCS "${srcs}"
     REQUIRES fatfs
     REQUIRES json
     REQUIRES led_strip
-    REQUIRES arduino
-    REQUIRES SparkFun_RV8803
     REQUIRES SparkFun_MAX1704x
     REQUIRES nvs_flash
     REQUIRES FastCRC

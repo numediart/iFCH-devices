@@ -1,11 +1,19 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+#include "driver/i2c_master.h"
+
 #include "globals.h"
 
 #define RGB_LED_PIN 46
 
 #define RGB_MAX 64
+
+#define I2C_MASTER_FREQ_HZ 100000 // could go up to 400 kHz, but 100 kHz is more reliable
+#define I2C_MASTER_SCL_IO (gpio_num_t)9
+#define I2C_MASTER_SDA_IO (gpio_num_t)8
+#define I2C_MASTER_PORT I2C_NUM_0
+#define I2C_TIMEOUT_MS 1000
 
 #define LED_STRIP_RMT_RES_HZ (10 * 1000 * 1000) // 10 MHz
 
@@ -24,6 +32,8 @@ void blink(uint8_t r_val, uint8_t g_val, uint8_t b_val, uint8_t times, uint32_t 
 
 void errorReset(uint8_t r_val, uint8_t g_val, uint8_t b_val);
 
-void setupGPIO();
+void setupBoard();
+
+extern i2c_master_bus_handle_t i2c_handle;
 
 #endif // UTILS_H

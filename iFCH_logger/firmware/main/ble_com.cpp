@@ -352,11 +352,11 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             memcpy(name, fields.name, fields.name_len);
             name[fields.name_len] = '\0';
 
-            String devAddress = String(addr_to_str(disc->addr.val));
-            String devName = String(name);
+            std::string devAddress = std::string(addr_to_str(disc->addr.val));
+            std::string devName = std::string(name);
 
             // Combine the name and the address
-            String devRepr = devName + ";" + devAddress;
+            std::string devRepr = devName + ";" + devAddress;
 
             ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
 
@@ -387,11 +387,11 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             memcpy(name, fields.name, fields.name_len);
             name[fields.name_len] = '\0';
 
-            String devAddress = String(addr_to_str(event->disc.addr.val));
-            String devName = String(name);
+            std::string devAddress = std::string(addr_to_str(event->disc.addr.val));
+            std::string devName = std::string(name);
 
             // Combine the name and the address
-            String devRepr = devName + ";" + devAddress;
+            std::string devRepr = devName + ";" + devAddress;
 
             ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
 
@@ -527,7 +527,7 @@ bool scanBLEDevices()
                       gap_event_callback, NULL);
     if (rc != 0)
     {
-        sendErr("scanBLEDevices", "Error initiating GAP discovery procedure: " + String(rc));
+        sendErr("scanBLEDevices", "Error initiating GAP discovery procedure: " + std::to_string(rc));
     }
 
     ledWrite(COLOR_BLE);
@@ -633,7 +633,7 @@ bool getMovesenseBattery(uint8_t &batteryLevel)
     int rc = ble_gattc_read(movesense_handle, bat_char_handle, gatt_read_cb, &batteryLevel);
     if (rc != 0)
     {
-        sendErr("getMovesenseBattery", "Error initiating GATT read; rc=" + String(rc));
+        sendErr("getMovesenseBattery", "Error initiating GATT read; rc=" + std::to_string(rc));
     }
 
     if (bleGattSemaphore != NULL)

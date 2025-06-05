@@ -16,9 +16,9 @@
 
 #define JSON_BUFFER_SIZE 512
 
-bool sendFile(String filename);
+bool sendFile(std::string filename);
 
-String receiveFile(String filename);
+std::string receiveFile(std::string filename);
 
 void setupSDCard();
 

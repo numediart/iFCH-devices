@@ -1,9 +1,16 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
-#include <Arduino.h>
-
 #define VERSION "iFCH-logger v0.1"
+
+#include <vector>
+#include <string>
+#include <cstring>
+
+#include <esp_log.h>
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 
 struct Config
 {
@@ -11,8 +18,8 @@ struct Config
 
     // JSON config fields
     uint16_t fetchIntervalMin = 1;
-    std::vector<String> sensorPaths;
-    String address = "";
+    std::vector<std::string> sensorPaths;
+    std::string address = "";
 };
 
 struct Record

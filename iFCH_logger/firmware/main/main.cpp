@@ -1,5 +1,3 @@
-#include <Arduino.h>
-
 #include "globals.h"
 #include "rtc_time.h"
 #include "utils.h"
@@ -7,6 +5,8 @@
 #include "memory.h"
 #include "serial_com.h"
 #include "ble_com.h"
+
+#include <esp_sleep.h>
 
 Config config;
 Record record;
@@ -41,7 +41,7 @@ void handleSerialCommand(CmdType cmd)
     case CmdType::CMD_VERSION:
     {
         // Send the version of the firmware (useful for automatic detection)
-        sendFrame(CmdType::CMD_VERSION, (uint8_t *)VERSION, strlen(VERSION));
+        sendFrame(CmdType::CMD_VERSION, (uint8_t *)VERSION, std::strlen(VERSION));
         break;
     }
 
@@ -96,7 +96,7 @@ void handleSerialCommand(CmdType cmd)
         // Receive the config file
         config.initialized = false;
 
-        String receivedName = receiveFile(CONFIG_FILE);
+        std::string receivedName = receiveFile(CONFIG_FILE);
         // If the config file is valid, send a confirmation
         if (receivedName == CONFIG_FILE && loadJsonConfig())
         {
@@ -135,7 +135,7 @@ void handleSerialCommand(CmdType cmd)
         }
 
         memcpy(&newTime, rx_payload, sizeof(newTime));
-        if (RTC.setEpoch(newTime))
+        if (setUNIXTime(newTime))
         {
             sendFrame(CmdType::CMD_TIME_PUT, (uint8_t *)&newTime, sizeof(newTime));
         }
@@ -317,7 +317,7 @@ void handleSerialCommand(CmdType cmd)
     default:
     {
         // Handle other commands
-        sendErr("CMD_UNE", "Unexpected command: " + String((uint8_t)cmd));
+        sendErr("CMD_UNE", "Unexpected command: " + std::to_string((uint8_t)cmd));
         break;
     }
     }
@@ -335,14 +335,14 @@ void setup()
     isStreaming = false;
 
     // Blink signal to indicate the board is starting
-    setupGPIO();
+    setupBoard();
     blink(RGB_MAX, RGB_MAX, RGB_MAX, 2, 150);
 
     // Set up all peripherals
     setupVUSB();
     setupSDCard();
     setupRTC();
-    setupGauge();
+    // setupGauge();
     setupBLE();
 
     // Load the saved record and config files
@@ -353,7 +353,7 @@ void setup()
     }
 
     // If the clock interrupt is active, fetch data
-    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER || timerIsOver())
+    if ((esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER || timerIsOver()) && record.logging)
     {
         fetchMovesenseData();
     }
@@ -436,4 +436,6 @@ void loop()
 
         enterHibernation(true); // TODO: set the waketimer
     }
+
+    vTaskDelay(pdMS_TO_TICKS(10)); // Prevent watchdog timeout
 }

@@ -63,6 +63,6 @@ void sendFrame(CmdType cmd, uint8_t *payload, uint16_t len);
 void sendCMD(CmdType type);
 
 // Send an error message
-void sendErr(String tag, String errMsg);
+void sendErr(std::string tag, std::string errMsg);
 
 #endif // SERIAL_COM_H

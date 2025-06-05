@@ -93,7 +93,7 @@ void sendCMD(CmdType type)
     sendFrame(type, nullptr, 0);
 }
 
-void sendErr(String tag, String errMsg)
+void sendErr(std::string tag, std::string errMsg)
 {
     // Log the error message
     ESP_LOGE(tag.c_str(), "%s", errMsg.c_str());
@@ -101,7 +101,7 @@ void sendErr(String tag, String errMsg)
     if (usb_serial_jtag_is_driver_installed() && usb_serial_jtag_is_connected())
     {
         // Send an error message
-        String errMsgWithTag = tag + ": " + errMsg;
+        std::string errMsgWithTag = tag + ": " + errMsg;
         sendFrame(CmdType::CMD_ERROR, (uint8_t *)errMsgWithTag.c_str(), errMsgWithTag.length());
     }
 }
@@ -172,7 +172,7 @@ CmdType readSerial(bool wait)
     size_t read = readBytes(rx_payload, rx_payload_len);
     if (read != rx_payload_len)
     {
-        sendErr("readSerial", "Failed to read payload, got " + String(read) + " bytes, expected " + String(rx_payload_len));
+        sendErr("readSerial", "Failed to read payload, got " + std::to_string(read) + " bytes, expected " + std::to_string(rx_payload_len));
         sendCMD(CmdType::CMD_TIMEOUT);
         return CmdType::CMD_TIMEOUT;
     }
