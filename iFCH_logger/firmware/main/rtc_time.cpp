@@ -39,17 +39,10 @@ uint8_t _getRTCFlags()
     uint8_t flag_val;
     esp_err_t rc;
 
-    rc = i2c_master_transmit(rv8803_handle, &FLAG_REG_ADDR, 1, I2C_TIMEOUT_MS);
+    rc = i2c_master_transmit_receive(rv8803_handle, &FLAG_REG_ADDR, 1, &flag_val, 1, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("_getRTCFlags", "Failed to transmit RTC flag register address");
-        return 0xFF;
-    }
-
-    rc = i2c_master_receive(rv8803_handle, &flag_val, 1, I2C_TIMEOUT_MS);
-    if (rc != ESP_OK)
-    {
-        sendErr("_getRTCFlags", "Failed to receive RTC flag register value");
+        sendErr("_getRTCFlags", "Failed to read RTC flag register value");
         return 0xFF;
     }
 
@@ -62,16 +55,10 @@ uint8_t _getRTCExt()
     uint8_t ext_val;
     esp_err_t rc;
 
-    rc = i2c_master_transmit(rv8803_handle, &EXT_REG_ADDR, 1, I2C_TIMEOUT_MS);
+    rc = i2c_master_transmit_receive(rv8803_handle, &EXT_REG_ADDR, 1, &ext_val, 1, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("_getRTCExt", "Failed to transmit RTC extension register address");
-        return 0xFF;
-    }
-    rc = i2c_master_receive(rv8803_handle, &ext_val, 1, I2C_TIMEOUT_MS);
-    if (rc != ESP_OK)
-    {
-        sendErr("_getRTCExt", "Failed to receive RTC extension register value");
+        sendErr("_getRTCExt", "Failed to read RTC extension register value");
         return 0xFF;
     }
 
@@ -175,18 +162,10 @@ uint32_t getUNIXTime()
     uint8_t raw_data[7];
 
     esp_err_t rc;
-    rc = i2c_master_transmit(rv8803_handle, &TIME_REG_ADDR, 1, I2C_TIMEOUT_MS);
+    rc = i2c_master_transmit_receive(rv8803_handle, &TIME_REG_ADDR, 1, raw_data, sizeof(raw_data), I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("getUNIXTime", "Failed to transmit RTC register address");
-        errorReset(COLOR_RTC);
-        return 0;
-    }
-
-    rc = i2c_master_receive(rv8803_handle, raw_data, sizeof(raw_data), I2C_TIMEOUT_MS);
-    if (rc != ESP_OK)
-    {
-        sendErr("getUNIXTime", "Failed to receive RTC data");
+        sendErr("getUNIXTime", "Failed to read RTC data");
         errorReset(COLOR_RTC);
         return 0;
     }
@@ -199,6 +178,9 @@ uint32_t getUNIXTime()
         .tm_mon = bcd_to_dec(raw_data[5]) - 1,
         .tm_year = bcd_to_dec(raw_data[6]) + 100,
     };
+
+    ESP_LOGI("getUNIXTime", "RTC time read: %02d:%02d:%02d %02d/%02d/%04d",
+             t.tm_hour, t.tm_min, t.tm_sec, t.tm_mday, t.tm_mon + 1, t.tm_year + 1900);
 
     time_t now = mktime(&t);
 
@@ -215,16 +197,10 @@ bool setUNIXTime(uint32_t newTime)
     uint8_t ctrl_val;
 
     // Start by pausing the RTC
-    rc = i2c_master_transmit(rv8803_handle, &CTRL_REG_ADDR, 1, I2C_TIMEOUT_MS);
+    rc = i2c_master_transmit_receive(rv8803_handle, &CTRL_REG_ADDR, 1, &ctrl_val, 1, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("setUNIXTime", "Failed to transmit RTC control register address");
-        return false;
-    }
-    rc = i2c_master_receive(rv8803_handle, &ctrl_val, 1, I2C_TIMEOUT_MS);
-    if (rc != ESP_OK)
-    {
-        sendErr("setUNIXTime", "Failed to receive RTC control register value");
+        sendErr("setUNIXTime", "Failed to read RTC control register value");
         return false;
     }
 
