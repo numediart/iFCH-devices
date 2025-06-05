@@ -80,9 +80,12 @@ led_strip_handle_t setupLED(void)
         .clk_src = RMT_CLK_SRC_DEFAULT,        // different clock source can lead to different power consumption
         .resolution_hz = LED_STRIP_RMT_RES_HZ, // RMT counter clock frequency
         .mem_block_symbols = 0,                // the memory block size used by the RMT channel, 0 for auto
+#ifdef CONFIG_IDF_TARGET_ESP32S3
         .flags = {
             .with_dma = true, // Using DMA can improve performance when driving more LEDs
-        }};
+        }
+#endif
+    };
 
     // LED Strip object handle
     led_strip_handle_t led_strip;

@@ -9,6 +9,7 @@
 #include <esp_adc/adc_oneshot.h>
 
 static adc_oneshot_unit_handle_t adc_handle;
+
 static i2c_master_dev_handle_t max17048_handle = nullptr;
 
 const static uint8_t SOC_REG_ADDR = 0x04;
@@ -18,7 +19,7 @@ void setupVUSB()
     esp_err_t rc;
 
     adc_oneshot_unit_init_cfg_t adc_config = {
-        .unit_id = ADC_UNIT_2,
+        .unit_id = VUSB_ADC_UNIT,
         .ulp_mode = ADC_ULP_MODE_DISABLE,
     };
 
