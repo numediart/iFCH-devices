@@ -317,7 +317,7 @@ void handleSerialCommand(CmdType cmd)
     default:
     {
         // Handle other commands
-        sendErr("CMD_UNE", "Unexpected command: " + std::to_string((uint8_t)cmd));
+        sendErr("CMD_UNE", "Unexpected command: %d", (uint8_t)cmd);
         break;
     }
     }

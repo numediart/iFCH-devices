@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <cstring>
+#include <cstdarg>
 
 #include <esp_log.h>
 

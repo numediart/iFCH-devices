@@ -95,7 +95,7 @@ std::string receiveFile(std::string filename)
     FILE *f = fopen(filename.c_str(), "w");
     if (f == NULL)
     {
-        sendErr("receiveFile", "Failed to open file for writing: " + filename);
+        sendErr("receiveFile", "Failed to open file for writing: %s", filename);
         return "";
     }
 

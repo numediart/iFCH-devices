@@ -526,7 +526,7 @@ bool scanBLEDevices()
                       gap_event_callback, NULL);
     if (rc != 0)
     {
-        sendErr("scanBLEDevices", "Error initiating GAP discovery procedure: " + std::to_string(rc));
+        sendErr("scanBLEDevices", "Error initiating GAP discovery procedure: %d", rc);
     }
 
     ledWrite(COLOR_BLE);
@@ -632,7 +632,7 @@ bool getMovesenseBattery(uint8_t &batteryLevel)
     int rc = ble_gattc_read(movesense_handle, bat_char_handle, gatt_read_cb, &batteryLevel);
     if (rc != 0)
     {
-        sendErr("getMovesenseBattery", "Error initiating GATT read; rc=" + std::to_string(rc));
+        sendErr("getMovesenseBattery", "Error initiating GATT read; rc=%d", rc);
     }
 
     if (bleGattSemaphore != NULL)

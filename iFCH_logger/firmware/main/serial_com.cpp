@@ -92,17 +92,40 @@ void sendCMD(CmdType type)
     sendFrame(type, nullptr, 0);
 }
 
-void sendErr(std::string tag, std::string errMsg)
+void sendErr(const char *tag, const char *fmt, ...)
 {
-    // Log the error message
-    ESP_LOGE(tag.c_str(), "%s", errMsg.c_str());
+    // Format the error message
+    char buf[ERROR_BUFFER_SIZE];
+    va_list args;
+    va_start(args, fmt);
+    int len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
 
+    // Check for formatting errors or truncation
+    if (len < 0)
+    {
+        ESP_LOGE("sendErr", "vsnprintf failed");
+        return;
+    }
+
+    if (len >= sizeof(buf))
+    {
+        ESP_LOGW("sendErr", "Error message truncated (needed %d bytes)", len);
+        len = sizeof(buf) - 1; // Use actual buffer content length
+    }
+
+    // Log to console
+    ESP_LOGE(tag, "%s", buf);
+
+#ifdef ERR_LOG_SERIAL
+    // If USB serial is available, send error frame
     if (usb_serial_jtag_is_driver_installed() && usb_serial_jtag_is_connected())
     {
-        // Send an error message
-        std::string errMsgWithTag = tag + ": " + errMsg;
-        sendFrame(CmdType::CMD_ERROR, (uint8_t *)errMsgWithTag.c_str(), errMsgWithTag.length());
+        sendFrame(CmdType::CMD_ERROR,
+                  reinterpret_cast<uint8_t *>(buf),
+                  static_cast<uint16_t>(len));
     }
+#endif // ERR_LOG_SERIAL
 }
 
 void setupSerial()
@@ -171,7 +194,11 @@ CmdType readSerial(bool wait)
     size_t read = readBytes(rx_payload, rx_payload_len);
     if (read != rx_payload_len)
     {
-        sendErr("readSerial", "Failed to read payload, got " + std::to_string(read) + " bytes, expected " + std::to_string(rx_payload_len));
+        sendErr(
+            "readSerial",
+            "Failed to read payload, got %zu bytes, expected %u",
+            read,
+            rx_payload_len);
         sendCMD(CmdType::CMD_TIMEOUT);
         return CmdType::CMD_TIMEOUT;
     }

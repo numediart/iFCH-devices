@@ -8,6 +8,8 @@
 #define SERIAL_SEND_RETRIES 3
 #define SERIAL_BUF_SIZE 2048
 
+#define ERROR_BUFFER_SIZE 256
+
 const uint8_t START_BYTE = 0xFA;
 extern uint8_t rx_payload[MAX_PAYLOAD_SIZE];
 extern uint16_t rx_payload_len;
@@ -63,6 +65,6 @@ void sendFrame(CmdType cmd, uint8_t *payload, uint16_t len);
 void sendCMD(CmdType type);
 
 // Send an error message
-void sendErr(std::string tag, std::string errMsg);
+void sendErr(const char *tag, const char *fmt, ...);
 
 #endif // SERIAL_COM_H
