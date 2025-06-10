@@ -12,12 +12,10 @@ Config config;
 Record record;
 
 QueueHandle_t dataQueue;
-QueueHandle_t commandQueue;
+QueueHandle_t responseQueue;
 QueueHandle_t logQueue;
 
 bool isStreaming = false;
-
-uint8_t queueNotif[BLE_MTU - 3 + 1]; // +1 for the length byte
 
 void fetchMovesenseData()
 {
@@ -331,6 +329,8 @@ void loop()
         fetchMovesenseData();
     }
 
+    uint8_t queueNotif[NOTIF_LEN]; // +1 for the length byte
+
     // Handle incoming BLE notifications
     while (xQueueReceive(dataQueue, queueNotif, 0) == pdTRUE)
     {
@@ -354,7 +354,7 @@ void loop()
         sendFrame(CmdType::CMD_BLE_NOTIFY, queueNotif + 1, len);
     }
 
-    while (xQueueReceive(commandQueue, queueNotif, 0) == pdTRUE)
+    while (xQueueReceive(responseQueue, queueNotif, 0) == pdTRUE)
     {
         uint8_t len = queueNotif[0];
 
@@ -390,9 +390,9 @@ extern "C" void app_main()
     ESP_LOGI("setup", "Starting %s", VERSION);
 
     // Initialize variables
-    dataQueue = xQueueCreate(BLE_QUEUE_LENGTH, BLE_MTU);
-    commandQueue = xQueueCreate(BLE_QUEUE_LENGTH, BLE_MTU);
-    logQueue = xQueueCreate(BLE_QUEUE_LENGTH, BLE_MTU);
+    dataQueue = xQueueCreate(BLE_QUEUE_LENGTH, NOTIF_LEN);
+    responseQueue = xQueueCreate(BLE_QUEUE_LENGTH, NOTIF_LEN);
+    logQueue = xQueueCreate(BLE_QUEUE_LENGTH, NOTIF_LEN);
 
     isStreaming = false;
 

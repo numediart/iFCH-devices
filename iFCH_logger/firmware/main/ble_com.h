@@ -6,11 +6,12 @@
 #include "globals.h"
 
 #define BLE_MTU 161
-#define BLE_SCAN_TIME 1000       // milliseconds
-#define BLE_SCAN_INTERVAL 500    // milliseconds
-#define BLE_SCAN_WINDOW 500      // milliseconds
-#define BLE_TIMEOUT 2000         // milliseconds
-#define BLE_CONNECT_TIMEOUT 5000 // milliseconds
+#define NOTIF_LEN (BLE_MTU - 3 + 1) // +1 for the length byte
+#define BLE_SCAN_TIME 1000          // milliseconds
+#define BLE_SCAN_INTERVAL 500       // milliseconds
+#define BLE_SCAN_WINDOW 500         // milliseconds
+#define BLE_TIMEOUT 2000            // milliseconds
+#define BLE_CONNECT_TIMEOUT 5000    // milliseconds
 #define BLE_QUEUE_LENGTH 25
 
 extern volatile bool isMovesenseConnected;

@@ -34,7 +34,7 @@ struct Record
 extern struct Record record;
 extern struct Config config;
 
-extern QueueHandle_t commandQueue;
+extern QueueHandle_t responseQueue;
 extern QueueHandle_t dataQueue;
 extern QueueHandle_t logQueue;
 

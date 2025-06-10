@@ -16,7 +16,6 @@
 
 SemaphoreHandle_t bleGattSemaphore = NULL;
 SemaphoreHandle_t bleConnectSemaphore = NULL;
-SemaphoreHandle_t bleRegCharsSemaphore = NULL;
 SemaphoreHandle_t bleScanSemaphore = NULL;
 
 volatile bool isMovesenseConnected = false;
@@ -29,17 +28,63 @@ static uint16_t data_char_handle;
 static uint16_t response_char_handle;
 static uint16_t log_char_handle;
 
-// Convert a 6-byte address to a string
-char *addr_to_str(const void *addr)
+#define REF_OFFSET_COMMAND 10
+
+enum Commands
 {
-    static char buf[6 * 2 + 5 + 1];
+    HELLO = 0,
+    SUBSCRIBE = 1,
+    UNSUBSCRIBE = 2,
+    FETCH_LOG = 3,
+    CLEAR_LOGS = 4,
+    SUB_LOG = 5,
+    UNSUB_LOG = 6,
+    START_LOG = 7,
+    STOP_LOG = 8,
+    LIST_LOGS = 9,
+    GET_TIME = 10,
+    RESET = 11,
+    UNSUBSCRIBE_ALL = 12,
+};
+
+enum Responses
+{
+    COMMAND_RESULT = 1,
+    DATA = 2,
+    DATA_PART2 = 3,
+};
+
+enum Status
+{
+    SUCCESS = 0x00,
+    ERROR = 0x01,
+};
+
+enum Codes
+{
+    OK = 0xC8,                   // 200
+    CREATED = 0xC9,              // 201
+    ACCEPTED = 0xCA,             // 202
+    BAD_REQUEST = 0x90,          // 400
+    FORBIDDEN = 0x93,            // 403
+    NOT_FOUND = 0x94,            // 404
+    CONFLICT = 0x99,             // 409
+    INTERNAL_ERROR = 0xF4,       // 500
+    INSUFFICIENT_STORAGE = 0xFB, // 507
+};
+
+// Convert a 6-byte address to a string
+std::string
+addr_to_str(const void *addr)
+{
+    char buf[6 * 2 + 5 + 1];
     const uint8_t *u8p;
 
     u8p = (uint8_t *)addr;
     sprintf(buf, "%02x:%02x:%02x:%02x:%02x:%02x",
             u8p[5], u8p[4], u8p[3], u8p[2], u8p[1], u8p[0]);
 
-    return buf;
+    return std::string(buf);
 }
 
 // Discovery callback for characteristics, saves the handle
@@ -50,7 +95,7 @@ static int disc_chr_cb(uint16_t conn_handle,
 {
     uint8_t *registered = (uint8_t *)arg;
 
-    if (error->status == 0 && chr != NULL)
+    if (error != NULL && error->status == 0 && chr != NULL)
     {
         /* Store the discovered characteristic handle */
         // *((uint16_t *)arg) = chr->val_handle;
@@ -97,29 +142,29 @@ static int disc_chr_cb(uint16_t conn_handle,
         }
     }
 
-    else if (error->status == BLE_HS_EDONE)
+    else if (error != NULL && error->status == BLE_HS_EDONE)
     {
         ESP_LOGI("disc_chr_cb", "Characteristic discovery complete");
-        if (bleRegCharsSemaphore != NULL)
+        if (bleConnectSemaphore != NULL)
         {
-            xSemaphoreGive(bleRegCharsSemaphore);
+            xSemaphoreGive(bleConnectSemaphore);
         }
     }
     else
     {
-        ESP_LOGE("disc_chr_cb", "Failed to discover characteristic: %d", error->status);
+        sendErr("disc_chr_cb", "Failed to discover characteristic: %d", error->status);
     }
 
-    return error->status;
+    return error ? error->status : -1;
 }
 
 // Discovery callback for the services, registers the characteristics
-int disc_svc_cb(uint16_t conn_handle,
-                const struct ble_gatt_error *error,
-                const struct ble_gatt_svc *service,
-                void *arg)
+static int disc_svc_cb(uint16_t conn_handle,
+                       const struct ble_gatt_error *error,
+                       const struct ble_gatt_svc *service,
+                       void *arg)
 {
-    if (error->status == 0 && service != NULL)
+    if (error != NULL && error->status == 0 && service != NULL)
     {
         ESP_LOGI("disc_svc_cb", "Discovered service");
         int rc = ble_gattc_disc_all_chrs(conn_handle, service->start_handle,
@@ -127,69 +172,238 @@ int disc_svc_cb(uint16_t conn_handle,
 
         if (rc != 0)
         {
-            ESP_LOGE("disc_svc_cb", "Failed to discover all characteristics: %d", rc);
+            sendErr("disc_svc_cb", "Failed to discover all characteristics: %d", rc);
             return rc;
         }
     }
-    else if (error->status == BLE_HS_EDONE)
+    else if (error != NULL && error->status == BLE_HS_EDONE)
     {
         ESP_LOGI("disc_svc_cb", "Service discovery complete");
     }
     else
     {
-        ESP_LOGE("disc_svc_cb", "Failed to discover service: %d", error->status);
+        sendErr("disc_svc_cb", "Failed to discover service: %d", error->status);
     }
-    return error->status;
+    return error ? error->status : -1;
+}
+
+static int gatt_write_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
+                         struct ble_gatt_attr *attr, void *arg)
+{
+    if (error != NULL && error->status != 0)
+    {
+        sendErr("gatt_write_cb", "Write to characteristic failed; status=%d", error->status);
+        return error->status;
+    }
+    else
+    {
+        ESP_LOGI("gatt_write_cb", "Successfully wrote to characteristic");
+        if (bleGattSemaphore != NULL)
+        {
+            xSemaphoreGive(bleGattSemaphore);
+        }
+    }
+
+    return error ? error->status : -1;
+}
+
+static int _subscribeCharacteristic(uint16_t char_handle, uint8_t cccd_code)
+{
+    uint8_t cccd_value[2] = {cccd_code, 0x00};
+
+    // Write to the CCCD of the response characteristic
+    // CCCD handle is typically characteristic handle + 1
+    uint16_t cccd_handle = char_handle + 1;
+
+    esp_err_t rc = ble_gattc_write_flat(movesense_handle, cccd_handle,
+                                        cccd_value, sizeof(cccd_value),
+                                        gatt_write_cb, NULL);
+    if (rc != 0)
+    {
+        sendErr("_subscribeCharacteristic", "Failed to write CCCD; rc=%d", rc);
+        return rc;
+    }
+
+    // Wait for the subscription to complete
+    if (bleGattSemaphore != NULL)
+    {
+        if (xSemaphoreTake(bleGattSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
+        {
+            sendErr("_subscribeCharacteristic", "Subscription timed out");
+            return ESP_FAIL;
+        }
+    }
+
+    return ESP_OK;
+}
+
+static bool subscribeCharacteristic(uint16_t char_handle, bool indicate)
+{
+    uint8_t code;
+
+    if (indicate)
+    {
+        // CCCD value for indications (0x0002)
+        code = 0x02;
+    }
+    else
+    {
+        // CCCD value for notifications (0x0001)
+        code = 0x01;
+    }
+
+    esp_err_t rc = _subscribeCharacteristic(char_handle, code);
+
+    if (rc != ESP_OK)
+    {
+        sendErr("subscribeCharacteristic", "Failed to subscribe to characteristic: %d", rc);
+        return false;
+    }
+
+    ESP_LOGI("subscribeCharacteristic", "Subscribed to characteristic");
+    return true;
+}
+
+static bool unsubscribeCharacteristic(uint16_t char_handle)
+{
+    uint8_t code = 0x00; // Unsubscribe code (0x0000)
+
+    esp_err_t rc = _subscribeCharacteristic(char_handle, code);
+
+    if (rc != ESP_OK)
+    {
+        sendErr("unsubscribeCharacteristic", "Failed to unsubscribe from characteristic: %d", rc);
+        return false;
+    }
+
+    ESP_LOGI("unsubscribeCharacteristic", "Unsubscribed from characteristic");
+    return true;
 }
 
 // Register the characteristics for the battery service and ifch service
-int registerCharacteristics()
+static int registerCharacteristics()
 {
     uint8_t registered = 0;
 
     // Discover the battery service
-    int ret = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&bat_svc_uuid, disc_svc_cb, &registered);
-    if (ret != 0)
+    esp_err_t rc = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&bat_svc_uuid, disc_svc_cb, &registered);
+    if (rc != ESP_OK)
     {
-        ESP_LOGE("registerCharacteristics", "Failed to discover battery service: %d", ret);
-        return ret;
+        sendErr("registerCharacteristics", "Failed to discover battery service: %d", rc);
+        return rc;
     }
 
     // Wait for the characteristics to be registered
-    if (bleRegCharsSemaphore != NULL)
+    if (bleConnectSemaphore != NULL)
     {
-        if (xSemaphoreTake(bleRegCharsSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
+        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
         {
-            ESP_LOGE("registerCharacteristics", "Battery registration timed out");
+            sendErr("registerCharacteristics", "Battery registration timed out");
             return BLE_HS_ETIMEOUT;
         }
     }
 
     // Discover the ifch service
-    ret = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&ifch_svc_uuid, disc_svc_cb, &registered);
-    if (ret != 0)
+    rc = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&ifch_svc_uuid, disc_svc_cb, &registered);
+    if (rc != 0)
     {
-        ESP_LOGE("registerCharacteristics", "Failed to discover ifch service: %d", ret);
-        return ret;
+        sendErr("registerCharacteristics", "Failed to discover ifch service: %d", rc);
+        return rc;
     }
 
     // Wait for the characteristics to be registered
-    if (bleRegCharsSemaphore != NULL)
+    if (bleConnectSemaphore != NULL)
     {
-        if (xSemaphoreTake(bleRegCharsSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
+        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
         {
-            ESP_LOGE("registerCharacteristics", "ifch registration timed out");
+            sendErr("registerCharacteristics", "ifch registration timed out");
             return BLE_HS_ETIMEOUT;
         }
     }
 
     if (registered != NUM_CHARS)
     {
-        ESP_LOGE("registerCharacteristics", "Failed to register all characteristics, only %d registered", registered);
+        sendErr("registerCharacteristics", "Failed to register all characteristics, only %d registered", registered);
         return BLE_HS_EBADDATA;
     }
 
     return 0;
+}
+
+bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, uint8_t length)
+{
+
+    const uint8_t payload_length = 2 + length; // 2 bytes for command and reference, plus data length
+    uint8_t payload[payload_length];
+    payload[0] = command;              // Command byte
+    payload[1] = reference;            // Reference byte
+    memcpy(payload + 2, data, length); // Copy the data
+
+    esp_err_t rc = ble_gattc_write_flat(movesense_handle, command_char_handle,
+                                        payload, payload_length, gatt_write_cb, NULL);
+    if (rc != 0)
+    {
+        sendErr("writeCommandCharacteristic", "Failed to initiate GATT write; rc=%d", rc);
+        return false;
+    }
+
+    uint32_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(BLE_TIMEOUT);
+
+    if (bleGattSemaphore != NULL)
+    {
+        if (xSemaphoreTake(bleGattSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
+        {
+            sendErr("writeCommandCharacteristic", "GATT write timed out");
+            return false;
+        }
+    }
+
+    uint32_t current_tick;
+
+    do
+    {
+        current_tick = xTaskGetTickCount();
+        uint32_t remaining_ticks = deadline - current_tick;
+
+        if (current_tick >= deadline)
+        {
+            remaining_ticks = 0;
+        }
+
+        uint8_t responseNotif[NOTIF_LEN];
+        if (xQueueReceive(responseQueue, responseNotif, remaining_ticks) == pdTRUE)
+        {
+            uint8_t len = responseNotif[0];
+            if (len < 4)
+            {
+                sendErr("writeCommandCharacteristic", "Invalid response length: %d", len);
+            }
+            else if (responseNotif[1] == Responses::COMMAND_RESULT && responseNotif[2] == reference)
+            {
+                ESP_LOGI("writeCommandCharacteristic", "Command response received: Type %d, Reference %d, Status %d, Code 0x%02x",
+                         responseNotif[1], responseNotif[2], responseNotif[3], responseNotif[4]);
+                if (len > 4)
+                {
+                    ESP_LOGI("writeCommandCharacteristic", "Additional data: %.*s",
+                             len - 4, (char *)(responseNotif + 5));
+                }
+
+                return true;
+            }
+            else
+            {
+                sendErr("writeCommandCharacteristic", "Unexpected response: Type %d, Reference %d -- Expected %d", responseNotif[1], responseNotif[2], reference);
+            }
+        }
+        else
+        {
+            break;
+        }
+
+    } while (current_tick < deadline);
+
+    sendErr("writeCommandCharacteristic", "Command response timed out");
+    return false;
 }
 
 // Callback for GATT read operation, extracts a uint8_t from the response
@@ -199,7 +413,7 @@ static int gatt_read_cb(uint16_t conn_handle, const struct ble_gatt_error *error
 
     if (error != NULL && error->status != 0)
     {
-        ESP_LOGE("gatt_read_cb", "Read failed; status=%d", error->status);
+        sendErr("gatt_read_cb", "Read failed; status=%d", error->status);
     }
     else if (attr != NULL && attr->om != NULL)
     {
@@ -210,7 +424,7 @@ static int gatt_read_cb(uint16_t conn_handle, const struct ble_gatt_error *error
 
             if (data == NULL)
             {
-                ESP_LOGE("gatt_read_cb", "Failed to pull up uint8_t");
+                sendErr("gatt_read_cb", "Failed to pull up uint8_t");
             }
             else
             {
@@ -226,7 +440,7 @@ static int gatt_read_cb(uint16_t conn_handle, const struct ble_gatt_error *error
         }
         else
         {
-            ESP_LOGE("gatt_read_cb", "Invalid read response for uint8_t");
+            sendErr("gatt_read_cb", "Invalid read response for uint8_t");
         }
     }
 
@@ -259,8 +473,8 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             /* Connection attempt failed */
             isMovesenseConnected = false;
 
-            ESP_LOGE("BLE_GAP_EVENT_CONNECT", "Error: Connection failed; status=%d",
-                     event->connect.status);
+            sendErr("BLE_GAP_EVENT_CONNECT", "Error: Connection failed; status=%d",
+                    event->connect.status);
         }
 
         // Signal that connection procedure is over
@@ -305,7 +519,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
         int rc = ble_gap_update_params(event->conn_update_req.conn_handle, params);
         if (rc != 0)
         {
-            ESP_LOGE("BLE_GAP_EVENT_L2CAP_UPDATE_REQ", "Failed to update connection params: rc=%d", rc);
+            sendErr("BLE_GAP_EVENT_L2CAP_UPDATE_REQ", "Failed to update connection params: rc=%d", rc);
         }
         return 0;
     }
@@ -323,8 +537,43 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
                  event->notify_rx.attr_handle,
                  OS_MBUF_PKTLEN(event->notify_rx.om));
 
-        /* Attribute data is contained in event->notify_rx.om. Use
-         * `os_mbuf_copydata` to copy the data received in notification mbuf */
+        size_t len = event->notify_rx.om->om_len;
+
+        if (len > NOTIF_LEN)
+        {
+            sendErr("BLE_GAP_EVENT_NOTIFY_RX", "Notification length exceeds buffer size: %d > %d",
+                    len, NOTIF_LEN);
+            return BLE_HS_EBADDATA;
+        }
+
+        blink(COLOR_BLE, 1, 10); // TODO make this asynchronous or remove
+
+        uint8_t rxNotify[NOTIF_LEN];
+        rxNotify[0] = len; // First byte is the length of the notification
+        os_mbuf_copydata(event->notify_rx.om, 0, len, rxNotify + 1);
+
+        if (event->notify_rx.attr_handle == response_char_handle)
+        {
+            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received response notification");
+            xQueueSendToBack(responseQueue, rxNotify, 0);
+        }
+        else if (event->notify_rx.attr_handle == data_char_handle)
+        {
+            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received data notification");
+            xQueueSendToBack(dataQueue, rxNotify, 0);
+        }
+        else if (event->notify_rx.attr_handle == log_char_handle)
+        {
+            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received log notification");
+            xQueueSendToBack(logQueue, rxNotify, 0);
+        }
+        else
+        {
+            ESP_LOGE("BLE_GAP_EVENT_NOTIFY_RX", "Received notification on unknown handle: %d",
+                     event->notify_rx.attr_handle);
+            return BLE_HS_EBADDATA;
+        }
+
         return 0;
     }
 
@@ -337,7 +586,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
 
         ESP_LOGD("scanBLEDevices", "Extended advertisement report; addr=%s "
                                    "length_data=%d",
-                 addr_to_str(disc->addr.val),
+                 addr_to_str(disc->addr.val).c_str(),
                  disc->length_data);
 
         int rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
@@ -371,7 +620,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
     {
         ESP_LOGD("BLE_GAP_EVENT_DISC", "Advertisement report; addr=%s "
                                        "length_data=%d",
-                 addr_to_str(event->disc.addr.val),
+                 addr_to_str(event->disc.addr.val).c_str(),
                  event->disc.length_data);
 
         int rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
@@ -409,6 +658,52 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
 
         xSemaphoreGive(bleScanSemaphore);
 
+        return 0;
+    }
+
+    // Physical link establishment event
+    // In very noisy environments the connection may succeed but the link establishment fails
+    // TODO should we give the semaphore here instead?
+    case BLE_GAP_EVENT_LINK_ESTAB:
+    {
+        if (event->link_estab.status != 0)
+        {
+            sendErr("BLE_GAP_EVENT_LINK_ESTAB", "Link establishment failed; status=%d",
+                    event->link_estab.status);
+            isMovesenseConnected = false;
+        }
+        else
+        {
+            ESP_LOGI("BLE_GAP_EVENT_LINK_ESTAB", "Link established");
+        }
+        return 0;
+    }
+
+    // Data length change event
+    case BLE_GAP_EVENT_DATA_LEN_CHG:
+    {
+        ESP_LOGI("BLE_GAP_EVENT_DATA_LEN_CHG", "Data length changed; conn_handle=%d "
+                                               "max_tx_octets=%d max_tx_time=%d max_rx_octets=%d max_rx_time=%d",
+                 event->data_len_chg.conn_handle,
+                 event->data_len_chg.max_tx_octets,
+                 event->data_len_chg.max_tx_time,
+                 event->data_len_chg.max_rx_octets,
+                 event->data_len_chg.max_rx_time);
+        return 0;
+    }
+
+    case BLE_GAP_EVENT_REATTEMPT_COUNT:
+    {
+        ESP_LOGI("BLE_GAP_EVENT_REATTEMPT_COUNT", "Reattempt count; conn_handle=%d "
+                                                  "reattempt_count=%d",
+                 event->reattempt_cnt.conn_handle,
+                 event->reattempt_cnt.count);
+        return 0;
+    }
+
+    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
+    {
+        ESP_LOGI("BLE_GAP_EVENT_PHY_UPDATE_COMPLETE", "PHY update complete");
         return 0;
     }
 
@@ -454,16 +749,29 @@ void setupBLE()
 {
 
     /* Initialize NVS — it is used to store PHY calibration data */
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    esp_err_t rc = nvs_flash_init();
+    if (rc == ESP_ERR_NVS_NO_FREE_PAGES || rc == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
+        rc = nvs_flash_erase();
+        if (rc != ESP_OK)
+        {
+            sendErr("setupBLE", "Failed to erase NVS: %d", rc);
+            errorReset(COLOR_BLE);
+            return;
+        }
 
-    ret = nimble_port_init();
-    if (ret != ESP_OK)
+        rc = nvs_flash_init();
+    }
+
+    if (rc != ESP_OK)
+    {
+        sendErr("setupBLE", "Failed to init NVS: %d", rc);
+        errorReset(COLOR_BLE);
+        return;
+    }
+
+    rc = nimble_port_init();
+    if (rc != ESP_OK)
     {
         sendErr("setupBLE", "Failed to init nimble");
         errorReset(COLOR_BLE);
@@ -475,7 +783,7 @@ void setupBLE()
     ble_hs_cfg.sync_cb = nimble_sync_callback;
 
     /* Set the default device name. */
-    int rc = ble_svc_gap_device_name_set("iFCH_logger");
+    rc = ble_svc_gap_device_name_set("iFCH_logger");
     if (rc != 0)
     {
         sendErr("setupBLE", "Failed to set device name");
@@ -489,11 +797,10 @@ void setupBLE()
 
     // Initialize the semaphores
     bleConnectSemaphore = xSemaphoreCreateBinary();
-    bleRegCharsSemaphore = xSemaphoreCreateBinary();
     bleScanSemaphore = xSemaphoreCreateBinary();
     bleGattSemaphore = xSemaphoreCreateBinary();
 
-    if (bleConnectSemaphore == NULL || bleScanSemaphore == NULL)
+    if (bleConnectSemaphore == NULL || bleScanSemaphore == NULL || bleGattSemaphore == NULL)
     {
         sendErr("setupBLE", "Failed to create BLE semaphores");
         errorReset(COLOR_RUNTIME_ERROR);
@@ -542,7 +849,7 @@ bool scanBLEDevices()
         }
         else
         {
-            ESP_LOGE("scanBLEDevices", "Semaphore timed out");
+            sendErr("scanBLEDevices", "Semaphore timed out");
         }
     }
 
@@ -569,7 +876,7 @@ bool connectMovesense()
     rc = ble_hs_id_infer_auto(0, &own_addr_type);
     if (rc != 0)
     {
-        ESP_LOGE("connectMovesense", "error determining address type");
+        sendErr("connectMovesense", "error determining address type");
         return false;
     }
 
@@ -578,9 +885,9 @@ bool connectMovesense()
                          gap_event_callback, NULL);
     if (rc != 0)
     {
-        ESP_LOGE("connectMovesense", "Error: Failed to connect to device; addr_type=%d "
-                                     "addr=%s; rc=%d\n",
-                 peer_addr.type, addr_to_str(peer_addr.val), rc);
+        sendErr("connectMovesense", "Error: Failed to connect to device; addr_type=%d "
+                                    "addr=%s; rc=%d\n",
+                peer_addr.type, addr_to_str(peer_addr.val), rc);
         return false;
     }
 
@@ -591,7 +898,7 @@ bool connectMovesense()
     {
         if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(2 * BLE_CONNECT_TIMEOUT)) != pdTRUE)
         {
-            ESP_LOGE("connectMovesense", "Connection timed out");
+            sendErr("connectMovesense", "Connection timed out");
             return false;
         }
     }
@@ -602,8 +909,17 @@ bool connectMovesense()
     rc = registerCharacteristics();
     if (rc != 0)
     {
-        ESP_LOGE("connectMovesense", "Failed to register characteristics: %d", rc);
+        sendErr("connectMovesense", "Failed to register characteristics: %d", rc);
 
+        disconnectMovesense();
+        return false;
+    }
+
+    // Subscribe to the response characteristic
+    ESP_LOGI("connectMovesense", "Subscribing to response characteristic...");
+    if (!subscribeCharacteristic(response_char_handle, true))
+    {
+        sendErr("connectMovesense", "Failed to subscribe to response characteristic");
         disconnectMovesense();
         return false;
     }
@@ -618,7 +934,7 @@ void disconnectMovesense()
     int rc = ble_gap_terminate(movesense_handle, BLE_ERR_REM_USER_CONN_TERM);
     if (rc != 0)
     {
-        ESP_LOGE("disconnectMovesense", "Error: Failed to disconnect; rc=%d\n", rc);
+        sendErr("disconnectMovesense", "Error: Failed to disconnect; rc=%d\n", rc);
     }
     else
     {
@@ -639,7 +955,7 @@ bool getMovesenseBattery(uint8_t &batteryLevel)
     {
         if (xSemaphoreTake(bleGattSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
         {
-            ESP_LOGE("getMovesenseBattery", "GATT read timed out");
+            sendErr("getMovesenseBattery", "GATT read timed out");
             return false;
         }
     }
@@ -648,7 +964,10 @@ bool getMovesenseBattery(uint8_t &batteryLevel)
     ESP_LOGI("getMovesenseBattery", "Battery level: %d%%", batteryLevel);
     return true;
 }
-bool helloMovesense() { return false; }
+bool helloMovesense()
+{
+    return writeMovesenseCommand(Commands::HELLO, Commands::HELLO + REF_OFFSET_COMMAND, nullptr, 0);
+}
 
 bool subscribeMovesense() { return false; }
 bool unsubscribeMovesense() { return false; }
