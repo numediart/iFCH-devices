@@ -342,7 +342,9 @@ void loop()
         }
         else
         {
-            // TODO: handle the data notification
+            // We should not be here, commands should have been processed
+            blink(COLOR_RUNTIME_ERROR, 5, 50);
+            sendFrame(CmdType::CMD_ERROR, queueNotif + 1, len);
         }
     }
 
@@ -350,8 +352,9 @@ void loop()
     {
         uint8_t len = queueNotif[0];
 
-        // TODO: handle the log notification instead of forwarding it
-        sendFrame(CmdType::CMD_BLE_NOTIFY, queueNotif + 1, len);
+        // We should not be here, commands should have been processed
+        blink(COLOR_RUNTIME_ERROR, 5, 50);
+        sendFrame(CmdType::CMD_ERROR, queueNotif + 1, len);
     }
 
     while (xQueueReceive(responseQueue, queueNotif, 0) == pdTRUE)
