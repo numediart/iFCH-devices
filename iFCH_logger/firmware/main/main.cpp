@@ -207,7 +207,7 @@ void handleSerialCommand(CmdType cmd)
             break;
         }
 
-        if (helloMovesense())
+        if (movHello())
         {
             sendFrame(CmdType::CMD_BLE_HELLO, nullptr, 0);
         }
@@ -260,7 +260,7 @@ void handleSerialCommand(CmdType cmd)
             break;
         }
 
-        if (subscribeMovesense())
+        if (movSubscribe())
         {
             sendFrame(CmdType::CMD_MOV_SUB, nullptr, 0);
             isStreaming = true;
@@ -286,7 +286,7 @@ void handleSerialCommand(CmdType cmd)
             break;
         }
 
-        if (unsubscribeMovesense())
+        if (movUnsubscribe())
         {
             sendFrame(CmdType::CMD_MOV_UNSUB, nullptr, 0);
             isStreaming = false;

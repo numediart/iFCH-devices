@@ -330,9 +330,8 @@ static int registerCharacteristics()
     return 0;
 }
 
-bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, uint8_t length)
+bool writeMovesenseCommandNowait(uint8_t command, uint8_t reference, uint8_t *data, uint8_t length)
 {
-
     const uint8_t payload_length = 2 + length; // 2 bytes for command and reference, plus data length
     uint8_t payload[payload_length];
     payload[0] = command;              // Command byte
@@ -343,7 +342,19 @@ bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, ui
                                         payload, payload_length, gatt_write_cb, NULL);
     if (rc != 0)
     {
-        sendErr("writeCommandCharacteristic", "Failed to initiate GATT write; rc=%d", rc);
+        sendErr("writeMovesenseCommand", "Failed to initiate GATT write; rc=%d", rc);
+        return false;
+    }
+
+    return true;
+}
+
+bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, uint8_t length, uint8_t *response_data = NULL, uint8_t *response_length = NULL)
+{
+
+    bool success = writeMovesenseCommandNowait(command, reference, data, length);
+    if (!success)
+    {
         return false;
     }
 
@@ -353,7 +364,7 @@ bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, ui
     {
         if (xSemaphoreTake(bleGattSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
         {
-            sendErr("writeCommandCharacteristic", "GATT write timed out");
+            sendErr("writeMovesenseCommand", "GATT write timed out");
             return false;
         }
     }
@@ -376,23 +387,40 @@ bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, ui
             uint8_t len = responseNotif[0];
             if (len < 4)
             {
-                sendErr("writeCommandCharacteristic", "Invalid response length: %d", len);
+                sendErr("writeMovesenseCommand", "Invalid response length: %d", len);
             }
             else if (responseNotif[1] == Responses::COMMAND_RESULT && responseNotif[2] == reference)
             {
-                ESP_LOGI("writeCommandCharacteristic", "Command response received: Type %d, Reference %d, Status %d, Code 0x%02x",
-                         responseNotif[1], responseNotif[2], responseNotif[3], responseNotif[4]);
+                uint8_t status = responseNotif[3];
+                ESP_LOGI("writeMovesenseCommand", "Command response received: Type %d, Reference %d, Status %d, Code 0x%02x",
+                         responseNotif[1], responseNotif[2], status, responseNotif[4]);
+
                 if (len > 4)
                 {
-                    ESP_LOGI("writeCommandCharacteristic", "Additional data: %.*s",
-                             len - 4, (char *)(responseNotif + 5));
+                    ESP_LOGI("writeMovesenseCommand", "Additional data of length %d", len - 4);
+
+                    // Copy the response data if provided
+                    if (response_data == NULL || response_length == NULL || *response_length < len - 4)
+                    {
+                        sendErr("writeMovesenseCommand", "Response buffer too small: %d bytes received", len - 4);
+                        return false;
+                    }
+                    else
+                    {
+                        *response_length = len - 4;
+                        memcpy(response_data, responseNotif + 5, *response_length);
+                    }
+                }
+                else if (response_length != NULL)
+                {
+                    response_length = 0; // No additional data
                 }
 
-                return true;
+                return status == Status::SUCCESS;
             }
             else
             {
-                sendErr("writeCommandCharacteristic", "Unexpected response: Type %d, Reference %d -- Expected %d", responseNotif[1], responseNotif[2], reference);
+                sendErr("writeMovesenseCommand", "Unexpected response: Type %d, Reference %d -- Expected %d, %d", responseNotif[1], responseNotif[2], Responses::COMMAND_RESULT, reference);
             }
         }
         else
@@ -402,7 +430,7 @@ bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, ui
 
     } while (current_tick < deadline);
 
-    sendErr("writeCommandCharacteristic", "Command response timed out");
+    sendErr("writeMovesenseCommand", "Command response timed out");
     return false;
 }
 
@@ -460,14 +488,13 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
     {
         /* A new connection was established or a connection attempt failed. */
         if (event->connect.status == 0)
-        {
             isMovesenseConnected = true;
-            movesense_handle = event->connect.conn_handle;
+        movesense_handle = event->connect.conn_handle;
 
-            /* Connection successfully established. */
-            ESP_LOGI("BLE_GAP_EVENT_CONNECT", "Connection established; conn_handle=%d",
-                     event->connect.conn_handle);
-        }
+        /* Connection successfully established. */
+        ESP_LOGI("BLE_GAP_EVENT_CONNECT", "Connection established; conn_handle=%d",
+                 event->connect.conn_handle);
+    }
         else
         {
             /* Connection attempt failed */
@@ -486,233 +513,233 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
         return 0;
     }
 
-    // Connection update event, also when connection is lost
-    case BLE_GAP_EVENT_CONN_UPDATE:
+// Connection update event, also when connection is lost
+case BLE_GAP_EVENT_CONN_UPDATE:
+{
+    if (event->conn_update.status != 0)
     {
-        if (event->conn_update.status != 0)
-        {
-            ESP_LOGW("BLE_GAP_EVENT_CONN_UPDATE", "Connection lost: %d",
-                     event->conn_update.status);
+        ESP_LOGW("BLE_GAP_EVENT_CONN_UPDATE", "Connection lost: %d",
+                 event->conn_update.status);
 
-            isMovesenseConnected = false;
-        }
-        return 0;
-    }
-
-    // Disconnection event
-    case BLE_GAP_EVENT_DISCONNECT:
-    {
-        ESP_LOGI("BLE_GAP_EVENT_DISCONNECT", "disconnect; reason=%d ", event->disconnect.reason);
         isMovesenseConnected = false;
-
-        return 0;
     }
+    return 0;
+}
 
-    case BLE_GAP_EVENT_L2CAP_UPDATE_REQ:
+// Disconnection event
+case BLE_GAP_EVENT_DISCONNECT:
+{
+    ESP_LOGI("BLE_GAP_EVENT_DISCONNECT", "disconnect; reason=%d ", event->disconnect.reason);
+    isMovesenseConnected = false;
+
+    return 0;
+}
+
+case BLE_GAP_EVENT_L2CAP_UPDATE_REQ:
+{
+
+    const struct ble_gap_upd_params *params = event->conn_update_req.peer_params;
+
+    ESP_LOGI("BLE_GAP_EVENT_L2CAP_UPDATE_REQ", "L2CAP update request: itvl_min=%u itvl_max=%u latency=%u timeout=%u",
+             params->itvl_min, params->itvl_max, params->latency, params->supervision_timeout);
+
+    int rc = ble_gap_update_params(event->conn_update_req.conn_handle, params);
+    if (rc != 0)
     {
-
-        const struct ble_gap_upd_params *params = event->conn_update_req.peer_params;
-
-        ESP_LOGI("BLE_GAP_EVENT_L2CAP_UPDATE_REQ", "L2CAP update request: itvl_min=%u itvl_max=%u latency=%u timeout=%u",
-                 params->itvl_min, params->itvl_max, params->latency, params->supervision_timeout);
-
-        int rc = ble_gap_update_params(event->conn_update_req.conn_handle, params);
-        if (rc != 0)
-        {
-            sendErr("BLE_GAP_EVENT_L2CAP_UPDATE_REQ", "Failed to update connection params: rc=%d", rc);
-        }
-        return 0;
+        sendErr("BLE_GAP_EVENT_L2CAP_UPDATE_REQ", "Failed to update connection params: rc=%d", rc);
     }
+    return 0;
+}
 
-    case BLE_GAP_EVENT_MTU:
-        ESP_LOGI("BLE_GAP_EVENT_MTU", "MTU updated: %d", event->mtu.value);
-        break;
+case BLE_GAP_EVENT_MTU:
+    ESP_LOGI("BLE_GAP_EVENT_MTU", "MTU updated: %d", event->mtu.value);
+    break;
 
-    case BLE_GAP_EVENT_NOTIFY_RX:
-    { /* Peer sent us a notification or indication. */
-        ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "received %s; conn_handle=%d attr_handle=%d "
-                                            "attr_len=%d",
-                 event->notify_rx.indication ? "indication" : "notification",
-                 event->notify_rx.conn_handle,
-                 event->notify_rx.attr_handle,
-                 OS_MBUF_PKTLEN(event->notify_rx.om));
+case BLE_GAP_EVENT_NOTIFY_RX:
+{ /* Peer sent us a notification or indication. */
+    ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "received %s; conn_handle=%d attr_handle=%d "
+                                        "attr_len=%d",
+             event->notify_rx.indication ? "indication" : "notification",
+             event->notify_rx.conn_handle,
+             event->notify_rx.attr_handle,
+             OS_MBUF_PKTLEN(event->notify_rx.om));
 
-        size_t len = event->notify_rx.om->om_len;
+    size_t len = event->notify_rx.om->om_len;
 
-        if (len > NOTIF_LEN)
-        {
-            sendErr("BLE_GAP_EVENT_NOTIFY_RX", "Notification length exceeds buffer size: %d > %d",
-                    len, NOTIF_LEN);
-            return BLE_HS_EBADDATA;
-        }
-
-        blink(COLOR_BLE, 1, 10); // TODO make this asynchronous or remove
-
-        uint8_t rxNotify[NOTIF_LEN];
-        rxNotify[0] = len; // First byte is the length of the notification
-        os_mbuf_copydata(event->notify_rx.om, 0, len, rxNotify + 1);
-
-        if (event->notify_rx.attr_handle == response_char_handle)
-        {
-            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received response notification");
-            xQueueSendToBack(responseQueue, rxNotify, 0);
-        }
-        else if (event->notify_rx.attr_handle == data_char_handle)
-        {
-            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received data notification");
-            xQueueSendToBack(dataQueue, rxNotify, 0);
-        }
-        else if (event->notify_rx.attr_handle == log_char_handle)
-        {
-            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received log notification");
-            xQueueSendToBack(logQueue, rxNotify, 0);
-        }
-        else
-        {
-            ESP_LOGE("BLE_GAP_EVENT_NOTIFY_RX", "Received notification on unknown handle: %d",
-                     event->notify_rx.attr_handle);
-            return BLE_HS_EBADDATA;
-        }
-
-        return 0;
-    }
-
-    // Extended advertisement report
-    case BLE_GAP_EVENT_EXT_DISC:
+    if (len > NOTIF_LEN)
     {
-
-        /* An advertisement report was received during GAP discovery. */
-        struct ble_gap_ext_disc_desc *disc = (struct ble_gap_ext_disc_desc *)&event->disc;
-
-        ESP_LOGD("scanBLEDevices", "Extended advertisement report; addr=%s "
-                                   "length_data=%d",
-                 addr_to_str(disc->addr.val).c_str(),
-                 disc->length_data);
-
-        int rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
-        if (rc != 0)
-        {
-            return 0;
-        }
-        if (fields.name != NULL)
-        {
-            char name[fields.name_len + 1];
-            memcpy(name, fields.name, fields.name_len);
-            name[fields.name_len] = '\0';
-
-            std::string devAddress = std::string(addr_to_str(disc->addr.val));
-            std::string devName = std::string(name);
-
-            // Combine the name and the address
-            std::string devRepr = devName + ";" + devAddress;
-
-            ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
-
-            // Send the device representation to the serial port
-            sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
-        }
-
-        return 0;
+        sendErr("BLE_GAP_EVENT_NOTIFY_RX", "Notification length exceeds buffer size: %d > %d",
+                len, NOTIF_LEN);
+        return BLE_HS_EBADDATA;
     }
 
-    // Normal advertisement report
-    case BLE_GAP_EVENT_DISC: // This should never happen
+    blink(COLOR_BLE, 1, 10); // TODO make this asynchronous or remove
+
+    uint8_t rxNotify[NOTIF_LEN];
+    rxNotify[0] = len; // First byte is the length of the notification
+    os_mbuf_copydata(event->notify_rx.om, 0, len, rxNotify + 1);
+
+    if (event->notify_rx.attr_handle == response_char_handle)
     {
-        ESP_LOGD("BLE_GAP_EVENT_DISC", "Advertisement report; addr=%s "
-                                       "length_data=%d",
-                 addr_to_str(event->disc.addr.val).c_str(),
-                 event->disc.length_data);
-
-        int rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
-                                         event->disc.length_data);
-        if (rc != 0)
-        {
-            return 0;
-        }
-        if (fields.name != NULL)
-        {
-            char name[fields.name_len + 1];
-            memcpy(name, fields.name, fields.name_len);
-            name[fields.name_len] = '\0';
-
-            std::string devAddress = std::string(addr_to_str(event->disc.addr.val));
-            std::string devName = std::string(name);
-
-            // Combine the name and the address
-            std::string devRepr = devName + ";" + devAddress;
-
-            ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
-
-            // Send the device representation to the serial port
-            sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
-        }
-
-        return 0;
+        ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received response notification");
+        xQueueSendToBack(responseQueue, rxNotify, 0);
     }
-
-    // End of scanning procedure
-    case BLE_GAP_EVENT_DISC_COMPLETE:
+    else if (event->notify_rx.attr_handle == data_char_handle)
     {
-        ESP_LOGI("scanBleDevices", "ble scan complete; reason=%d",
-                 event->disc_complete.reason);
-
-        xSemaphoreGive(bleScanSemaphore);
-
-        return 0;
+        ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received data notification");
+        xQueueSendToBack(dataQueue, rxNotify, 0);
     }
-
-    // Physical link establishment event
-    // In very noisy environments the connection may succeed but the link establishment fails
-    // TODO should we give the semaphore here instead?
-    case BLE_GAP_EVENT_LINK_ESTAB:
+    else if (event->notify_rx.attr_handle == log_char_handle)
     {
-        if (event->link_estab.status != 0)
-        {
-            sendErr("BLE_GAP_EVENT_LINK_ESTAB", "Link establishment failed; status=%d",
-                    event->link_estab.status);
-            isMovesenseConnected = false;
-        }
-        else
-        {
-            ESP_LOGI("BLE_GAP_EVENT_LINK_ESTAB", "Link established");
-        }
-        return 0;
+        ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received log notification");
+        xQueueSendToBack(logQueue, rxNotify, 0);
     }
-
-    // Data length change event
-    case BLE_GAP_EVENT_DATA_LEN_CHG:
+    else
     {
-        ESP_LOGI("BLE_GAP_EVENT_DATA_LEN_CHG", "Data length changed; conn_handle=%d "
-                                               "max_tx_octets=%d max_tx_time=%d max_rx_octets=%d max_rx_time=%d",
-                 event->data_len_chg.conn_handle,
-                 event->data_len_chg.max_tx_octets,
-                 event->data_len_chg.max_tx_time,
-                 event->data_len_chg.max_rx_octets,
-                 event->data_len_chg.max_rx_time);
-        return 0;
-    }
-
-    case BLE_GAP_EVENT_REATTEMPT_COUNT:
-    {
-        ESP_LOGI("BLE_GAP_EVENT_REATTEMPT_COUNT", "Reattempt count; conn_handle=%d "
-                                                  "reattempt_count=%d",
-                 event->reattempt_cnt.conn_handle,
-                 event->reattempt_cnt.count);
-        return 0;
-    }
-
-    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
-    {
-        ESP_LOGI("BLE_GAP_EVENT_PHY_UPDATE_COMPLETE", "PHY update complete");
-        return 0;
-    }
-
-    default:
-        ESP_LOGW("GAP_EVENT", "unhandled event; event_type=%d", event->type);
-        return 0;
+        ESP_LOGE("BLE_GAP_EVENT_NOTIFY_RX", "Received notification on unknown handle: %d",
+                 event->notify_rx.attr_handle);
+        return BLE_HS_EBADDATA;
     }
 
     return 0;
+}
+
+// Extended advertisement report
+case BLE_GAP_EVENT_EXT_DISC:
+{
+
+    /* An advertisement report was received during GAP discovery. */
+    struct ble_gap_ext_disc_desc *disc = (struct ble_gap_ext_disc_desc *)&event->disc;
+
+    ESP_LOGD("scanBLEDevices", "Extended advertisement report; addr=%s "
+                               "length_data=%d",
+             addr_to_str(disc->addr.val).c_str(),
+             disc->length_data);
+
+    int rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
+    if (rc != 0)
+    {
+        return 0;
+    }
+    if (fields.name != NULL)
+    {
+        char name[fields.name_len + 1];
+        memcpy(name, fields.name, fields.name_len);
+        name[fields.name_len] = '\0';
+
+        std::string devAddress = std::string(addr_to_str(disc->addr.val));
+        std::string devName = std::string(name);
+
+        // Combine the name and the address
+        std::string devRepr = devName + ";" + devAddress;
+
+        ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
+
+        // Send the device representation to the serial port
+        sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
+    }
+
+    return 0;
+}
+
+// Normal advertisement report
+case BLE_GAP_EVENT_DISC: // This should never happen
+{
+    ESP_LOGD("BLE_GAP_EVENT_DISC", "Advertisement report; addr=%s "
+                                   "length_data=%d",
+             addr_to_str(event->disc.addr.val).c_str(),
+             event->disc.length_data);
+
+    int rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
+                                     event->disc.length_data);
+    if (rc != 0)
+    {
+        return 0;
+    }
+    if (fields.name != NULL)
+    {
+        char name[fields.name_len + 1];
+        memcpy(name, fields.name, fields.name_len);
+        name[fields.name_len] = '\0';
+
+        std::string devAddress = std::string(addr_to_str(event->disc.addr.val));
+        std::string devName = std::string(name);
+
+        // Combine the name and the address
+        std::string devRepr = devName + ";" + devAddress;
+
+        ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
+
+        // Send the device representation to the serial port
+        sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
+    }
+
+    return 0;
+}
+
+// End of scanning procedure
+case BLE_GAP_EVENT_DISC_COMPLETE:
+{
+    ESP_LOGI("scanBleDevices", "ble scan complete; reason=%d",
+             event->disc_complete.reason);
+
+    xSemaphoreGive(bleScanSemaphore);
+
+    return 0;
+}
+
+// Physical link establishment event
+// In very noisy environments the connection may succeed but the link establishment fails
+// TODO should we give the semaphore here instead?
+case BLE_GAP_EVENT_LINK_ESTAB:
+{
+    if (event->link_estab.status != 0)
+    {
+        sendErr("BLE_GAP_EVENT_LINK_ESTAB", "Link establishment failed; status=%d",
+                event->link_estab.status);
+        isMovesenseConnected = false;
+    }
+    else
+    {
+        ESP_LOGI("BLE_GAP_EVENT_LINK_ESTAB", "Link established");
+    }
+    return 0;
+}
+
+// Data length change event
+case BLE_GAP_EVENT_DATA_LEN_CHG:
+{
+    ESP_LOGI("BLE_GAP_EVENT_DATA_LEN_CHG", "Data length changed; conn_handle=%d "
+                                           "max_tx_octets=%d max_tx_time=%d max_rx_octets=%d max_rx_time=%d",
+             event->data_len_chg.conn_handle,
+             event->data_len_chg.max_tx_octets,
+             event->data_len_chg.max_tx_time,
+             event->data_len_chg.max_rx_octets,
+             event->data_len_chg.max_rx_time);
+    return 0;
+}
+
+case BLE_GAP_EVENT_REATTEMPT_COUNT:
+{
+    ESP_LOGI("BLE_GAP_EVENT_REATTEMPT_COUNT", "Reattempt count; conn_handle=%d "
+                                              "reattempt_count=%d",
+             event->reattempt_cnt.conn_handle,
+             event->reattempt_cnt.count);
+    return 0;
+}
+
+case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
+{
+    ESP_LOGI("BLE_GAP_EVENT_PHY_UPDATE_COMPLETE", "PHY update complete");
+    return 0;
+}
+
+default:
+    ESP_LOGW("GAP_EVENT", "unhandled event; event_type=%d", event->type);
+    return 0;
+}
+
+return 0;
 }
 
 static void nimble_reset_callback(int reason)
@@ -926,6 +953,17 @@ bool connectMovesense()
 
     ESP_LOGI("connectMovesense", "Connected to Movesense");
 
+    // Subscribe to the log characteristic
+    ESP_LOGI("connectMovesense", "Subscribing to log characteristic...");
+    if (!subscribeCharacteristic(log_char_handle, false))
+    {
+        sendErr("connectMovesense", "Failed to subscribe to log characteristic");
+        disconnectMovesense();
+        return false;
+    }
+
+    ESP_LOGI("connectMovesense", "Connected to Movesense");
+
     return isMovesenseConnected;
 }
 
@@ -964,10 +1002,202 @@ bool getMovesenseBattery(uint8_t &batteryLevel)
     ESP_LOGI("getMovesenseBattery", "Battery level: %d%%", batteryLevel);
     return true;
 }
-bool helloMovesense()
+
+bool movHello()
 {
-    return writeMovesenseCommand(Commands::HELLO, Commands::HELLO + REF_OFFSET_COMMAND, nullptr, 0);
+    uint8_t responseBuffer[5];
+    uint8_t responseLength = sizeof(responseBuffer);
+
+    bool success = writeMovesenseCommand(Commands::HELLO, Commands::HELLO + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
+
+    if (!success)
+    {
+        sendErr("movHello", "Failed to send hello command");
+        return false;
+    }
+
+    // Check that the response contains "Hello"
+    if (responseLength == 5 && memcmp(responseBuffer, "Hello", 5) == 0)
+    {
+        return true;
+    }
+    else
+    {
+        sendErr("movHello", "Unexpected hello response: %.*s", responseLength, responseBuffer);
+        return false;
+    }
 }
 
-bool subscribeMovesense() { return false; }
-bool unsubscribeMovesense() { return false; }
+bool movGetTime(int32_t &time)
+{
+    uint8_t responseBuffer[4];
+    uint8_t responseLength = sizeof(responseBuffer);
+
+    bool success = writeMovesenseCommand(Commands::GET_TIME, Commands::GET_TIME + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
+
+    if (!success)
+    {
+        sendErr("movGetTime", "Failed to send get time command");
+        return false;
+    }
+
+    if (responseLength != 4)
+    {
+        sendErr("movGetTime", "Unexpected response length: %d", responseLength);
+        return false;
+    }
+
+    // Convert the response to a 32-bit integer
+    time = (responseBuffer[3] << 24) | (responseBuffer[2] << 16) |
+           (responseBuffer[1] << 8) | responseBuffer[0];
+    ESP_LOGI("movGetTime", "Current time: %" PRId32, time);
+
+    return true;
+}
+
+bool movReset()
+{
+    return writeMovesenseCommand(Commands::RESET, Commands::RESET + REF_OFFSET_COMMAND, nullptr, 0);
+}
+
+bool movSubscribe()
+{
+    // For each path in config, subscribe to the Movesense
+    for (uint8_t index = 0; index < config.sensorPaths.size(); index++)
+    {
+        std::string path = config.sensorPaths[index];
+
+        // Subscribe to the Movesense path
+        if (!writeMovesenseCommand(Commands::SUBSCRIBE, Commands::SUBSCRIBE + index, (uint8_t *)path.c_str(), path.length()))
+        {
+            sendErr("movSubscribe", "Failed to send subscribe command for path: %s", path.c_str());
+            return false;
+        }
+    }
+
+    bool success = subscribeCharacteristic(data_char_handle, false);
+    if (!success)
+    {
+        sendErr("movSubscribe", "Failed to subscribe to data characteristic");
+        return false;
+    }
+
+    return true;
+}
+
+bool movUnsubscribe()
+{
+    bool success = unsubscribeCharacteristic(data_char_handle);
+
+    if (!success)
+    {
+        sendErr("movUnsubscribe", "Failed to unsubscribe from data characteristic");
+        return false;
+    }
+
+    return writeMovesenseCommand(Commands::UNSUBSCRIBE_ALL, Commands::UNSUBSCRIBE_ALL + REF_OFFSET_COMMAND, nullptr, 0);
+}
+
+bool movClearLogs()
+{
+    return writeMovesenseCommand(Commands::CLEAR_LOGS, Commands::CLEAR_LOGS + REF_OFFSET_COMMAND, nullptr, 0);
+}
+
+bool movSubLogs()
+{
+    // For each path in config, subscribe to the Movesense logging
+    for (uint8_t index = 0; index < config.sensorPaths.size(); index++)
+    {
+        std::string path = config.sensorPaths[index];
+
+        // Subscribe to the Movesense path
+        if (!writeMovesenseCommand(Commands::SUB_LOG, Commands::SUB_LOG + index, (uint8_t *)path.c_str(), path.length()))
+        {
+            sendErr("movSubLogs", "Failed to send log subscribe command for path: %s", path.c_str());
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool movStartLog()
+{
+    return writeMovesenseCommand(Commands::START_LOG, Commands::START_LOG + REF_OFFSET_COMMAND, nullptr, 0);
+}
+
+bool movStopLog()
+{
+    return writeMovesenseCommand(Commands::STOP_LOG, Commands::STOP_LOG + REF_OFFSET_COMMAND, nullptr, 0);
+}
+
+bool movListLogs(std::vector<uint32_t> &logIds)
+{
+    uint8_t responseBuffer[4];
+    uint8_t responseLength = sizeof(responseBuffer);
+
+    uint8_t reference = Commands::LIST_LOGS + REF_OFFSET_COMMAND;
+    bool success = writeMovesenseCommand(Commands::LIST_LOGS, reference, nullptr, 0, responseBuffer, &responseLength);
+
+    if (!success)
+    {
+        sendErr("movListLogs", "Failed to send list logs command");
+        return false;
+    }
+
+    if (responseLength != 4)
+    {
+        sendErr("movListLogs", "Unexpected response length: %d", responseLength);
+        return false;
+    }
+
+    uint32_t sentAmount = (responseBuffer[3] << 24) | (responseBuffer[2] << 16) |
+                          (responseBuffer[1] << 8) | responseBuffer[0];
+    ESP_LOGI("movListLogs", "Sent amount of logID packets: %" PRId32, sentAmount);
+
+    uint32_t receivedAmount = 0;
+    while (receivedAmount < sentAmount)
+    {
+        uint8_t logNotif[NOTIF_LEN];
+        if (xQueueReceive(logQueue, logNotif, pdMS_TO_TICKS(BLE_TIMEOUT)) == pdTRUE)
+        {
+            uint8_t len = logNotif[0];
+            if (len < 2)
+            {
+                sendErr("movListLogs", "Invalid log notification length: %d", len);
+            }
+            else if (logNotif[1] == Responses::DATA && logNotif[2] == reference)
+            {
+                if ((len - 2) % 4 != 0)
+                {
+                    sendErr("movListLogs", "Invalid log notification length: %d", len);
+                    return false;
+                }
+
+                for (uint8_t i = 0; i < len - 2; i += 4)
+                {
+                    uint32_t logId = (logNotif[3 + i + 3] << 24) | (logNotif[3 + i + 2] << 16) |
+                                     (logNotif[3 + i + 1] << 8) | logNotif[3 + i];
+                    logIds.push_back(logId);
+                    ESP_LOGI("movListLogs", "Received log ID: %" PRId32, logId);
+                }
+
+                receivedAmount++;
+            }
+            else
+            {
+                sendErr("movListLogs", "Unexpected log notification: Type %d, Reference %d -- Expected %d, %d",
+                        logNotif[1], logNotif[2], Responses::DATA, reference);
+            }
+        }
+        else
+        {
+            sendErr("movListLogs", "Failed to receive log notification");
+            return false;
+        }
+    }
+
+    ESP_LOGI("movListLogs", "Received %d log IDs", logIds.size());
+
+    return true;
+}

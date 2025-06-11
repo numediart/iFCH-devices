@@ -24,10 +24,18 @@ bool connectMovesense();
 void disconnectMovesense();
 
 bool getMovesenseBattery(uint8_t &batteryLevel);
-bool helloMovesense();
 
-bool subscribeMovesense();
-bool unsubscribeMovesense();
+bool movHello();
+bool movGetTime(int32_t &time);
+bool movReset();
+bool movSubscribe();
+bool movUnsubscribe();
+bool movClearLogs();
+bool movSubLogs();
+bool movStartLog();
+bool movStopLog();
+bool movListLogs(std::vector<uint32_t> &logIds);
+// TODO movFetchLog()
 
 const ble_uuid128_t ifch_svc_uuid =
     BLE_UUID128_INIT(0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x31, 0xb4,
