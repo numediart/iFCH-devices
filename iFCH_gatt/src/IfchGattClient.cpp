@@ -961,7 +961,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         uint8_t timeMsg[8];
 
-        timeMsg[0] = Responses::DATA;
+        timeMsg[0] = Responses::COMMAND_RESULT;
         timeMsg[1] = mGetTimeReference;
         timeMsg[2] = Status::SUCCESS;
         timeMsg[3] = Codes::OK;
