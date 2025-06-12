@@ -488,13 +488,14 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
     {
         /* A new connection was established or a connection attempt failed. */
         if (event->connect.status == 0)
+        {
             isMovesenseConnected = true;
-        movesense_handle = event->connect.conn_handle;
+            movesense_handle = event->connect.conn_handle;
 
-        /* Connection successfully established. */
-        ESP_LOGI("BLE_GAP_EVENT_CONNECT", "Connection established; conn_handle=%d",
-                 event->connect.conn_handle);
-    }
+            /* Connection successfully established. */
+            ESP_LOGI("BLE_GAP_EVENT_CONNECT", "Connection established; conn_handle=%d",
+                     event->connect.conn_handle);
+        }
         else
         {
             /* Connection attempt failed */
@@ -513,233 +514,248 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
         return 0;
     }
 
-// Connection update event, also when connection is lost
-case BLE_GAP_EVENT_CONN_UPDATE:
-{
-    if (event->conn_update.status != 0)
+    // Connection update event, also when connection is lost
+    case BLE_GAP_EVENT_CONN_UPDATE:
     {
-        ESP_LOGW("BLE_GAP_EVENT_CONN_UPDATE", "Connection lost: %d",
-                 event->conn_update.status);
+        if (event->conn_update.status != 0)
+        {
+            ESP_LOGW("BLE_GAP_EVENT_CONN_UPDATE", "Connection lost: %d",
+                     event->conn_update.status);
 
-        isMovesenseConnected = false;
-    }
-    return 0;
-}
-
-// Disconnection event
-case BLE_GAP_EVENT_DISCONNECT:
-{
-    ESP_LOGI("BLE_GAP_EVENT_DISCONNECT", "disconnect; reason=%d ", event->disconnect.reason);
-    isMovesenseConnected = false;
-
-    return 0;
-}
-
-case BLE_GAP_EVENT_L2CAP_UPDATE_REQ:
-{
-
-    const struct ble_gap_upd_params *params = event->conn_update_req.peer_params;
-
-    ESP_LOGI("BLE_GAP_EVENT_L2CAP_UPDATE_REQ", "L2CAP update request: itvl_min=%u itvl_max=%u latency=%u timeout=%u",
-             params->itvl_min, params->itvl_max, params->latency, params->supervision_timeout);
-
-    int rc = ble_gap_update_params(event->conn_update_req.conn_handle, params);
-    if (rc != 0)
-    {
-        sendErr("BLE_GAP_EVENT_L2CAP_UPDATE_REQ", "Failed to update connection params: rc=%d", rc);
-    }
-    return 0;
-}
-
-case BLE_GAP_EVENT_MTU:
-    ESP_LOGI("BLE_GAP_EVENT_MTU", "MTU updated: %d", event->mtu.value);
-    break;
-
-case BLE_GAP_EVENT_NOTIFY_RX:
-{ /* Peer sent us a notification or indication. */
-    ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "received %s; conn_handle=%d attr_handle=%d "
-                                        "attr_len=%d",
-             event->notify_rx.indication ? "indication" : "notification",
-             event->notify_rx.conn_handle,
-             event->notify_rx.attr_handle,
-             OS_MBUF_PKTLEN(event->notify_rx.om));
-
-    size_t len = event->notify_rx.om->om_len;
-
-    if (len > NOTIF_LEN)
-    {
-        sendErr("BLE_GAP_EVENT_NOTIFY_RX", "Notification length exceeds buffer size: %d > %d",
-                len, NOTIF_LEN);
-        return BLE_HS_EBADDATA;
-    }
-
-    blink(COLOR_BLE, 1, 10); // TODO make this asynchronous or remove
-
-    uint8_t rxNotify[NOTIF_LEN];
-    rxNotify[0] = len; // First byte is the length of the notification
-    os_mbuf_copydata(event->notify_rx.om, 0, len, rxNotify + 1);
-
-    if (event->notify_rx.attr_handle == response_char_handle)
-    {
-        ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received response notification");
-        xQueueSendToBack(responseQueue, rxNotify, 0);
-    }
-    else if (event->notify_rx.attr_handle == data_char_handle)
-    {
-        ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received data notification");
-        xQueueSendToBack(dataQueue, rxNotify, 0);
-    }
-    else if (event->notify_rx.attr_handle == log_char_handle)
-    {
-        ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received log notification");
-        xQueueSendToBack(logQueue, rxNotify, 0);
-    }
-    else
-    {
-        ESP_LOGE("BLE_GAP_EVENT_NOTIFY_RX", "Received notification on unknown handle: %d",
-                 event->notify_rx.attr_handle);
-        return BLE_HS_EBADDATA;
-    }
-
-    return 0;
-}
-
-// Extended advertisement report
-case BLE_GAP_EVENT_EXT_DISC:
-{
-
-    /* An advertisement report was received during GAP discovery. */
-    struct ble_gap_ext_disc_desc *disc = (struct ble_gap_ext_disc_desc *)&event->disc;
-
-    ESP_LOGD("scanBLEDevices", "Extended advertisement report; addr=%s "
-                               "length_data=%d",
-             addr_to_str(disc->addr.val).c_str(),
-             disc->length_data);
-
-    int rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
-    if (rc != 0)
-    {
+            isMovesenseConnected = false;
+        }
         return 0;
     }
-    if (fields.name != NULL)
+
+    // Disconnection event
+    case BLE_GAP_EVENT_DISCONNECT:
     {
-        char name[fields.name_len + 1];
-        memcpy(name, fields.name, fields.name_len);
-        name[fields.name_len] = '\0';
+        ESP_LOGI("BLE_GAP_EVENT_DISCONNECT", "disconnect; reason=%d ", event->disconnect.reason);
+        isMovesenseConnected = false;
 
-        std::string devAddress = std::string(addr_to_str(disc->addr.val));
-        std::string devName = std::string(name);
-
-        // Combine the name and the address
-        std::string devRepr = devName + ";" + devAddress;
-
-        ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
-
-        // Send the device representation to the serial port
-        sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
+        return 0;
     }
 
-    return 0;
-}
+    case BLE_GAP_EVENT_L2CAP_UPDATE_REQ:
+    {
 
-// Normal advertisement report
-case BLE_GAP_EVENT_DISC: // This should never happen
-{
-    ESP_LOGD("BLE_GAP_EVENT_DISC", "Advertisement report; addr=%s "
+        const struct ble_gap_upd_params *params = event->conn_update_req.peer_params;
+
+        ESP_LOGI("BLE_GAP_EVENT_L2CAP_UPDATE_REQ", "L2CAP update request: itvl_min=%u itvl_max=%u latency=%u timeout=%u",
+                 params->itvl_min, params->itvl_max, params->latency, params->supervision_timeout);
+
+        int rc = ble_gap_update_params(event->conn_update_req.conn_handle, params);
+        if (rc != 0)
+        {
+            sendErr("BLE_GAP_EVENT_L2CAP_UPDATE_REQ", "Failed to update connection params: rc=%d", rc);
+        }
+        return 0;
+    }
+
+    case BLE_GAP_EVENT_MTU:
+        ESP_LOGI("BLE_GAP_EVENT_MTU", "MTU updated: %d", event->mtu.value);
+        break;
+
+    case BLE_GAP_EVENT_NOTIFY_RX:
+    { /* Peer sent us a notification or indication. */
+        ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "received %s; conn_handle=%d attr_handle=%d "
+                                            "attr_len=%d",
+                 event->notify_rx.indication ? "indication" : "notification",
+                 event->notify_rx.conn_handle,
+                 event->notify_rx.attr_handle,
+                 OS_MBUF_PKTLEN(event->notify_rx.om));
+
+        size_t len = event->notify_rx.om->om_len;
+
+        if (len > NOTIF_LEN)
+        {
+            sendErr("BLE_GAP_EVENT_NOTIFY_RX", "Notification length exceeds buffer size: %d > %d",
+                    len, NOTIF_LEN);
+            return BLE_HS_EBADDATA;
+        }
+
+        blink(COLOR_BLE, 1, 10); // TODO make this asynchronous or remove
+
+        uint8_t rxNotify[NOTIF_LEN];
+        rxNotify[0] = len; // First byte is the length of the notification
+        os_mbuf_copydata(event->notify_rx.om, 0, len, rxNotify + 1);
+
+        if (event->notify_rx.attr_handle == response_char_handle)
+        {
+            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received response notification");
+            BaseType_t result = xQueueSendToBack(responseQueue, rxNotify, 0);
+            if (result == pdFALSE)
+            {
+                sendErr("BLE_GAP_EVENT_NOTIFY_RX", "Queue send failed for responseQueue, data lost (queue full?)");
+                blink(COLOR_RUNTIME_ERROR, 2, 10); // TODO make this asynchronous or remove
+            }
+        }
+        else if (event->notify_rx.attr_handle == data_char_handle)
+        {
+            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received data notification");
+            BaseType_t result = xQueueSendToBack(dataQueue, rxNotify, 0);
+            if (result == pdFALSE)
+            {
+                sendErr("BLE_GAP_EVENT_NOTIFY_RX", "Queue send failed for dataQueue, data lost (queue full?)");
+                blink(COLOR_RUNTIME_ERROR, 2, 10); // TODO make this asynchronous or remove
+            }
+        }
+        else if (event->notify_rx.attr_handle == log_char_handle)
+        {
+            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received log notification");
+            BaseType_t result = xQueueSendToBack(logQueue, rxNotify, 0);
+            if (result == pdFALSE)
+            {
+                sendErr("BLE_GAP_EVENT_NOTIFY_RX", "Queue send failed for logQueue, data lost (queue full?)");
+                blink(COLOR_RUNTIME_ERROR, 2, 10); // TODO make this asynchronous or remove
+            }
+        }
+        else
+        {
+            ESP_LOGE("BLE_GAP_EVENT_NOTIFY_RX", "Received notification on unknown handle: %d",
+                     event->notify_rx.attr_handle);
+            return BLE_HS_EBADDATA;
+        }
+
+        return 0;
+    }
+
+    // Extended advertisement report
+    case BLE_GAP_EVENT_EXT_DISC:
+    {
+
+        /* An advertisement report was received during GAP discovery. */
+        struct ble_gap_ext_disc_desc *disc = (struct ble_gap_ext_disc_desc *)&event->disc;
+
+        ESP_LOGD("scanBLEDevices", "Extended advertisement report; addr=%s "
                                    "length_data=%d",
-             addr_to_str(event->disc.addr.val).c_str(),
-             event->disc.length_data);
+                 addr_to_str(disc->addr.val).c_str(),
+                 disc->length_data);
 
-    int rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
-                                     event->disc.length_data);
-    if (rc != 0)
-    {
+        int rc = ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data);
+        if (rc != 0)
+        {
+            return 0;
+        }
+        if (fields.name != NULL)
+        {
+            char name[fields.name_len + 1];
+            memcpy(name, fields.name, fields.name_len);
+            name[fields.name_len] = '\0';
+
+            std::string devAddress = std::string(addr_to_str(disc->addr.val));
+            std::string devName = std::string(name);
+
+            // Combine the name and the address
+            std::string devRepr = devName + ";" + devAddress;
+
+            ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
+
+            // Send the device representation to the serial port
+            sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
+        }
+
         return 0;
     }
-    if (fields.name != NULL)
+
+    // Normal advertisement report
+    case BLE_GAP_EVENT_DISC: // This should never happen
     {
-        char name[fields.name_len + 1];
-        memcpy(name, fields.name, fields.name_len);
-        name[fields.name_len] = '\0';
+        ESP_LOGD("BLE_GAP_EVENT_DISC", "Advertisement report; addr=%s "
+                                       "length_data=%d",
+                 addr_to_str(event->disc.addr.val).c_str(),
+                 event->disc.length_data);
 
-        std::string devAddress = std::string(addr_to_str(event->disc.addr.val));
-        std::string devName = std::string(name);
+        int rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
+                                         event->disc.length_data);
+        if (rc != 0)
+        {
+            return 0;
+        }
+        if (fields.name != NULL)
+        {
+            char name[fields.name_len + 1];
+            memcpy(name, fields.name, fields.name_len);
+            name[fields.name_len] = '\0';
 
-        // Combine the name and the address
-        std::string devRepr = devName + ";" + devAddress;
+            std::string devAddress = std::string(addr_to_str(event->disc.addr.val));
+            std::string devName = std::string(name);
 
-        ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
+            // Combine the name and the address
+            std::string devRepr = devName + ";" + devAddress;
 
-        // Send the device representation to the serial port
-        sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
+            ESP_LOGI("scanBLEDevices", "Found device: %s", devRepr.c_str());
+
+            // Send the device representation to the serial port
+            sendFrame(CmdType::CMD_SCAN, (uint8_t *)devRepr.c_str(), devRepr.length());
+        }
+
+        return 0;
+    }
+
+    // End of scanning procedure
+    case BLE_GAP_EVENT_DISC_COMPLETE:
+    {
+        ESP_LOGI("scanBleDevices", "ble scan complete; reason=%d",
+                 event->disc_complete.reason);
+
+        xSemaphoreGive(bleScanSemaphore);
+
+        return 0;
+    }
+
+    // Physical link establishment event
+    // In very noisy environments the connection may succeed but the link establishment fails
+    // TODO should we give the semaphore here instead?
+    case BLE_GAP_EVENT_LINK_ESTAB:
+    {
+        if (event->link_estab.status != 0)
+        {
+            sendErr("BLE_GAP_EVENT_LINK_ESTAB", "Link establishment failed; status=%d",
+                    event->link_estab.status);
+            isMovesenseConnected = false;
+        }
+        else
+        {
+            ESP_LOGI("BLE_GAP_EVENT_LINK_ESTAB", "Link established");
+        }
+        return 0;
+    }
+
+    // Data length change event
+    case BLE_GAP_EVENT_DATA_LEN_CHG:
+    {
+        ESP_LOGI("BLE_GAP_EVENT_DATA_LEN_CHG", "Data length changed; conn_handle=%d "
+                                               "max_tx_octets=%d max_tx_time=%d max_rx_octets=%d max_rx_time=%d",
+                 event->data_len_chg.conn_handle,
+                 event->data_len_chg.max_tx_octets,
+                 event->data_len_chg.max_tx_time,
+                 event->data_len_chg.max_rx_octets,
+                 event->data_len_chg.max_rx_time);
+        return 0;
+    }
+
+    case BLE_GAP_EVENT_REATTEMPT_COUNT:
+    {
+        ESP_LOGI("BLE_GAP_EVENT_REATTEMPT_COUNT", "Reattempt count; conn_handle=%d "
+                                                  "reattempt_count=%d",
+                 event->reattempt_cnt.conn_handle,
+                 event->reattempt_cnt.count);
+        return 0;
+    }
+
+    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
+    {
+        ESP_LOGI("BLE_GAP_EVENT_PHY_UPDATE_COMPLETE", "PHY update complete");
+        return 0;
+    }
+
+    default:
+        ESP_LOGW("GAP_EVENT", "unhandled event; event_type=%d", event->type);
+        return 0;
     }
 
     return 0;
-}
-
-// End of scanning procedure
-case BLE_GAP_EVENT_DISC_COMPLETE:
-{
-    ESP_LOGI("scanBleDevices", "ble scan complete; reason=%d",
-             event->disc_complete.reason);
-
-    xSemaphoreGive(bleScanSemaphore);
-
-    return 0;
-}
-
-// Physical link establishment event
-// In very noisy environments the connection may succeed but the link establishment fails
-// TODO should we give the semaphore here instead?
-case BLE_GAP_EVENT_LINK_ESTAB:
-{
-    if (event->link_estab.status != 0)
-    {
-        sendErr("BLE_GAP_EVENT_LINK_ESTAB", "Link establishment failed; status=%d",
-                event->link_estab.status);
-        isMovesenseConnected = false;
-    }
-    else
-    {
-        ESP_LOGI("BLE_GAP_EVENT_LINK_ESTAB", "Link established");
-    }
-    return 0;
-}
-
-// Data length change event
-case BLE_GAP_EVENT_DATA_LEN_CHG:
-{
-    ESP_LOGI("BLE_GAP_EVENT_DATA_LEN_CHG", "Data length changed; conn_handle=%d "
-                                           "max_tx_octets=%d max_tx_time=%d max_rx_octets=%d max_rx_time=%d",
-             event->data_len_chg.conn_handle,
-             event->data_len_chg.max_tx_octets,
-             event->data_len_chg.max_tx_time,
-             event->data_len_chg.max_rx_octets,
-             event->data_len_chg.max_rx_time);
-    return 0;
-}
-
-case BLE_GAP_EVENT_REATTEMPT_COUNT:
-{
-    ESP_LOGI("BLE_GAP_EVENT_REATTEMPT_COUNT", "Reattempt count; conn_handle=%d "
-                                              "reattempt_count=%d",
-             event->reattempt_cnt.conn_handle,
-             event->reattempt_cnt.count);
-    return 0;
-}
-
-case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
-{
-    ESP_LOGI("BLE_GAP_EVENT_PHY_UPDATE_COMPLETE", "PHY update complete");
-    return 0;
-}
-
-default:
-    ESP_LOGW("GAP_EVENT", "unhandled event; event_type=%d", event->type);
-    return 0;
-}
-
-return 0;
 }
 
 static void nimble_reset_callback(int reason)
