@@ -38,4 +38,9 @@ extern QueueHandle_t responseQueue;
 extern QueueHandle_t dataQueue;
 extern QueueHandle_t logQueue;
 
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+extern StaticQueue_t xStaticDataQueue;
+;
+#endif
+
 #endif // GLOBALS_H
