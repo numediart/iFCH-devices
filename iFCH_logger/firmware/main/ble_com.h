@@ -7,6 +7,7 @@
 
 #define BLE_MTU 161
 #define NOTIF_LEN (BLE_MTU - 3 + 1) // +1 for the length byte
+#define DATA_NOTIF_LEN 102 + 1      // +1 for the length byte
 #define BLE_SCAN_TIME 1000          // milliseconds
 #define BLE_SCAN_INTERVAL 500       // milliseconds
 #define BLE_SCAN_WINDOW 500         // milliseconds
@@ -15,9 +16,9 @@
 #define BLE_QUEUE_LENGTH 32
 
 #ifdef CONFIG_IDF_TARGET_ESP32S3
-#define BLE_DATA_QUEUE_LENGTH 12500 // this can contain 8 minutes of data at 26 Hz
+#define BLE_DATA_QUEUE_LENGTH 18500 // this can contain 12 minutes of data at 26 Hz
 #elifdef CONFIG_IDF_TARGET_ESP32C6
-#define BLE_DATA_QUEUE_LENGTH 1500 // this can contain 1 minute of data at 26 Hz
+#define BLE_DATA_QUEUE_LENGTH 3000 // this can contain 2 minutes of data at 26 Hz
 #else
 #error "Unsupported target platform."
 #endif // CONFIG_IDF_TARGET
