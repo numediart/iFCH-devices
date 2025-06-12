@@ -5,6 +5,7 @@
 #include <queue>
 
 #define MAX_PATH_LEN 32
+#define MTU 161
 
 struct IndicateRequest
 {
@@ -158,9 +159,9 @@ private:
     LogSub *getFreeLogSubSlot();
 
     // Buffer for outgoing data messages
-    static constexpr size_t MTU = 158;
-    static constexpr size_t MAX_DATA_SIZE = MTU - 8;
-    uint8_t mDataMsgBuffer[MTU];
+    static constexpr size_t PAYLOAD_SIZE = MTU - 3;
+    static constexpr size_t MAX_DATA_SIZE = PAYLOAD_SIZE - 8;
+    uint8_t mDataMsgBuffer[PAYLOAD_SIZE];
 
     DataSub *findDataSub(const wb::ResourceId resourceId);
     DataSub *findDataSub(const wb::LocalResourceId localResourceId);
