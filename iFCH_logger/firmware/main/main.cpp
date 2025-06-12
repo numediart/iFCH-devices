@@ -16,10 +16,6 @@ QueueHandle_t dataQueue;
 QueueHandle_t responseQueue;
 QueueHandle_t logQueue;
 
-#ifdef CONFIG_IDF_TARGET_ESP32S3
-StaticQueue_t xStaticDataQueue;
-#endif // CONFIG_IDF_TARGET_ESP32S3
-
 bool isStreaming = false;
 
 void fetchMovesenseData()
@@ -397,16 +393,10 @@ extern "C" void app_main()
 {
     ESP_LOGI("setup", "Starting %s", VERSION);
 
-// Initialize variables
-#ifdef CONFIG_IDF_TARGET_ESP32S3
-    dataQueue = xQueueCreateStatic(BLE_DATA_QUEUE_LENGTH, DATA_NOTIF_LEN, (uint8_t *)heap_caps_malloc(BLE_DATA_QUEUE_LENGTH * DATA_NOTIF_LEN, MALLOC_CAP_SPIRAM), &xStaticDataQueue);
-#elifdef CONFIG_IDF_TARGET_ESP32C6
-    dataQueue = xQueueCreate(BLE_DATA_QUEUE_LENGTH, DATA_NOTIF_LEN);
-#else
-#error "Unsupported target platform."
-#endif // CONFIG_IDF_TARGET
+    // Initialize variables
+    dataQueue = xQueueCreate(BLE_DATA_QUEUE_LENGTH, NOTIF_LEN);
+    logQueue = xQueueCreate(BLE_DATA_QUEUE_LENGTH, NOTIF_LEN);
     responseQueue = xQueueCreate(BLE_QUEUE_LENGTH, NOTIF_LEN);
-    logQueue = xQueueCreate(BLE_QUEUE_LENGTH, NOTIF_LEN);
 
     if (dataQueue == NULL || responseQueue == NULL || logQueue == NULL)
     {
