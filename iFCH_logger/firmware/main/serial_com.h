@@ -32,14 +32,16 @@ enum class CmdType : uint8_t
     CMD_FILE_CHUNK = 0x20,
     CMD_CONFIG_GET = 0x21,
     CMD_CONFIG_PUT = 0x22,
-    // RTC
+    // Peripherals
     CMD_TIME_GET = 0x31,
     CMD_TIME_PUT = 0x32,
     CMD_BATTERY_GET = 0x33,
     // Movesense
     CMD_MOV_BATTERY_GET = 0x41,
-    CMD_MOV_SUB = 0x42,
-    CMD_MOV_UNSUB = 0x43,
+    CMD_MOV_STREAM = 0x42,
+    CMD_MOV_UNSTREAM = 0x43,
+    CMD_MOV_LOG_START = 0x44,
+    CMD_MOV_LOG_END = 0x45,
     // Errors
     CMD_TIMEOUT = 0xFE,
     CMD_INVALID = 0xFF,

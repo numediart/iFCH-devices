@@ -185,7 +185,7 @@ void setupSDCard()
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
-        .max_files = 1,
+        .max_files = 4,
         .allocation_unit_size = 0};
     sdmmc_card_t *card;
     const char mount_point[] = MOUNT_POINT;
