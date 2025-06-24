@@ -14,8 +14,6 @@
 #define BLE_CONNECT_TIMEOUT 5000    // milliseconds
 #define BLE_RESPONSE_QUEUE_LENGTH 16
 #define BLE_DATA_QUEUE_LENGTH 256
-#error "Unsupported target platform."
-#endif // CONFIG_IDF_TARGET
 
 extern volatile bool isMovesenseConnected;
 

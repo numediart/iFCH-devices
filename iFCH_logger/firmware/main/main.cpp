@@ -7,7 +7,6 @@
 #include "ble_com.h"
 
 #include <esp_sleep.h>
-#include <esp_psram.h>
 
 Config config;
 Record record;
@@ -396,7 +395,7 @@ extern "C" void app_main()
     // Initialize variables
     dataQueue = xQueueCreate(BLE_DATA_QUEUE_LENGTH, NOTIF_LEN);
     logQueue = xQueueCreate(BLE_DATA_QUEUE_LENGTH, NOTIF_LEN);
-    responseQueue = xQueueCreate(BLE_QUEUE_LENGTH, NOTIF_LEN);
+    responseQueue = xQueueCreate(BLE_RESPONSE_QUEUE_LENGTH, NOTIF_LEN);
 
     if (dataQueue == NULL || responseQueue == NULL || logQueue == NULL)
     {
