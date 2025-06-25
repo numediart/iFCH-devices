@@ -66,7 +66,7 @@ void sendFrame(CmdType cmd, uint8_t *payload, uint16_t len);
 // This is a wrapper for sendFrame with no payload
 void sendCMD(CmdType type);
 
-// Send an error message
-void sendErr(const char *tag, const char *fmt, ...);
+// Check if the serial port is connected
+bool isSerialConnected();
 
 #endif // SERIAL_COM_H

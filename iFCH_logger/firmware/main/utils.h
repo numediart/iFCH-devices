@@ -44,6 +44,8 @@ void errorReset(uint8_t r_val, uint8_t g_val, uint8_t b_val);
 
 void setupBoard();
 
+void logError(const char *tag, const char *fmt, ...);
+
 extern i2c_master_bus_handle_t i2c_handle;
 
 #endif // UTILS_H

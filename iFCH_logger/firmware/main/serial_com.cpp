@@ -32,14 +32,14 @@ bool writeBytes(uint8_t *buf, uint32_t length)
     int sent = usb_serial_jtag_write_bytes(buf, length, pdMS_TO_TICKS(SERIAL_TIMEOUT));
     if (sent != length)
     {
-        sendErr("serialWrite", "write_bytes failed");
+        logError("serialWrite", "write_bytes failed");
         return false;
     }
 
     esp_err_t err = usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(SERIAL_TIMEOUT));
     if (err != ESP_OK)
     {
-        sendErr("serialWrite", "wait_tx_done failed");
+        logError("serialWrite", "wait_tx_done failed");
         return false;
     }
 
@@ -92,40 +92,10 @@ void sendCMD(CmdType type)
     sendFrame(type, nullptr, 0);
 }
 
-void sendErr(const char *tag, const char *fmt, ...)
+bool isSerialConnected()
 {
-    // Format the error message
-    char buf[ERROR_BUFFER_SIZE];
-    va_list args;
-    va_start(args, fmt);
-    int len = vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-
-    // Check for formatting errors or truncation
-    if (len < 0)
-    {
-        ESP_LOGE("sendErr", "vsnprintf failed");
-        return;
-    }
-
-    if (len >= sizeof(buf))
-    {
-        ESP_LOGW("sendErr", "Error message truncated (needed %d bytes)", len);
-        len = sizeof(buf) - 1; // Use actual buffer content length
-    }
-
-    // Log to console
-    ESP_LOGE(tag, "%s", buf);
-
-#ifdef ERR_LOG_SERIAL
-    // If USB serial is available, send error frame
-    if (usb_serial_jtag_is_driver_installed() && usb_serial_jtag_is_connected())
-    {
-        sendFrame(CmdType::CMD_ERROR,
-                  reinterpret_cast<uint8_t *>(buf),
-                  static_cast<uint16_t>(len));
-    }
-#endif // ERR_LOG_SERIAL
+    // Check if the USB serial driver is installed and connected
+    return usb_serial_jtag_is_driver_installed() && usb_serial_jtag_is_connected();
 }
 
 void setupSerial()
@@ -138,7 +108,7 @@ void setupSerial()
     esp_err_t err = usb_serial_jtag_driver_install(&usb_serial_jtag_config);
     if (err != ESP_OK)
     {
-        sendErr("setupSerial", "USB_SERIAL_JTAG init failed");
+        logError("setupSerial", "USB_SERIAL_JTAG init failed");
         return;
     }
 
@@ -158,7 +128,7 @@ CmdType readSerial(bool wait)
     {
         if (readBytes(&startByte, 1) != 1)
         {
-            sendErr("readSerial", "Failed to read start byte");
+            logError("readSerial", "Failed to read start byte");
             sendCMD(CmdType::CMD_TIMEOUT);
             return CmdType::CMD_TIMEOUT;
         }
@@ -177,7 +147,7 @@ CmdType readSerial(bool wait)
     uint8_t header[3];
     if (readBytes(header, 3) != 3)
     {
-        sendErr("readSerial", "Failed to read header");
+        logError("readSerial", "Failed to read header");
         sendCMD(CmdType::CMD_TIMEOUT);
         return CmdType::CMD_TIMEOUT;
     }
@@ -194,7 +164,7 @@ CmdType readSerial(bool wait)
     size_t read = readBytes(rx_payload, rx_payload_len);
     if (read != rx_payload_len)
     {
-        sendErr(
+        logError(
             "readSerial",
             "Failed to read payload, got %zu bytes, expected %u",
             read,
@@ -214,7 +184,7 @@ CmdType readSerial(bool wait)
 
     if (readBytes((uint8_t *)&receivedCrc, 4) != 4)
     {
-        sendErr("readSerial", "Failed to read CRC");
+        logError("readSerial", "Failed to read CRC");
         sendCMD(CmdType::CMD_TIMEOUT);
         return CmdType::CMD_TIMEOUT;
     }

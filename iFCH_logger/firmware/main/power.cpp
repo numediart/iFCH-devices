@@ -2,7 +2,6 @@
 
 #include "rtc_time.h"
 #include "memory.h"
-#include "serial_com.h"
 #include "utils.h"
 
 #include <esp_sleep.h>
@@ -26,7 +25,7 @@ void setupVUSB()
     rc = adc_oneshot_new_unit(&adc_config, &adc_handle);
     if (rc != ESP_OK)
     {
-        sendErr("setupVUSB", "Failed to initialize ADC");
+        logError("setupVUSB", "Failed to initialize ADC");
         errorReset(COLOR_RUNTIME_ERROR);
         return;
     }
@@ -39,7 +38,7 @@ void setupVUSB()
     rc = adc_oneshot_config_channel(adc_handle, VUSB_ADC_CHANNEL, &config);
     if (rc != ESP_OK)
     {
-        sendErr("setupVUSB", "Failed to configure ADC channel");
+        logError("setupVUSB", "Failed to configure ADC channel");
         errorReset(COLOR_RUNTIME_ERROR);
         return;
     }
@@ -52,7 +51,7 @@ bool isVUSBConnected()
     esp_err_t rc = adc_oneshot_read(adc_handle, VUSB_ADC_CHANNEL, &vusb);
     if (rc != ESP_OK)
     {
-        sendErr("isVUSBConnected", "Failed to read VUSB ADC value");
+        logError("isVUSBConnected", "Failed to read VUSB ADC value");
         return true;
     }
 
@@ -73,7 +72,7 @@ void setupGauge()
     esp_err_t rc = i2c_master_bus_add_device(i2c_handle, &dev_cfg, &max17048_handle);
     if (rc != ESP_OK)
     {
-        sendErr("setupGauge", "Failed to add battery gauge device");
+        logError("setupGauge", "Failed to add battery gauge device");
         errorReset(COLOR_POWER);
         return;
     }
@@ -89,7 +88,7 @@ float getBattery()
     rc = i2c_master_transmit_receive(max17048_handle, &SOC_REG_ADDR, 1, soc, sizeof(soc), I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("getBattery", "Failed to read battery SOC");
+        logError("getBattery", "Failed to read battery SOC");
         return -1.0f;
     }
 
@@ -113,6 +112,12 @@ void enterHibernation(bool waketimer)
 
         // Compute time since last data fetch
         uint32_t currentEpoch = getUNIXTime();
+        if (currentEpoch == 0)
+        {
+            logError("enterHibernation", "Failed to get current time");
+            errorReset(COLOR_RTC);
+            return;
+        }
         uint32_t lastFetchDelayMin = (currentEpoch - record.lastFetch) / 60;
         if (lastFetchDelayMin > config.fetchIntervalMin)
         {
@@ -123,7 +128,7 @@ void enterHibernation(bool waketimer)
         result = esp_sleep_enable_timer_wakeup((uint64_t)60000000 * waketimer_minutes);
         if (result != ESP_OK)
         {
-            sendErr("enterHibernation", "Failed to set waketimer");
+            logError("enterHibernation", "Failed to set waketimer");
             errorReset(COLOR_POWER);
             return;
         }
@@ -134,7 +139,7 @@ void enterHibernation(bool waketimer)
 
     if (result != ESP_OK)
     {
-        sendErr("enterHibernation", "Failed to set wakeup source");
+        logError("enterHibernation", "Failed to set wakeup source");
         errorReset(COLOR_POWER);
         return;
     }

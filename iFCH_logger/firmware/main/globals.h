@@ -13,6 +13,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
+// Define for sending error logs to the serial port
+// #define ERR_LOG_SERIAL
+
 struct Config
 {
     bool initialized = false;

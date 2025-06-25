@@ -1,7 +1,6 @@
 #include "rtc_time.h"
 
 #include "utils.h"
-#include "serial_com.h"
 
 #include <ctime>
 
@@ -25,7 +24,7 @@ void setupRTC()
     esp_err_t rc = i2c_master_bus_add_device(i2c_handle, &dev_cfg, &rv8803_handle);
     if (rc != ESP_OK)
     {
-        sendErr("setupRTC", "Failed to add RTC device");
+        logError("setupRTC", "Failed to add RTC device");
         errorReset(COLOR_RTC);
         return;
     }
@@ -42,7 +41,7 @@ uint8_t _getRTCFlags()
     rc = i2c_master_transmit_receive(rv8803_handle, &FLAG_REG_ADDR, 1, &flag_val, 1, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("_getRTCFlags", "Failed to read RTC flag register value");
+        logError("_getRTCFlags", "Failed to read RTC flag register value");
         return 0xFF;
     }
 
@@ -58,7 +57,7 @@ uint8_t _getRTCExt()
     rc = i2c_master_transmit_receive(rv8803_handle, &EXT_REG_ADDR, 1, &ext_val, 1, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("_getRTCExt", "Failed to read RTC extension register value");
+        logError("_getRTCExt", "Failed to read RTC extension register value");
         return 0xFF;
     }
 
@@ -84,7 +83,7 @@ bool stopRTCTimer()
     rc = i2c_master_transmit(rv8803_handle, (uint8_t[]){EXT_REG_ADDR, ext_val}, 2, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("stopRTCTimer", "Failed to stop RTC timer and set frequency");
+        logError("stopRTCTimer", "Failed to stop RTC timer and set frequency");
         return false;
     }
 
@@ -98,7 +97,7 @@ bool stopRTCTimer()
     rc = i2c_master_transmit(rv8803_handle, (uint8_t[]){FLAG_REG_ADDR, flag_val}, 2, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("stopRTCTimer", "Failed to clear RTC countdown flag");
+        logError("stopRTCTimer", "Failed to clear RTC countdown flag");
         return false;
     }
 
@@ -121,7 +120,7 @@ bool startRTCTimer()
     rc = i2c_master_transmit(rv8803_handle, (uint8_t[]){CT_CTRL_REG_ADDR, ctrl1_val, ctrl2_val}, 3, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("startRTCTimer", "Failed to set RTC control registers");
+        logError("startRTCTimer", "Failed to set RTC control registers");
         errorReset(COLOR_RTC);
         return false;
     }
@@ -137,7 +136,7 @@ bool startRTCTimer()
     rc = i2c_master_transmit(rv8803_handle, (uint8_t[]){EXT_REG_ADDR, ext_val}, 2, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("startRTCTimer", "Failed to enable RTC countdown timer");
+        logError("startRTCTimer", "Failed to enable RTC countdown timer");
         errorReset(COLOR_RTC);
         return false;
     }
@@ -165,7 +164,7 @@ uint32_t getUNIXTime()
     rc = i2c_master_transmit_receive(rv8803_handle, &TIME_REG_ADDR, 1, raw_data, sizeof(raw_data), I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("getUNIXTime", "Failed to read RTC data");
+        logError("getUNIXTime", "Failed to read RTC data");
         errorReset(COLOR_RTC);
         return 0;
     }
@@ -200,7 +199,7 @@ bool setUNIXTime(uint32_t newTime)
     rc = i2c_master_transmit_receive(rv8803_handle, &CTRL_REG_ADDR, 1, &ctrl_val, 1, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("setUNIXTime", "Failed to read RTC control register value");
+        logError("setUNIXTime", "Failed to read RTC control register value");
         return false;
     }
 
@@ -208,7 +207,7 @@ bool setUNIXTime(uint32_t newTime)
     rc = i2c_master_transmit(rv8803_handle, (uint8_t[]){CTRL_REG_ADDR, ctrl_val}, 2, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("setUNIXTime", "Failed to pause RTC");
+        logError("setUNIXTime", "Failed to pause RTC");
         return false;
     }
 
@@ -226,7 +225,7 @@ bool setUNIXTime(uint32_t newTime)
     rc = i2c_master_transmit(rv8803_handle, time_data, sizeof(time_data), I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("setUNIXTime", "Failed to write time registers");
+        logError("setUNIXTime", "Failed to write time registers");
         return false;
     }
 
@@ -234,7 +233,7 @@ bool setUNIXTime(uint32_t newTime)
     uint32_t currentTime = getUNIXTime();
     if (currentTime != newTime)
     {
-        sendErr("setUNIXTime", "RTC time mismatch after setting");
+        logError("setUNIXTime", "RTC time mismatch after setting");
         return false;
     }
 
@@ -243,7 +242,7 @@ bool setUNIXTime(uint32_t newTime)
     rc = i2c_master_transmit(rv8803_handle, (uint8_t[]){CTRL_REG_ADDR, ctrl_val}, 2, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
-        sendErr("setUNIXTime", "Failed to restart RTC");
+        logError("setUNIXTime", "Failed to restart RTC");
         return false;
     }
 

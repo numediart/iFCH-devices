@@ -1,6 +1,7 @@
 #include "utils.h"
 
 #include "led_strip.h"
+#include "serial_com.h"
 
 static led_strip_handle_t rgb_led = nullptr;
 i2c_master_bus_handle_t i2c_handle = nullptr;
@@ -132,4 +133,40 @@ void setupBoard()
     rgb_led = setupLED();
 
     i2c_handle = setupI2C();
+}
+
+void logError(const char *tag, const char *fmt, ...)
+{
+    // Format the error message
+    char buf[ERROR_BUFFER_SIZE];
+    va_list args;
+    va_start(args, fmt);
+    int len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    // Check for formatting errors or truncation
+    if (len < 0)
+    {
+        ESP_LOGE("logError", "vsnprintf failed");
+        return;
+    }
+
+    if (len >= sizeof(buf))
+    {
+        ESP_LOGW("logError", "Error message truncated (needed %d bytes)", len);
+        len = sizeof(buf) - 1; // Use actual buffer content length
+    }
+
+    // Log to console
+    ESP_LOGE(tag, "%s", buf);
+
+#ifdef ERR_LOG_SERIAL
+    // If USB serial is available, send error frame
+    if (isSerialConnected())
+    {
+        sendFrame(CmdType::CMD_ERROR,
+                  reinterpret_cast<uint8_t *>(buf),
+                  static_cast<uint16_t>(len));
+    }
+#endif // ERR_LOG_SERIAL
 }

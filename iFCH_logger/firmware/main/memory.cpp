@@ -42,7 +42,7 @@ bool sendFile(std::string filename)
         FILE *f = fopen(filename.c_str(), "r");
         if (f == NULL)
         {
-            sendErr("sendFile", "Failed to open file for reading");
+            logError("sendFile", "Failed to open file for reading");
             errorReset(COLOR_SD);
             return false;
         }
@@ -80,7 +80,7 @@ bool sendFile(std::string filename)
     }
     else
     {
-        sendErr("sendFile", "File not found");
+        logError("sendFile", "File not found");
     }
 
     ledWrite(false);
@@ -95,7 +95,7 @@ std::string receiveFile(std::string filename)
     FILE *f = fopen(filename.c_str(), "w");
     if (f == NULL)
     {
-        sendErr("receiveFile", "Failed to open file for writing: %s", filename);
+        logError("receiveFile", "Failed to open file for writing: %s", filename);
         return "";
     }
 
@@ -129,7 +129,7 @@ std::string receiveFile(std::string filename)
                     // If the write failed, blink the LED and break
                     if (written != rx_payload_len - 1)
                     {
-                        sendErr("receiveFile", "Failed to write file");
+                        logError("receiveFile", "Failed to write file");
                         errorReset(COLOR_SD);
                         receivedName = "";
                         break;
@@ -165,7 +165,7 @@ std::string receiveFile(std::string filename)
         // Invalid command received
         else
         {
-            sendErr("receiveFile", "Invalid command received");
+            logError("receiveFile", "Invalid command received");
             receivedName = "";
             break;
         }
@@ -226,7 +226,7 @@ void setupSDCard()
     ret = spi_bus_initialize((spi_host_device_t)host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
     if (ret != ESP_OK)
     {
-        sendErr("setupSDCard", "Failed to initialize bus");
+        logError("setupSDCard", "Failed to initialize bus");
         errorReset(COLOR_SD);
         return;
     }
@@ -247,7 +247,7 @@ void setupSDCard()
 
     if (ret != ESP_OK)
     {
-        sendErr("setupSDCard", "Failed to mount filesystem");
+        logError("setupSDCard", "Failed to mount filesystem");
         errorReset(COLOR_SD);
         return;
     }
@@ -268,7 +268,7 @@ bool loadJsonConfig()
     FILE *f = fopen(CONFIG_FILE, "r");
     if (f == NULL)
     {
-        sendErr("loadJsonConfig", "Failed to open config file");
+        logError("loadJsonConfig", "Failed to open config file");
         errorReset(COLOR_SD);
         return false;
     }
@@ -281,7 +281,7 @@ bool loadJsonConfig()
 
     if (json == NULL)
     {
-        sendErr("loadJsonConfig", "Failed to parse config file");
+        logError("loadJsonConfig", "Failed to parse config file");
         cJSON_Delete(json);
         return false;
     }
@@ -289,7 +289,7 @@ bool loadJsonConfig()
     cJSON *sensorPaths = cJSON_GetObjectItemCaseSensitive(json, "sensorPaths");
     if (sensorPaths == NULL || !cJSON_IsArray(sensorPaths))
     {
-        sendErr("loadJsonConfig", "Invalid sensorPaths in config file");
+        logError("loadJsonConfig", "Invalid sensorPaths in config file");
         cJSON_Delete(json);
         return false;
     }
@@ -306,7 +306,7 @@ bool loadJsonConfig()
         }
         else
         {
-            sendErr("loadJsonConfig", "Invalid sensorPath in config file");
+            logError("loadJsonConfig", "Invalid sensorPath in config file");
             cJSON_Delete(json);
             return false;
         }
@@ -315,7 +315,7 @@ bool loadJsonConfig()
     cJSON *address = cJSON_GetObjectItemCaseSensitive(json, "address");
     if (address == NULL || !cJSON_IsString(address) || (address->valuestring == NULL))
     {
-        sendErr("loadJsonConfig", "Invalid address in config file");
+        logError("loadJsonConfig", "Invalid address in config file");
         cJSON_Delete(json);
         return false;
     }
@@ -323,7 +323,7 @@ bool loadJsonConfig()
     cJSON *fetchInterval = cJSON_GetObjectItemCaseSensitive(json, "fetchIntervalMin");
     if (fetchInterval == NULL || !cJSON_IsNumber(fetchInterval))
     {
-        sendErr("loadJsonConfig", "Invalid fetchIntervalMin in config file");
+        logError("loadJsonConfig", "Invalid fetchIntervalMin in config file");
         cJSON_Delete(json);
         return false;
     }
@@ -350,7 +350,7 @@ bool loadJsonRecord()
     FILE *f = fopen(RECORD_FILE, "r");
     if (f == NULL)
     {
-        sendErr("loadJsonRecord", "Failed to open record file");
+        logError("loadJsonRecord", "Failed to open record file");
         errorReset(COLOR_SD);
         return false;
     }
@@ -364,7 +364,7 @@ bool loadJsonRecord()
     cJSON *lastFetch = cJSON_GetObjectItemCaseSensitive(json, "lastFetch");
     if (lastFetch == NULL || !cJSON_IsNumber(lastFetch))
     {
-        sendErr("loadJsonRecord", "Invalid lastFetch in record file");
+        logError("loadJsonRecord", "Invalid lastFetch in record file");
         cJSON_Delete(json);
         blink(COLOR_RUNTIME_ERROR, 5, 50);
         return false;
@@ -373,7 +373,7 @@ bool loadJsonRecord()
     cJSON *logging = cJSON_GetObjectItemCaseSensitive(json, "logging");
     if (logging == NULL || !cJSON_IsBool(logging))
     {
-        sendErr("loadJsonRecord", "Invalid logging in record file");
+        logError("loadJsonRecord", "Invalid logging in record file");
         cJSON_Delete(json);
         blink(COLOR_RUNTIME_ERROR, 5, 50);
         return false;
@@ -382,7 +382,7 @@ bool loadJsonRecord()
     cJSON *id = cJSON_GetObjectItemCaseSensitive(json, "id");
     if (id == NULL || !cJSON_IsNumber(id))
     {
-        sendErr("loadJsonRecord", "Invalid id in record file");
+        logError("loadJsonRecord", "Invalid id in record file");
         cJSON_Delete(json);
         blink(COLOR_RUNTIME_ERROR, 5, 50);
         return false;
@@ -410,7 +410,7 @@ bool saveJsonRecord()
     FILE *f = fopen(RECORD_FILE, "w");
     if (f == NULL)
     {
-        sendErr("saveJsonRecord", "Failed to open record file");
+        logError("saveJsonRecord", "Failed to open record file");
         errorReset(COLOR_SD);
         return false;
     }
@@ -421,7 +421,7 @@ bool saveJsonRecord()
 
     if (ret > 0)
     {
-        sendErr("saveJsonRecord", "Failed to write record file");
+        logError("saveJsonRecord", "Failed to write record file");
         errorReset(COLOR_SD);
 
         fclose(f);
