@@ -6,6 +6,7 @@
 #include <string.h>
 #include <sys/unistd.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
@@ -18,11 +19,10 @@
 
 bool sendFile(std::string filename)
 {
-    // Check if the file exists
-    struct stat st;
     bool sentOK = false;
 
-    if (stat(filename.c_str(), &st) == 0)
+    // Check if the file exists
+    if (exists(filename))
     {
         sentOK = true;
 
@@ -258,9 +258,8 @@ bool loadJsonConfig()
 {
     config.initialized = false;
 
-    struct stat st;
     // If the config file does not exist, return false
-    if (stat(CONFIG_FILE, &st) != 0)
+    if (!exists(CONFIG_FILE))
     {
         ESP_LOGW("loadJsonConfig", "Config file not found");
         return false;
@@ -340,9 +339,8 @@ bool loadJsonConfig()
 
 bool loadJsonRecord()
 {
-    struct stat st;
     // If the record file does not exist, return false
-    if (stat(RECORD_FILE, &st) != 0)
+    if (!exists(RECORD_FILE))
     {
         ESP_LOGW("loadJsonRecord", "Record file not found");
         return false;
@@ -439,4 +437,156 @@ bool saveJsonRecord()
     ESP_LOGI("saveJsonRecord", "Record file saved");
 
     return true;
+}
+
+bool exists(std::string path)
+{
+    struct stat st;
+    return (stat(path.c_str(), &st) == 0);
+}
+
+bool mkdir(std::string path)
+{
+    return (mkdir(path.c_str(), 0777) < 0);
+}
+
+bool copy(std::string src, std::string dest)
+{
+    // Check if the source file exists
+    if (!exists(src))
+    {
+        logError("copy", "Source file does not exist: %s", src.c_str());
+        return false;
+    }
+
+    // Open the source file for reading
+    FILE *srcFile = fopen(src.c_str(), "r");
+    if (srcFile == NULL)
+    {
+        logError("copy", "Failed to open source file: %s", src.c_str());
+        return false;
+    }
+
+    // Open the destination file for writing
+    FILE *destFile = fopen(dest.c_str(), "w");
+    if (destFile == NULL)
+    {
+        logError("copy", "Failed to open destination file: %s", dest.c_str());
+        fclose(srcFile);
+        return false;
+    }
+
+    // Copy the contents from source to destination
+    char buffer[JSON_BUFFER_SIZE];
+    size_t bytesRead;
+    while ((bytesRead = fread(buffer, 1, sizeof(buffer), srcFile)) > 0)
+    {
+        size_t bytesWritten = fwrite(buffer, 1, bytesRead, destFile);
+        if (bytesWritten < bytesRead)
+        {
+            logError("copy", "Failed to write to destination file: %s", dest.c_str());
+            fclose(srcFile);
+            fclose(destFile);
+            return false;
+        }
+    }
+
+    // Close the files
+    fclose(srcFile);
+    fclose(destFile);
+
+    ESP_LOGI("copy", "File copied from %s to %s", src.c_str(), dest.c_str());
+    return true;
+}
+
+bool rremove(std::string path)
+{
+    // Check if the path exists
+    if (!exists(path))
+    {
+        logError("rremove", "Path does not exist: %s", path.c_str());
+        return false;
+    }
+
+    // Remove the path and its subdirectories recursively
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0)
+    {
+        logError("rremove", "Failed to get file status: %s", path.c_str());
+        return false;
+    }
+
+    // If it's a directory, recursively remove its contents
+    if (S_ISDIR(st.st_mode))
+    {
+        DIR *dir = opendir(path.c_str());
+        if (dir == NULL)
+        {
+            logError("rremove", "Failed to open directory: %s", path.c_str());
+            return false;
+        }
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL)
+        {
+            // Skip current and parent directory entries
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            {
+                continue;
+            }
+
+            // Build full path for the entry
+            std::string entryPath = path + "/" + std::string(entry->d_name);
+
+            // Recursively remove the entry
+            if (!rremove(entryPath))
+            {
+                closedir(dir);
+                return false;
+            }
+        }
+
+        closedir(dir);
+
+        // Remove the empty directory
+        if (rmdir(path.c_str()) != 0)
+        {
+            logError("rremove", "Failed to remove directory: %s", path.c_str());
+            return false;
+        }
+
+        ESP_LOGI("rremove", "Successfully removed directory: %s", path.c_str());
+    }
+    else
+    {
+        // It's a file, remove it directly
+        if (unlink(path.c_str()) != 0)
+        {
+            logError("rremove", "Failed to remove file: %s", path.c_str());
+            return false;
+        }
+        ESP_LOGI("rremove", "Successfully removed file: %s", path.c_str());
+    }
+
+    return true;
+}
+
+uint32_t getFreeSpace()
+{
+    FATFS *fs;
+    DWORD fre_clust;
+
+    /* Get volume information and free clusters of drive 0 */
+    FRESULT res = f_getfree("0:", &fre_clust, &fs);
+    if (res != FR_OK)
+    {
+        logError("getFreeSpace", "Failed to get free space: %d", res);
+        return 0;
+    }
+
+    uint32_t free_space = fre_clust * fs->csize / 2; // Convert to kB
+
+    ESP_LOGI("getFreeSpace", "Free space: %lukB", free_space);
+
+    return free_space;
 }

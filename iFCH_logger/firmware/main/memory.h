@@ -40,4 +40,14 @@ bool loadJsonRecord();
 
 bool saveJsonRecord();
 
+bool exists(std::string path);
+
+bool mkdir(std::string path);
+
+bool copy(std::string src, std::string dest);
+
+bool rremove(std::string path);
+
+uint32_t getFreeSpace();
+
 #endif // MEMORY_H
