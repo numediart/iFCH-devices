@@ -409,36 +409,32 @@ void loop()
     // Handle incoming BLE notifications
     while (xQueueReceive(dataQueue, queueNotif, 0) == pdTRUE)
     {
-        uint8_t len = queueNotif[0];
 
         if (isStreaming)
         {
+            uint8_t len = queueNotif[0];
             sendFrame(CmdType::CMD_BLE_NOTIFY, queueNotif + 1, len);
         }
         else
         {
             // We should not be here, commands should have been processed
+            sendErr("loop", "Unhandled data notification");
             blink(COLOR_RUNTIME_ERROR, 5, 50);
-            sendFrame(CmdType::CMD_ERROR, queueNotif + 1, len);
         }
     }
 
     while (xQueueReceive(logQueue, queueNotif, 0) == pdTRUE)
     {
-        uint8_t len = queueNotif[0];
-
         // We should not be here, commands should have been processed
+        sendErr("loop", "Unhandled log notification");
         blink(COLOR_RUNTIME_ERROR, 5, 50);
-        sendFrame(CmdType::CMD_ERROR, queueNotif + 1, len);
     }
 
     while (xQueueReceive(responseQueue, queueNotif, 0) == pdTRUE)
     {
-        uint8_t len = queueNotif[0];
-
         // We should not be here, commands should have been processed
+        sendErr("loop", "Unhandled response notification");
         blink(COLOR_RUNTIME_ERROR, 5, 50);
-        sendFrame(CmdType::CMD_ERROR, queueNotif + 1, len);
     }
 
     // Handle incoming Serial commands without waiting
