@@ -104,10 +104,6 @@ private:
     int32_t mResponseCharHandle;
     int32_t mLogCharHandle;
 
-    // bool mNotificationsEnabled;
-    // bool mResponseNotificationsEnabled;
-    // bool mLogNotificationsEnabled;
-
     uint32_t mLogIdToFetch;
     uint32_t mLogFetchOffset;
 
@@ -120,6 +116,7 @@ private:
     uint8_t mLogListReference;
     uint8_t mDataloggerStateReference;
     uint8_t mGetTimeReference;
+    uint8_t mGetLoggingReference;
 
     // Data subscriptions
 

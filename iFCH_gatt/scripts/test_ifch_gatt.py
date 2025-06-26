@@ -25,6 +25,7 @@ class Commands(enum.Enum):
     GET_TIME = 10
     RESET = 11
     UNSUBSCRIBE_ALL = 12
+    GET_LOGGING_STATE = 13
     INVALID = 0xFF
 
 
@@ -301,6 +302,18 @@ class MovesenseTester:
         # Test datalogger
 
         await self.test_command(
+            Commands.GET_LOGGING_STATE,
+            StatusCodes.OK_200,
+            test_name="GET_LOGGING_STATE",
+        )
+
+        if len(self.command_responses) != 1:
+            logging.error("Logging state response is incorrect.")
+        else:
+            if self.command_responses[0][-1] != 2:
+                logging.error("Logging state is incorrect, expected 2 (READY).")
+
+        await self.test_command(
             Commands.SUB_LOG,
             StatusCodes.ERROR_403,
             client_ref=0,
@@ -372,6 +385,18 @@ class MovesenseTester:
             StatusCodes.OK_200,
             test_name="START_LOG",
         )
+
+        await self.test_command(
+            Commands.GET_LOGGING_STATE,
+            StatusCodes.OK_200,
+            test_name="GET_LOGGING_STATE",
+        )
+
+        if len(self.command_responses) != 1:
+            logging.error("Logging state response is incorrect.")
+        else:
+            if self.command_responses[0][-1] != 3:
+                logging.error("Logging state is incorrect, expected 3 (logging).")
 
         await self.test_command(
             Commands.START_LOG,

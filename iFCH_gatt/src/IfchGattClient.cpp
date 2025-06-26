@@ -65,9 +65,10 @@ enum Commands
     GET_TIME = 10,
     RESET = 11,
     UNSUBSCRIBE_ALL = 12,
+    GET_LOGGING_STATE = 13,
 };
 
-// TODO: add a command to get the Movesense vesrsion
+// TODO: add a command to get the Movesense version
 
 enum Responses
 {
@@ -123,6 +124,7 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mLogListLastId(0),
                                    mDataloggerStateReference(0),
                                    mGetTimeReference(0),
+                                   mGetLoggingReference(0),
                                    mLogbookFull(true),
                                    mIsIndicating(false)
 {
@@ -734,6 +736,15 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
         return;
     }
+    case Commands::GET_LOGGING_STATE:
+    {
+        DEBUGLOG("Commands::GET_LOGGING_STATE. reference: %d", reference);
+
+        mGetLoggingReference = reference;
+        asyncGet(WB_RES::LOCAL::MEM_DATALOGGER_STATE(), AsyncRequestOptions::ForceAsync);
+
+        return;
+    }
     default:
     {
         // Return an error message
@@ -866,6 +877,34 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         // Save the datalogger state
         WB_RES::DataLoggerState dlState = rResultData.convertTo<WB_RES::DataLoggerState>();
         mDataLoggerState = dlState;
+
+        if (mGetLoggingReference == 0)
+        {
+            return;
+        }
+
+        if (resultCode >= 400)
+        {
+            DEBUGLOG("Error fetching datalogger state: %d", resultCode);
+
+            // 500: Internal server error
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetLoggingReference, Status::ERROR, Codes::INTERNAL_ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+
+            mGetLoggingReference = 0;
+            return;
+        }
+
+        uint8_t stateMsg[5];
+        stateMsg[0] = Responses::COMMAND_RESULT;
+        stateMsg[1] = mGetLoggingReference;
+        stateMsg[2] = Status::SUCCESS;
+        stateMsg[3] = Codes::OK;
+
+        stateMsg[4] = (uint8_t)mDataLoggerState;
+
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), stateMsg, sizeof(stateMsg));
+
         break;
     }
     case WB_RES::LOCAL::MEM_LOGBOOK_ISFULL::LID:
