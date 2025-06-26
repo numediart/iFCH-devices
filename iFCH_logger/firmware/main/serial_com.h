@@ -22,6 +22,7 @@ enum class CmdType : uint8_t
     CMD_NACK = 0x02,
     CMD_VERSION = 0x03,
     CMD_ERROR = 0x04,
+    CMD_STATUS = 0x05,
     // BLE
     CMD_SCAN = 0x11,
     CMD_CONNECT = 0x12,
@@ -42,6 +43,8 @@ enum class CmdType : uint8_t
     CMD_MOV_UNSTREAM = 0x43,
     CMD_MOV_LOG_START = 0x44,
     CMD_MOV_LOG_END = 0x45,
+    CMD_MOV_GET_LOGGING_STATUS = 0x46,
+    CMD_MOV_FULL_RESET = 0x48,
     // Errors
     CMD_TIMEOUT = 0xFE,
     CMD_INVALID = 0xFF,

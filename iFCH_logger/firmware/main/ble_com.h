@@ -28,6 +28,7 @@ bool getMovesenseBattery(uint8_t &batteryLevel);
 
 bool movHello();
 bool movGetTime(int32_t &time);
+bool movGetLoggingStatus(uint8_t &loggingStatus);
 bool movReset();
 bool movSubscribe();
 bool movUnsubscribe();

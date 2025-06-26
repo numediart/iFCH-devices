@@ -45,6 +45,7 @@ enum Commands
     GET_TIME = 10,
     RESET = 11,
     UNSUBSCRIBE_ALL = 12,
+    GET_LOGGING_STATUS = 13,
 };
 
 enum Responses
@@ -1067,6 +1068,31 @@ bool movGetTime(int32_t &time)
     time = (responseBuffer[3] << 24) | (responseBuffer[2] << 16) |
            (responseBuffer[1] << 8) | responseBuffer[0];
     ESP_LOGI("movGetTime", "Current time: %" PRId32, time);
+
+    return true;
+}
+
+bool movGetLoggingStatus(uint8_t &loggingStatus)
+{
+    uint8_t responseBuffer[1];
+    uint8_t responseLength = sizeof(responseBuffer);
+
+    bool success = writeMovesenseCommand(Commands::GET_LOGGING_STATUS, Commands::GET_LOGGING_STATUS + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
+
+    if (!success)
+    {
+        logError("movGetLoggingStatus", "Failed to send get logging status command");
+        return false;
+    }
+
+    if (responseLength != 1)
+    {
+        logError("movGetLoggingStatus", "Unexpected response length: %d", responseLength);
+        return false;
+    }
+
+    loggingStatus = responseBuffer[0];
+    ESP_LOGI("movGetLoggingStatus", "Logging status: %d", loggingStatus);
 
     return true;
 }

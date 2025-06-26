@@ -168,6 +168,41 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    case CmdType::CMD_STATUS:
+    {
+        uint8_t status[] = {
+            static_cast<uint8_t>(config.initialized),
+            static_cast<uint8_t>(isMovesenseConnected),
+            static_cast<uint8_t>(isStreaming),
+            static_cast<uint8_t>(record.logging)};
+
+        sendFrame(CmdType::CMD_STATUS, status, sizeof(status));
+
+        break;
+    }
+
+    case CmdType::CMD_MOV_FULL_RESET:
+    {
+        if (!isMovesenseConnected)
+        {
+            logError("MOV_FULL_RESET", "Movesense not connected");
+            break;
+        }
+
+        movStopLog(); // Stop logging if currently logging
+
+        if (movReset())
+        {
+            sendFrame(CmdType::CMD_MOV_FULL_RESET, nullptr, 0);
+        }
+        else
+        {
+            logError("MOV_FULL_RESET", "Failed to reset Movesense");
+        }
+
+        break;
+    }
+
     case CmdType::CMD_CONNECT:
     {
         if (!config.initialized)
@@ -321,18 +356,7 @@ void handleSerialCommand(CmdType cmd)
         }
         else if (startMovesenseLogging())
         {
-            record.logging = true;
-            if (saveJsonRecord())
-            {
-                sendFrame(CmdType::CMD_MOV_LOG_START, nullptr, 0);
-            }
-            else
-            {
-                // If saving the record file failed, stop logging
-                logError("CMD_MOV_LOG_START", "Failed to save record file after starting logging");
-                record.logging = false;
-                movReset();
-            }
+            sendFrame(CmdType::CMD_MOV_LOG_START, nullptr, 0);
         }
         else
         {
@@ -357,21 +381,33 @@ void handleSerialCommand(CmdType cmd)
         }
         else if (endMovesenseLogging())
         {
-            record.logging = false;
-            if (saveJsonRecord())
-            {
-                sendFrame(CmdType::CMD_MOV_LOG_END, nullptr, 0);
-            }
-            else
-            {
-                // If saving the record file failed, stop logging
-                logError("CMD_MOV_LOG_END", "Failed to save record file after ending logging");
-                record.logging = true;
-            }
+            sendFrame(CmdType::CMD_MOV_LOG_END, nullptr, 0);
         }
         else
         {
             logError("CMD_MOV_LOG_END", "Failed to end Movesense logging");
+        }
+        break;
+    }
+
+    case CmdType::CMD_MOV_GET_LOGGING_STATUS:
+    {
+        // Send the Movesense logging status
+
+        uint8_t loggingStatus;
+
+        if (!isMovesenseConnected)
+        {
+            logError("CMD_MOV_GET_LOGGING_STATUS", "Movesense not connected");
+            break;
+        }
+        else if (movGetLoggingStatus(loggingStatus))
+        {
+            sendFrame(CmdType::CMD_MOV_GET_LOGGING_STATUS, &loggingStatus, sizeof(loggingStatus));
+        }
+        else
+        {
+            logError("CMD_MOV_GET_LOGGING_STATUS", "Failed to get Movesense logging status");
         }
         break;
     }
