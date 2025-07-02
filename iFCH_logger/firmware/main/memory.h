@@ -28,26 +28,40 @@
 
 #define JSON_BUFFER_SIZE 512
 
+// Send a file over the serial port
 bool sendFile(std::string filename);
 
+// Receive a file over the serial port
 std::string receiveFile(std::string filename);
 
+// Setup the SD card and mount it
 void setupSDCard();
 
+// Load the JSON configuration file
 bool loadJsonConfig();
 
+// Load the JSON record file
 bool loadJsonRecord();
 
+// Save the record state to the JSON file
 bool saveJsonRecord();
 
+// Check if a file or directory exists
 bool exists(std::string path);
 
+// Create a directory
 bool mkdir(std::string path);
 
+// Copy a file from source to destination
 bool copy(std::string src, std::string dest);
 
+// Recursively remove a directory (or file) and its contents
 bool rremove(std::string path);
 
+// Move a file
+bool move(std::string oldName, std::string newName);
+
+// Get the available space on the SD card in kiB
 uint32_t getFreeSpace();
 
 #endif // MEMORY_H

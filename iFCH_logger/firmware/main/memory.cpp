@@ -8,14 +8,14 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
+#include <cJSON.h>
+
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
 
 #ifdef CONFIG_IDF_TARGET_ESP32S3
 #include <driver/sdmmc_host.h>
 #endif // CONFIG_IDF_TARGET_ESP32S3
-
-#include <cJSON.h>
 
 bool sendFile(std::string filename)
 {
@@ -172,9 +172,16 @@ std::string receiveFile(std::string filename)
     }
 
     // If file exists, close it
+    fflush(f);
     fclose(f);
 
     ledWrite(false);
+
+    if (receivedName.empty())
+    {
+        ESP_LOGI("receiveFile", "Failed to receive file, deleting file: %s", filename.c_str());
+        rremove(filename);
+    }
 
     return receivedName;
 }
@@ -428,6 +435,7 @@ bool saveJsonRecord()
         return false;
     }
 
+    fflush(f);
     fclose(f);
     cJSON_free(json_str);
     cJSON_Delete(json);
@@ -447,7 +455,9 @@ bool exists(std::string path)
 
 bool mkdir(std::string path)
 {
-    return (mkdir(path.c_str(), 0777) < 0);
+    int ret = mkdir(path.c_str(), 0777);
+
+    return ret == 0;
 }
 
 bool copy(std::string src, std::string dest)
@@ -492,6 +502,7 @@ bool copy(std::string src, std::string dest)
     }
 
     // Close the files
+    fflush(destFile);
     fclose(srcFile);
     fclose(destFile);
 
@@ -571,6 +582,33 @@ bool rremove(std::string path)
     return true;
 }
 
+bool move(std::string oldName, std::string newName)
+{
+    // Check if the old file exists
+    if (!exists(oldName))
+    {
+        logError("move", "Old file does not exist: %s", oldName.c_str());
+        return false;
+    }
+
+    // Check if the new file already exists
+    if (exists(newName))
+    {
+        logError("move", "New file already exists: %s", newName.c_str());
+        return false;
+    }
+
+    // Rename the file
+    if (rename(oldName.c_str(), newName.c_str()) != 0)
+    {
+        logError("move", "Failed to move file from %s to %s", oldName.c_str(), newName.c_str());
+        return false;
+    }
+
+    ESP_LOGI("move", "File move from %s to %s", oldName.c_str(), newName.c_str());
+    return true;
+}
+
 uint32_t getFreeSpace()
 {
     FATFS *fs;
@@ -584,9 +622,9 @@ uint32_t getFreeSpace()
         return 0;
     }
 
-    uint32_t free_space = fre_clust * fs->csize / 2; // Convert to kB
+    uint32_t free_space = fre_clust * ((fs->csize * fs->ssize) / 1024); // Convert to kiB
 
-    ESP_LOGI("getFreeSpace", "Free space: %lukB", free_space);
+    ESP_LOGI("getFreeSpace", "Free space: %lukiB", free_space);
 
     return free_space;
 }

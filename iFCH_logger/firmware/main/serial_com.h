@@ -23,6 +23,7 @@ enum class CmdType : uint8_t
     CMD_VERSION = 0x03,
     CMD_ERROR = 0x04,
     CMD_STATUS = 0x05,
+    CMD_GET_FREE_SPACE = 0x06,
     // BLE
     CMD_SCAN = 0x11,
     CMD_CONNECT = 0x12,
@@ -50,7 +51,10 @@ enum class CmdType : uint8_t
     CMD_INVALID = 0xFF,
 };
 
+// Setup the serial port
 void setupSerial();
+
+// Close the serial port
 void closeSerial();
 
 // Read a frame from the serial port, return the decoded command type

@@ -36,6 +36,13 @@ async def test_device(port):
     if not ok:
         logging.error("Failed to set epoch")
 
+    logging.info("Getting free space...")
+    free_space = await device.get_free_space()
+    if free_space is None:
+        logging.error("Failed to get free space")
+    else:
+        logging.info("Free space: %.02fGB", free_space)
+
     logging.info("Scanning for devices...")
     devices = await device.scan()
 
@@ -58,6 +65,13 @@ async def test_device(port):
         logging.error("Failed to get config")
     logging.info("Config retrieved successfully: %s", config)
 
+    logging.info("Getting status...")
+    status = await device.get_status()
+    if status is None:
+        logging.error("Failed to get status")
+    else:
+        logging.info("Status retrieved successfully: %s", status)
+
     try:
         logging.info("Connecting to Movesense...")
         ok = await device.connect()
@@ -78,22 +92,16 @@ async def test_device(port):
             logging.info("Movesense battery level: %d%%", battery)
 
         logging.info("Subscribing to Movesense...")
-        ok = await device.subscribe()
+        ok = await device.sub_stream()
         if not ok:
             logging.error("Failed to subscribe to Movesense")
 
-        for i in range(12):
-            await asyncio.sleep(5)
-            logging.warning(
-                f"{(i + 1) * 5} seconds elapsed"
-            )  # TODO: check why the connection fails after 40 seconds
+        await asyncio.sleep(1)  # Wait for notifications
 
         logging.info("Unsubscribing from Movesense...")
-        ok = await device.unsubscribe()
+        ok = await device.unsub_stream()
         if not ok:
             logging.error("Failed to unsubscribe from Movesense")
-
-        logging.info("Notifications received: %d", len(device.notifications))
 
     finally:
         logging.info("Disconnecting from Movesense...")
@@ -105,7 +113,7 @@ async def test_device(port):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
 
     devices = asyncio.run(detect_device())
 

@@ -181,6 +181,24 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Get the free space on the SD card
+    case CmdType::CMD_GET_FREE_SPACE:
+    {
+        uint32_t freeSpace = getFreeSpace();
+        if (freeSpace == 0)
+        {
+            logError("CMD_GET_FREE_SPACE", "Failed to get free space");
+        }
+        else
+        {
+            // Send the free space in kB
+            sendFrame(CmdType::CMD_GET_FREE_SPACE, (uint8_t *)&freeSpace, sizeof(freeSpace));
+        }
+        break;
+    }
+
+    // This command does a full forced reset of the Movesense:
+    // it stops logging, and clears all logs and subscriptions
     case CmdType::CMD_MOV_FULL_RESET:
     {
         if (!isMovesenseConnected)
@@ -189,9 +207,8 @@ void handleSerialCommand(CmdType cmd)
             break;
         }
 
-        movStopLog(); // Stop logging if currently logging
-
-        if (movReset())
+        // Stop logging if currently logging, then reset
+        if (movStopLog() && movReset())
         {
             sendFrame(CmdType::CMD_MOV_FULL_RESET, nullptr, 0);
         }
@@ -328,6 +345,13 @@ void handleSerialCommand(CmdType cmd)
         {
             sendFrame(CmdType::CMD_MOV_UNSTREAM, nullptr, 0);
             isStreaming = false;
+
+            uint8_t discardBuffer[NOTIF_LEN];
+            while (xQueueReceive(dataQueue, discardBuffer, 0) == pdTRUE)
+            {
+                // Clear the data queue
+                ESP_LOGD("CMD_MOV_UNSTREAM", "Clearing data queue: message discarded");
+            }
         }
         else
         {

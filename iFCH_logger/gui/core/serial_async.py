@@ -23,6 +23,8 @@ class Commands(enum.IntEnum):
     CMD_NACK = 0x02
     CMD_VERSION = 0x03
     CMD_ERROR = 0x04
+    CMD_STATUS = 0x05
+    CMD_GET_FREE_SPACE = 0x06
     # BLE
     CMD_SCAN = 0x11
     CMD_CONNECT = 0x12
@@ -39,8 +41,12 @@ class Commands(enum.IntEnum):
     CMD_BATTERY_GET = 0x33
     # Movesense
     CMD_MOV_BATTERY_GET = 0x41
-    CMD_MOV_SUB = 0x42
-    CMD_MOV_UNSUB = 0x43
+    CMD_MOV_STREAM = 0x42
+    CMD_MOV_UNSTREAM = 0x43
+    CMD_MOV_LOG_START = 0x44
+    CMD_MOV_LOG_END = 0x45
+    CMD_MOV_GET_LOGGING_STATUS = 0x46
+    CMD_MOV_FULL_RESET = 0x48
     # Errors
     CMD_TIMEOUT = 0xFE
     CMD_INVALID = 0xFF

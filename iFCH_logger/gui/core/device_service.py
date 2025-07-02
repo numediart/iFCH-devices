@@ -57,7 +57,7 @@ class DeviceService:
 
         if self.connected:
             if self.subscribed:
-                await self.unsubscribe()
+                await self.unsub_stream()
             await self.disconnect()
 
         if self.proto:
@@ -79,7 +79,7 @@ class DeviceService:
                 timestamps = [t + self.time_start for t in timestamps]
                 self.plot_x.extend(timestamps)
                 self.plot_y.extend(samples)
-                print(samples)
+                print(timestamps, samples)
                 # self.plot_y.extend([sample[0] for sample in samples])
 
     async def scan(self, retries=5, filter_movesense=True):
@@ -226,13 +226,57 @@ class DeviceService:
         result = await self.proto.wait_for_cmd(
             Commands.CMD_TIME_PUT, timeout=BLE_TIMEOUT_S
         )
-        if result and len(result) == 4:
-            epoch = int.from_bytes(result, "little")
-            logging.debug("PUT epoch succeeded: %d", epoch)
-            return True
+        if result:
+            if len(result) == 4:
+                epoch = int.from_bytes(result, "little")
+                logging.debug("PUT epoch succeeded: %d", epoch)
+                return True
+            else:
+                logging.error("Invalid PUT epoch response: %s", result)
+                return False
         else:
             logging.warning("PUT epoch timed out")
             return False
+
+    async def get_status(self):
+        self.proto.send_frame(Commands.CMD_STATUS)
+        result = await self.proto.wait_for_cmd(
+            Commands.CMD_STATUS, timeout=BLE_TIMEOUT_S
+        )
+        if result:
+            if len(result) == 4:
+                status = {
+                    "configured": result[0] == 1,
+                    "connected": result[1] == 1,
+                    "streaming": result[2] == 1,
+                    "logging": result[3] == 1,
+                }
+                logging.debug("Received status: %s", status)
+                return status
+            else:
+                logging.error("Invalid status response: %s", result)
+                return None
+        else:
+            logging.warning("Get status timed out")
+            return None
+
+    async def get_free_space(self):
+        self.proto.send_frame(Commands.CMD_GET_FREE_SPACE)
+        result = await self.proto.wait_for_cmd(
+            Commands.CMD_GET_FREE_SPACE, timeout=BLE_TIMEOUT_S
+        )
+        if result:
+            if len(result) == 4:
+                free_space = struct.unpack("I", result)[0]
+                free_space = free_space * 1024 / 10**9  # Convert to GigaBytes
+                logging.debug("Received free space: %dGB", free_space)
+                return free_space
+            else:
+                logging.error("Invalid free space response: %s", result)
+                return None
+        else:
+            logging.warning("Get free space timed out")
+            return None
 
     # ---------------------------------------------------------------------------
     # Movesense specific methods
@@ -306,27 +350,27 @@ class DeviceService:
             logging.error("Invalid Movesense battery response: %s", result)
             return -1
 
-    async def subscribe(self):
-        self.proto.send_frame(Commands.CMD_MOV_SUB)
+    async def sub_stream(self):
+        self.proto.send_frame(Commands.CMD_MOV_STREAM)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_MOV_SUB, timeout=BLE_TIMEOUT_S
+            Commands.CMD_MOV_STREAM, timeout=BLE_TIMEOUT_S
         )
         if result is None:
             logging.error("Subscribe timed out")
             return None
         else:
-            logging.debug("Subscribed to Movesense")
+            logging.debug("Subscribed to Movesense stream")
             self.subscribed = True
 
         return self.subscribed
 
-    async def unsubscribe(self):
-        self.proto.send_frame(Commands.CMD_MOV_UNSUB)
+    async def unsub_stream(self):
+        self.proto.send_frame(Commands.CMD_MOV_UNSTREAM)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_MOV_UNSUB, timeout=BLE_TIMEOUT_S
+            Commands.CMD_MOV_UNSTREAM, timeout=BLE_TIMEOUT_S
         )
         if result is not None:
-            logging.debug("Unsubscribed from device %s", result)
+            logging.debug("Unsubscribed from device stream %s", result)
             self.subscribed = False
         else:
             logging.warning("Unsubscribe timed out")
