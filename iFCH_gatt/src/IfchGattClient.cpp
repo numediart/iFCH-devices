@@ -650,9 +650,10 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
         if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_READY)
         {
-            // 409: Conflict
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::CONFLICT};
-            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            // There is already no logging in progress, so we can return immediately
+            // 202: Accepted
+            uint8_t rspMsg[] = {Responses::COMMAND_RESULT, reference, Status::SUCCESS, Codes::ACCEPTED};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), rspMsg, sizeof(rspMsg));
             return;
         }
 

@@ -351,7 +351,7 @@ class MovesenseTester:
 
         await self.test_command(
             Commands.STOP_LOG,
-            StatusCodes.ERROR_409,
+            StatusCodes.OK_202,
             test_name="STOP_LOG when stopped",
         )
 
