@@ -100,8 +100,6 @@ float getBattery()
 void enterHibernation(bool waketimer)
 {
     ESP_LOGI("enterHibernation", "Preparing to enter hibernation");
-    // Save the current state of the record to SD card
-    saveJsonRecord();
 
     blink(COLOR_POWER, 1, 300); // Blink blue to indicate hibernation
 

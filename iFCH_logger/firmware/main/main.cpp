@@ -5,6 +5,7 @@
 #include "memory.h"
 #include "serial_com.h"
 #include "ble_com.h"
+#include "logger.h"
 
 #include <esp_sleep.h>
 
@@ -16,30 +17,6 @@ QueueHandle_t responseQueue;
 QueueHandle_t logQueue;
 
 bool isStreaming = false;
-
-void fetchMovesenseData()
-{
-    ESP_LOGI("fetchMovesenseData", "Fetching data from Movesense");
-    blink(0, RGB_MAX, 0, 1, 1000);
-
-    record.lastFetch = getUNIXTime();
-
-    // TODO: fetch data from the Movesense
-
-    startRTCTimer();
-}
-
-bool startMovesenseLogging()
-{
-    // TODO
-    return false;
-}
-
-bool endMovesenseLogging()
-{
-    // TODO
-    return false;
-}
 
 void handleSerialCommand(CmdType cmd)
 {
@@ -55,6 +32,7 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Scan for BLE devices
     case CmdType::CMD_SCAN:
     {
         if (isMovesenseConnected)
@@ -75,9 +53,9 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Send the config file
     case CmdType::CMD_CONFIG_GET:
     {
-        // Send the config file
         if (!sendFile(CONFIG_FILE))
         {
             logError("CMD_CONFIG_GET", "Failed to send config file");
@@ -85,6 +63,7 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Put a new config file
     case CmdType::CMD_CONFIG_PUT:
     {
         if (isMovesenseConnected)
@@ -118,6 +97,7 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Get the current time from the RTC
     case CmdType::CMD_TIME_GET:
     {
         // Send the current time
@@ -129,6 +109,7 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Set the current time on the RTC
     case CmdType::CMD_TIME_PUT:
     {
         if (record.logging)
@@ -160,6 +141,7 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Get the current battery level
     case CmdType::CMD_BATTERY_GET:
     {
         // Send the battery level
@@ -168,6 +150,7 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Returns the logger status: [initialized, connected, streaming, logging]
     case CmdType::CMD_STATUS:
     {
         uint8_t status[] = {
@@ -220,6 +203,7 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Connect to the Movesense
     case CmdType::CMD_CONNECT:
     {
         if (!config.initialized)
@@ -234,7 +218,6 @@ void handleSerialCommand(CmdType cmd)
         }
         else
         {
-            // Connect to the Movesense
             if (connectMovesense())
             {
                 sendFrame(CmdType::CMD_CONNECT, (uint8_t *)config.address.c_str(), config.address.length());
@@ -247,17 +230,17 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Disconnect from the Movesense
     case CmdType::CMD_DISCONNECT:
     {
-        // Disconnect from the Movesense
         disconnectMovesense();
         sendFrame(CmdType::CMD_DISCONNECT, (uint8_t *)config.address.c_str(), config.address.length());
         break;
     }
 
+    // Send a hello message to the Movesense
     case CmdType::CMD_BLE_HELLO:
     {
-        // Send a hello message to the Movesense
         if (!isMovesenseConnected)
         {
             logError("CMD_BLE_HELLO", "Movesense not connected");
@@ -274,9 +257,9 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Send the Movesense battery level
     case CmdType::CMD_MOV_BATTERY_GET:
     {
-        // Send the Movesense battery level
         if (!isMovesenseConnected)
         {
             logError("CMD_MOV_BATTERY_GET", "Movesense not connected");
@@ -298,9 +281,9 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Subscribe to the Movesense and start streaming
     case CmdType::CMD_MOV_STREAM:
     {
-        // Subscribe to the Movesense
         if (!isMovesenseConnected)
         {
             logError("CMD_MOV_STREAM", "Movesense not connected");
@@ -328,9 +311,9 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Unsubscribe from the Movesense and stop streaming
     case CmdType::CMD_MOV_UNSTREAM:
     {
-        // Unsubscribe from the Movesense
         if (!isMovesenseConnected)
         {
             logError("CMD_MOV_UNSTREAM", "Movesense not connected");
@@ -360,9 +343,9 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Start Movesense logging
     case CmdType::CMD_MOV_LOG_START:
     {
-        // Start Movesense logging
         if (!isMovesenseConnected)
         {
             logError("CMD_MOV_LOG_START", "Movesense not connected");
@@ -390,9 +373,9 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // End Movesense logging
     case CmdType::CMD_MOV_LOG_END:
     {
-        // End Movesense logging
         if (!isMovesenseConnected)
         {
             logError("CMD_MOV_LOG_END", "Movesense not connected");
@@ -414,10 +397,9 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Send the Movesense logging status
     case CmdType::CMD_MOV_GET_LOGGING_STATUS:
     {
-        // Send the Movesense logging status
-
         uint8_t loggingStatus;
 
         if (!isMovesenseConnected)
@@ -526,7 +508,7 @@ extern "C" void app_main()
 {
     ESP_LOGI("setup", "Starting %s", VERSION);
 
-    // Initialize variables
+    // Initialize notification queues
     dataQueue = xQueueCreate(BLE_DATA_QUEUE_LENGTH, NOTIF_LEN);
     logQueue = xQueueCreate(BLE_DATA_QUEUE_LENGTH, NOTIF_LEN);
     responseQueue = xQueueCreate(BLE_RESPONSE_QUEUE_LENGTH, NOTIF_LEN);
@@ -558,6 +540,13 @@ extern "C" void app_main()
         blink(COLOR_SD, 5, 50);
     }
 
+    connectMovesense();
+    startMovesenseLogging();
+    // wait for 2 seconds
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    endMovesenseLogging();
+    disconnectMovesense();
+
     // If the clock interrupt is active, fetch data
     if ((esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER || timerIsOver()) && record.logging)
     {
@@ -581,9 +570,10 @@ extern "C" void app_main()
         enterHibernation(true); // TODO: set the waketimer
     }
 
+    // Prevent watchdog timeout
     while (true)
     {
         loop();
-        vTaskDelay(pdMS_TO_TICKS(10)); // Prevent watchdog timeout
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }

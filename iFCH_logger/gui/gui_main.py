@@ -264,7 +264,7 @@ class Backend:
                                     self.ui.show_status(
                                         f"Subscribing to data stream..."
                                     )
-                                    result = await self.svc.subscribe()
+                                    result = await self.svc.sub_stream()
                                     if not result:
                                         logging.error(
                                             "Failed to subscribe to Movesense"

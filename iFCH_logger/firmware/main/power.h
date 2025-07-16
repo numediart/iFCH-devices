@@ -23,14 +23,19 @@
 
 #define I2C_MAX17048_ADDR 0x36
 
+// Setup the MAX17048 fuel gauge
 void setupGauge();
 
+// Setup the VUSB detection pin
 void setupVUSB();
 
+// Check if the VUSB pin is connected
 bool isVUSBConnected();
 
+// Get the battery level from the MAX17048 fuel gauge
 float getBattery();
 
+// Put the device into deep sleep mode
 void enterHibernation(bool waketimer);
 
 #endif // POWER_H

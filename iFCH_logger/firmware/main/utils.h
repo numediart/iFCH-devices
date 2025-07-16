@@ -34,18 +34,25 @@
 #define COLOR_SERIAL 0, RGB_MAX, 0
 #define COLOR_RUNTIME_ERROR RGB_MAX, 0, 0
 
+// Write RGB values to the LED
 void ledWrite(uint8_t r_val, uint8_t g_val, uint8_t b_val);
 
+// Turn on or off the LED (white or off)
 void ledWrite(bool enable);
 
+// Blink the LED a specified number of times with given RGB values and duration
 void blink(uint8_t r_val, uint8_t g_val, uint8_t b_val, uint8_t times, uint32_t duration);
 
+// Reset the board after an error, blinking the LED with specified RGB values
 void errorReset(uint8_t r_val, uint8_t g_val, uint8_t b_val);
 
+// Setup the LED and I2C bus
 void setupBoard();
 
+// Log an error message with a tag and formatted string
 void logError(const char *tag, const char *fmt, ...);
 
+// Global I2C master bus handle
 extern i2c_master_bus_handle_t i2c_handle;
 
 #endif // UTILS_H
