@@ -197,26 +197,6 @@ class MovesenseTester:
         logging.info(f"Tests completed: {self.passed_tests}/{self.total_tests}")
 
     async def tests(self):
-        await self.test_command(
-            Commands.GET_LOGGING_STATE,
-            StatusCodes.OK_200,
-            test_name="GET_LOGGING_STATE",
-        )
-
-        # TODO investigate writeMovesenseCommand: Unexpected response: Type 1, Reference 14 -- Expected 1, 21
-
-        print(self.command_responses)
-
-        await self.test_command(
-            Commands.LIST_LOGS,
-            StatusCodes.OK_200,
-            test_name="LIST_LOGS",
-        )
-
-        print(self.log_responses)
-
-        return
-
         # Tests
 
         await self.test_command(
