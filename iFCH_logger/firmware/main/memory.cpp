@@ -17,6 +17,16 @@
 #include <driver/sdmmc_host.h>
 #endif // CONFIG_IDF_TARGET_ESP32S3
 
+bool isDir(std::string path)
+{
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0)
+    {
+        return false; // Path does not exist
+    }
+    return S_ISDIR(st.st_mode); // Check if it is a directory
+}
+
 bool sendFile(std::string filename)
 {
     bool sentOK = false;
@@ -84,6 +94,81 @@ bool sendFile(std::string filename)
     }
 
     ledWrite(false);
+    return sentOK;
+}
+
+bool sendDir(std::string folderName)
+{
+    if (!exists(folderName))
+    {
+        logError("sendFolder", "Path does not exist: %s", folderName.c_str());
+        return false;
+    }
+
+    else if (!isDir(folderName))
+    {
+        logError("sendFolder", "Path is not a directory: %s", folderName.c_str());
+        return false;
+    }
+
+    DIR *dir = opendir(folderName.c_str());
+    if (dir == NULL)
+    {
+        logError("sendFolder", "Failed to open directory: %s", folderName.c_str());
+        errorReset(COLOR_SD);
+        return false;
+    }
+
+    uint8_t dirSeqNum = 0;
+    uint8_t tx_buffer[MAX_PAYLOAD_SIZE];
+    bool sentOK = true;
+
+    // Send the directory name
+    tx_buffer[0] = dirSeqNum;
+    memcpy(tx_buffer + 1, folderName.c_str(), folderName.length());
+    sendProtectedFrame(CmdType::CMD_DIR_CHUNK, tx_buffer, folderName.length() + 1, dirSeqNum);
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL)
+    {
+        if (entry->d_type == DT_REG)
+        {
+            // Inform that we are sending a file
+            dirSeqNum++;
+            tx_buffer[0] = dirSeqNum;
+            memcpy(tx_buffer + 1, entry->d_name, strlen(entry->d_name));
+            if (!sendProtectedFrame(CmdType::CMD_DIR_CHUNK, tx_buffer, strlen(entry->d_name) + 1, dirSeqNum))
+            {
+                logError("sendFolder", "Failed to send file header for %s/%s", folderName.c_str(), entry->d_name);
+                sentOK = false;
+                break;
+            }
+
+            // Send the file
+            ESP_LOGI("sendFolder", "Sending file: %s/%s", folderName.c_str(), entry->d_name);
+            std::string filePath = folderName + "/" + entry->d_name;
+            if (!sendFile(filePath))
+            {
+                logError("sendFolder", "Failed to send file: %s/%s", folderName.c_str(), entry->d_name);
+                sentOK = false;
+                break;
+            }
+        }
+        else
+        {
+            ESP_LOGW("sendFolder", "Skipping non-regular file: %s/%s", folderName.c_str(), entry->d_name);
+        }
+    }
+
+    closedir(dir);
+
+    if (sentOK)
+    {
+        // Send EOF for the directory
+        dirSeqNum++;
+        sendProtectedFrame(CmdType::CMD_DIR_CHUNK, &dirSeqNum, 1, dirSeqNum);
+    }
+
     return sentOK;
 }
 
@@ -635,6 +720,7 @@ bool listLogs()
     if (dir == NULL)
     {
         logError("listLogs", "Failed to open mount point directory");
+        errorReset(COLOR_SD);
         return false;
     }
 

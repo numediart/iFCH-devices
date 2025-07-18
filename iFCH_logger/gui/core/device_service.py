@@ -297,6 +297,19 @@ class DeviceService:
             else:
                 return log_list
 
+    async def get_log(self, log_id: str):
+        self.proto.send_frame(Commands.CMD_GET_LOG, log_id.encode("utf-8"))
+        dir_name, dir_files = await self.proto.wait_for_dir()
+
+        if dir_name is None:
+            logging.warning("Get log timed out")
+            return None
+        elif dir_name.split("/")[-1] != log_id:
+            logging.error("Get log failed, expected %s, got %s", log_id, dir_name)
+            return None
+
+        return dir_files
+
     # ---------------------------------------------------------------------------
     # Movesense specific methods
     async def connect(self, require_hello=True):

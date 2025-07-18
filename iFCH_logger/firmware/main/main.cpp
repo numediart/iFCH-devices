@@ -122,6 +122,40 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    case CmdType::CMD_GET_LOG:
+    {
+        if (isStreaming)
+        {
+            logError("CMD_GET_LOG", "Movesense currently streaming, cannot get log");
+            break;
+        }
+        else if (record.logging)
+        {
+            logError("CMD_GET_LOG", "Movesense currently logging, cannot get log");
+            break;
+        }
+        else
+        {
+            // Receive the log name
+            if (rx_payload_len < 1)
+            {
+                logError("CMD_GET_LOG", "Invalid log file name payload");
+                break;
+            }
+
+            // Convert the log name to local path
+            std::string logName((char *)rx_payload, rx_payload_len);
+            std::string dirPath = std::string(MOUNT_POINT) + "/" + logName;
+
+            // Send the log directory
+            if (!sendDir(dirPath))
+            {
+                logError("CMD_GET_LOG", "Failed to send log directory");
+            }
+        }
+        break;
+    }
+
     // Get the current time from the RTC
     case CmdType::CMD_TIME_GET:
     {

@@ -36,6 +36,8 @@ class Commands(enum.IntEnum):
     CMD_CONFIG_GET = 0x21
     CMD_CONFIG_PUT = 0x22
     CMD_LIST_LOG = 0x23
+    CMD_GET_LOG = 0x24
+    CMD_DIR_CHUNK = 0x25
     # RTC
     CMD_TIME_GET = 0x31
     CMD_TIME_PUT = 0x32
@@ -202,7 +204,7 @@ class FrameProtocol(asyncio.Protocol):
                     if char == "\n" or len(self.other_rx) > 512:
                         while len(self.other_rx) and self.other_rx[-1] == "\n":
                             self.other_rx.pop(-1)
-                        logging.debug("ESP RX: %s", "".join(self.other_rx))
+                        logging.info("ESP RX: %s", "".join(self.other_rx))
                         self.other_rx = []
                 except UnicodeDecodeError:
                     pass
@@ -354,6 +356,74 @@ class FrameProtocol(asyncio.Protocol):
                     return None, None
 
         return file_name, b"".join(file_chunks)
+
+    async def wait_for_dir(self):
+        dir_name = None
+        expected_seq = 0
+        dir_files = {}
+
+        while True:
+            payload = await self.wait_for_cmd(Commands.CMD_DIR_CHUNK)
+
+            if payload is None:
+                logging.error("Timeout waiting for directory chunk")
+                return None, None
+
+            else:
+                seq = payload[0]
+                chunk = payload[1:]
+
+                if seq == expected_seq:
+                    self.send_frame(Commands.CMD_ACK, seq.to_bytes(1))
+                    expected_seq = (expected_seq + 1) % 256
+
+                    if seq == 0:
+                        dir_name = chunk.decode()
+                        logging.debug("Received directory name: %s", dir_name)
+
+                    elif len(chunk) > 0:
+                        # We have a chunk of data
+                        file_name = chunk.decode()
+                        logging.debug(
+                            "Received file header %s of directory %s",
+                            file_name,
+                            dir_name,
+                        )
+
+                        rec_name, file_data = await self.wait_for_file()
+
+                        if rec_name is None:
+                            logging.error(
+                                "Failed to retrieve file data for %s", file_name
+                            )
+                            return None, None
+
+                        if rec_name.split("/")[-1] != file_name:
+                            logging.error(
+                                "File name mismatch: expected %s, got %s",
+                                file_name,
+                                rec_name.split("/")[-1],
+                            )
+                            return None, None
+
+                        dir_files[file_name] = file_data
+
+                    if len(chunk) == 0:
+                        logging.debug("Received EOF marker for directory %s", dir_name)
+                        break
+
+                elif seq == (expected_seq - 1) % 256:
+                    # This is a duplicate chunk, ignore it
+                    logging.warning("Duplicate chunk, resending ACK %d ", seq)
+                    self.send_frame(Commands.CMD_ACK, seq.to_bytes(1))
+
+                else:
+                    logging.error(
+                        "Out of order chunk %d (expected %d)", seq, expected_seq
+                    )
+                    return None, None
+
+        return dir_name, dir_files
 
 
 async def _probe(port: str, probe_timeout: float) -> tuple[str, bytes] | None:

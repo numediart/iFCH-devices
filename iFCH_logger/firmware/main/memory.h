@@ -31,6 +31,9 @@
 // Send a file over the serial port
 bool sendFile(std::string filename);
 
+// Send a folder over the serial port
+bool sendDir(std::string folderName);
+
 // Receive a file over the serial port
 std::string receiveFile(std::string filename);
 
