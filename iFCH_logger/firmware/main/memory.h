@@ -64,4 +64,7 @@ bool move(std::string oldName, std::string newName);
 // Get the available space on the SD card in kiB
 uint32_t getFreeSpace();
 
+// List the saved logs on the SD card
+bool listLogs();
+
 #endif // MEMORY_H

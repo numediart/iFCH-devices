@@ -97,6 +97,31 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // List the saved logs on the SD card
+    case CmdType::CMD_LIST_LOG:
+    {
+        if (isStreaming)
+        {
+            logError("CMD_LIST_LOG", "Movesense currently streaming, cannot list logs");
+            break;
+        }
+        else if (record.logging)
+        {
+            logError("CMD_LIST_LOG", "Movesense currently logging, cannot list logs");
+            break;
+        }
+        else if (listLogs())
+        {
+            sendCMD(CmdType::CMD_LIST_LOG);
+        }
+        else
+        {
+            logError("CMD_LIST_LOG", "Failed to list logs");
+        }
+
+        break;
+    }
+
     // Get the current time from the RTC
     case CmdType::CMD_TIME_GET:
     {
@@ -539,13 +564,6 @@ extern "C" void app_main()
     {
         blink(COLOR_SD, 5, 50);
     }
-
-    connectMovesense();
-    startMovesenseLogging();
-    // wait for 2 seconds
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    endMovesenseLogging();
-    disconnectMovesense();
 
     // If the clock interrupt is active, fetch data
     if ((esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER || timerIsOver()) && record.logging)

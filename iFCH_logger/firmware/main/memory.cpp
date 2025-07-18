@@ -628,3 +628,25 @@ uint32_t getFreeSpace()
 
     return free_space;
 }
+
+bool listLogs()
+{
+    DIR *dir = opendir(MOUNT_POINT);
+    if (dir == NULL)
+    {
+        logError("listLogs", "Failed to open mount point directory");
+        return false;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL)
+    {
+        if (entry->d_type == DT_DIR && entry->d_name[0] != '_')
+        {
+            sendFrame(CmdType::CMD_LIST_LOG, (uint8_t *)entry->d_name, strlen(entry->d_name));
+        }
+    }
+    closedir(dir);
+
+    return true;
+}

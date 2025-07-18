@@ -278,6 +278,25 @@ class DeviceService:
             logging.warning("Get free space timed out")
             return None
 
+    async def list_logs(self):
+        self.proto.send_frame(Commands.CMD_LIST_LOG)
+
+        log_list = []
+
+        while True:
+            result = await self.proto.wait_for_cmd(
+                Commands.CMD_LIST_LOG, timeout=BLE_TIMEOUT_S
+            )
+            if result is None:
+                logging.warning("List logs timed out")
+                return None
+            elif result:
+                log_id = result.decode("utf-8")
+                log_list.append(log_id)
+                logging.debug("Listed log: %s", log_id)
+            else:
+                return log_list
+
     # ---------------------------------------------------------------------------
     # Movesense specific methods
     async def connect(self, require_hello=True):

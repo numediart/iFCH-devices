@@ -35,6 +35,7 @@ class Commands(enum.IntEnum):
     CMD_FILE_CHUNK = 0x20
     CMD_CONFIG_GET = 0x21
     CMD_CONFIG_PUT = 0x22
+    CMD_LIST_LOG = 0x23
     # RTC
     CMD_TIME_GET = 0x31
     CMD_TIME_PUT = 0x32
@@ -201,7 +202,7 @@ class FrameProtocol(asyncio.Protocol):
                     if char == "\n" or len(self.other_rx) > 512:
                         while len(self.other_rx) and self.other_rx[-1] == "\n":
                             self.other_rx.pop(-1)
-                        logging.info("ESP RX: %s", "".join(self.other_rx))
+                        logging.debug("ESP RX: %s", "".join(self.other_rx))
                         self.other_rx = []
                 except UnicodeDecodeError:
                     pass
