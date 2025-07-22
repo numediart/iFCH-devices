@@ -586,8 +586,11 @@ extern "C" void app_main()
     blink(RGB_MAX, RGB_MAX, RGB_MAX, 2, 150);
 
     // Set up all peripherals
-    setupVUSB();
     setupSDCard();
+
+    logMessage("Booting");
+
+    setupVUSB();
     setupRTC();
     setupGauge();
     setupBLE();

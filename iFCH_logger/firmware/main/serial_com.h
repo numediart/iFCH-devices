@@ -54,6 +54,8 @@ enum class CmdType : uint8_t
     CMD_INVALID = 0xFF,
 };
 
+// TODO : retrieve log.txt, delete log folders
+
 // Setup the serial port
 void setupSerial();
 

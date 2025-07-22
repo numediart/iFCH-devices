@@ -6,6 +6,7 @@
 #define MOUNT_POINT "/sdcard"
 #define CONFIG_FILE MOUNT_POINT "/config.jsn"
 #define RECORD_FILE MOUNT_POINT "/record.jsn"
+#define LOG_FILE MOUNT_POINT "/log.txt"
 
 #ifdef CONFIG_IDF_TARGET_ESP32S3
 #define SD_CMD_PIN (gpio_num_t)34
@@ -69,5 +70,8 @@ uint32_t getFreeSpace();
 
 // List the saved logs on the SD card
 bool listLogs();
+
+// Write a message to the log file
+void writeToLogFile(const char *tag, const char *message);
 
 #endif // MEMORY_H

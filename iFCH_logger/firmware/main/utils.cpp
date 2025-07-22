@@ -2,26 +2,16 @@
 
 #include "led_strip.h"
 #include "serial_com.h"
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/queue.h"
-#include "freertos/event_groups.h"
+#include "memory.h"
+#include "rtc_time.h"
 
 static led_strip_handle_t rgb_led = nullptr;
 i2c_master_bus_handle_t i2c_handle = nullptr;
 
-// Special command to signal shutdown
-typedef enum
-{
-    BLINK_CMD_NORMAL = 0,
-    BLINK_CMD_SHUTDOWN = 1
-} blink_cmd_type_t;
-
 // Structure for blink parameters
 typedef struct
 {
-    blink_cmd_type_t cmd_type;
+    bool shutdown;
     uint8_t r_val;
     uint8_t g_val;
     uint8_t b_val;
@@ -29,9 +19,58 @@ typedef struct
     uint32_t duration;
 } blink_params_t;
 
+// Log entry structure for SD card logging
+typedef struct
+{
+    char tag[32];
+    char message[ERROR_BUFFER_SIZE];
+    bool is_shutdown_cmd;
+} log_entry_t;
+
 #define BLINK_QUEUE_SIZE 10
 static QueueHandle_t blink_queue = nullptr;
 static TaskHandle_t blink_task_handle = nullptr;
+
+#define LOG_QUEUE_SIZE 10
+static QueueHandle_t log_queue = nullptr;
+static TaskHandle_t log_task_handle = nullptr;
+
+// Task function for processing log queue
+static void log_task(void *params)
+{
+    log_entry_t log_entry;
+
+    ESP_LOGI("log_task", "Log task started");
+
+    while (true)
+    {
+        // Wait for a log entry from the queue
+        if (xQueueReceive(log_queue, &log_entry, portMAX_DELAY) == pdTRUE)
+        {
+            if (log_entry.is_shutdown_cmd)
+            {
+                ESP_LOGI("log_task", "Shutdown command received");
+                break;
+            }
+
+            // Write to SD card if file is open
+            writeToLogFile(log_entry.tag, log_entry.message);
+        }
+    }
+
+    ESP_LOGI("log_task", "Log task shutting down gracefully");
+
+    // Notify the waiting task that we're done
+    TaskHandle_t waiting_task = (TaskHandle_t)pvTaskGetThreadLocalStoragePointer(NULL, 1);
+    if (waiting_task != nullptr)
+    {
+        xTaskNotifyGive(waiting_task);
+    }
+
+    // Clean up and delete ourselves
+    log_task_handle = nullptr;
+    vTaskDelete(NULL);
+}
 
 // Task function for processing blink queue
 static void blink_task(void *params)
@@ -45,7 +84,7 @@ static void blink_task(void *params)
         // Wait for a blink request from the queue
         if (xQueueReceive(blink_queue, &blink_params, portMAX_DELAY) == pdTRUE)
         {
-            if (blink_params.cmd_type == BLINK_CMD_SHUTDOWN)
+            if (blink_params.shutdown)
             {
                 ESP_LOGI("blink_task", "Shutdown command received");
                 break;
@@ -80,6 +119,52 @@ static void blink_task(void *params)
     vTaskDelete(NULL);
 }
 
+// Function to gracefully shutdown the log task
+void shutdownLogTask(uint32_t timeout_ms)
+{
+    if (log_task_handle == nullptr)
+    {
+        ESP_LOGW("shutdownLogTask", "Log task not running");
+        return;
+    }
+
+    ESP_LOGI("shutdownLogTask", "Requesting log task shutdown");
+
+    // Store current task handle so log task can notify us
+    vTaskSetThreadLocalStoragePointer(log_task_handle, 1, xTaskGetCurrentTaskHandle());
+
+    // Send shutdown command to queue
+    log_entry_t shutdown_cmd = {
+        .tag = "",
+        .message = "",
+        .is_shutdown_cmd = true};
+    xQueueSend(log_queue, &shutdown_cmd, 0);
+
+    // Wait for task completion notification
+    uint32_t notification = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(timeout_ms));
+
+    if (notification > 0)
+    {
+        ESP_LOGI("shutdownLogTask", "Log task shutdown completed gracefully");
+    }
+    else
+    {
+        ESP_LOGW("shutdownLogTask", "Log task shutdown timeout, forcing termination");
+        if (log_task_handle != nullptr)
+        {
+            vTaskDelete(log_task_handle);
+            log_task_handle = nullptr;
+        }
+    }
+
+    // Clean up resources
+    if (log_queue != nullptr)
+    {
+        vQueueDelete(log_queue);
+        log_queue = nullptr;
+    }
+}
+
 // Function to gracefully shutdown the blink task
 void shutdownBlinkTask(uint32_t timeout_ms)
 {
@@ -96,7 +181,7 @@ void shutdownBlinkTask(uint32_t timeout_ms)
 
     // Send shutdown command to queue (in case task is waiting for queue items)
     blink_params_t shutdown_cmd = {
-        .cmd_type = BLINK_CMD_SHUTDOWN,
+        .shutdown = true,
         .r_val = 0,
         .g_val = 0,
         .b_val = 0,
@@ -175,7 +260,7 @@ void blink(uint8_t r_val, uint8_t g_val, uint8_t b_val, uint8_t times, uint32_t 
 
     // Prepare blink parameters
     blink_params_t params = {
-        .cmd_type = BLINK_CMD_NORMAL,
+        .shutdown = false,
         .r_val = r_val,
         .g_val = g_val,
         .b_val = b_val,
@@ -202,6 +287,7 @@ void errorReset(uint8_t r_val, uint8_t g_val, uint8_t b_val)
     blink(r_val, g_val, b_val, 10, 50);
 
     shutdownBlinkTask(RESET_TIMEOUT_MS);
+    shutdownLogTask(RESET_TIMEOUT_MS);
 
     // Reset and restart board
     esp_restart();
@@ -270,6 +356,43 @@ static i2c_master_bus_handle_t setupI2C()
     return bus_handle;
 }
 
+// Initialize the log queue and task
+static void initLogTask(void)
+{
+    // Create the queue
+    log_queue = xQueueCreate(LOG_QUEUE_SIZE, sizeof(log_entry_t));
+    if (log_queue == nullptr)
+    {
+        ESP_LOGE("initLogTask", "Failed to create log queue");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return;
+    }
+
+    // Create the task
+    BaseType_t result = xTaskCreate(
+        log_task,             // Task function
+        "log_task",           // Task name
+        4096,                 // Stack size (larger for file operations)
+        nullptr,              // Parameters
+        tskIDLE_PRIORITY + 2, // Priority
+        &log_task_handle      // Task handle
+    );
+
+    if (result != pdPASS)
+    {
+        ESP_LOGE("initLogTask", "Failed to create log task");
+        vQueueDelete(log_queue);
+        log_queue = nullptr;
+        log_task_handle = nullptr;
+
+        errorReset(COLOR_RUNTIME_ERROR);
+    }
+    else
+    {
+        ESP_LOGI("initLogTask", "Log queue and task initialized");
+    }
+}
+
 // Initialize the blink queue and task
 static void initBlinkTask(void)
 {
@@ -311,6 +434,8 @@ void setupBoard()
 {
     ESP_LOGI("setupBoard", "Setting up ESP board peripherals");
 
+    initLogTask();
+
     rgb_led = setupLED();
 
     initBlinkTask();
@@ -343,7 +468,25 @@ void logError(const char *tag, const char *fmt, ...)
     // Log to console
     ESP_LOGE(tag, "%s", buf);
 
-    // TODO log to memory if logging
+    if (log_queue != nullptr)
+    {
+        log_entry_t log_entry = {
+            .is_shutdown_cmd = false};
+
+        // Copy tag and message safely
+        strncpy(log_entry.tag, tag, sizeof(log_entry.tag) - 1);
+        log_entry.tag[sizeof(log_entry.tag) - 1] = '\0';
+
+        strncpy(log_entry.message, buf, sizeof(log_entry.message) - 1);
+        log_entry.message[sizeof(log_entry.message) - 1] = '\0';
+
+        // Try to queue the log entry (don't block)
+        BaseType_t result = xQueueSend(log_queue, &log_entry, 0);
+        if (result != pdPASS)
+        {
+            ESP_LOGW("logError", "Log queue is full, entry discarded");
+        }
+    }
 
 #ifdef ERR_LOG_SERIAL
     // If USB serial is available, send error frame
@@ -354,4 +497,32 @@ void logError(const char *tag, const char *fmt, ...)
                   static_cast<uint16_t>(len));
     }
 #endif // ERR_LOG_SERIAL
+}
+
+void logMessage(const char *message)
+{
+    char tag[] = "\tINFO";
+
+    // Log to console
+    ESP_LOGE(tag, "%s", message);
+
+    if (log_queue != nullptr)
+    {
+        log_entry_t log_entry = {
+            .is_shutdown_cmd = false};
+
+        // Copy tag and message safely
+        strncpy(log_entry.tag, tag, sizeof(log_entry.tag) - 1);
+        log_entry.tag[sizeof(log_entry.tag) - 1] = '\0';
+
+        strncpy(log_entry.message, message, sizeof(log_entry.message) - 1);
+        log_entry.message[sizeof(log_entry.message) - 1] = '\0';
+
+        // Try to queue the log entry (don't block)
+        BaseType_t result = xQueueSend(log_queue, &log_entry, 0);
+        if (result != pdPASS)
+        {
+            ESP_LOGW("logMessage", "Log queue is full, entry discarded");
+        }
+    }
 }

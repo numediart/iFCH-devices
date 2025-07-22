@@ -736,3 +736,27 @@ bool listLogs()
 
     return true;
 }
+
+// Write a message to the log file
+void writeToLogFile(const char *tag, const char *message)
+{
+    FILE *log_file = fopen(LOG_FILE, "a");
+    if (log_file == NULL)
+    {
+        logError("setupSDCard", "Failed to open log file");
+        blink(COLOR_SD, 5, 50);
+        return;
+    }
+
+    // Write the message to the log file
+    if (fprintf(log_file, " %s: %s\n", tag, message) < 0)
+    {
+        logError("writeToLogFile", "Failed to write to log file");
+        return;
+    }
+
+    // Flush the file to ensure the message is written
+    fflush(log_file);
+    fclose(log_file);
+    return;
+}

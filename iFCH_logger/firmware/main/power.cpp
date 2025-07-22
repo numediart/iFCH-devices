@@ -148,6 +148,8 @@ void enterHibernation(bool waketimer)
 
     ESP_LOGI("enterHibernation", "Entering hibernation");
 
+    shutdownLogTask(SHUTDOWN_TIMEOUT_MS);
+
     // Enter hibernation
     esp_deep_sleep_start();
 }

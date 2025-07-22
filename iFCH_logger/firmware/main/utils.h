@@ -54,8 +54,14 @@ void setupBoard();
 // Shutdown the blink task and clean up resources
 void shutdownBlinkTask(uint32_t timeout_ms);
 
-// Log an error message with a tag and formatted string
+// Shutdown the log task and clean up resources
+void shutdownLogTask(uint32_t timeout_ms);
+
+// Log an error message with a tag and formatted string to the logfile and console
 void logError(const char *tag, const char *fmt, ...);
+
+// Log a message to the logfile and console
+void logMessage(const char *message);
 
 // Global I2C master bus handle
 extern i2c_master_bus_handle_t i2c_handle;
