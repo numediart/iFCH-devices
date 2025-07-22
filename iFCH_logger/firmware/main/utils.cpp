@@ -3,8 +3,131 @@
 #include "led_strip.h"
 #include "serial_com.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+#include "freertos/event_groups.h"
+
 static led_strip_handle_t rgb_led = nullptr;
 i2c_master_bus_handle_t i2c_handle = nullptr;
+
+// Special command to signal shutdown
+typedef enum
+{
+    BLINK_CMD_NORMAL = 0,
+    BLINK_CMD_SHUTDOWN = 1
+} blink_cmd_type_t;
+
+// Structure for blink parameters
+typedef struct
+{
+    blink_cmd_type_t cmd_type;
+    uint8_t r_val;
+    uint8_t g_val;
+    uint8_t b_val;
+    uint8_t times;
+    uint32_t duration;
+} blink_params_t;
+
+#define BLINK_QUEUE_SIZE 10
+static QueueHandle_t blink_queue = nullptr;
+static TaskHandle_t blink_task_handle = nullptr;
+
+// Task function for processing blink queue
+static void blink_task(void *params)
+{
+    blink_params_t blink_params;
+
+    ESP_LOGI("blink_task", "Blink task started");
+
+    while (true)
+    {
+        // Wait for a blink request from the queue
+        if (xQueueReceive(blink_queue, &blink_params, portMAX_DELAY) == pdTRUE)
+        {
+            if (blink_params.cmd_type == BLINK_CMD_SHUTDOWN)
+            {
+                ESP_LOGI("blink_task", "Shutdown command received");
+                break;
+            }
+
+            // Execute the blink sequence (check for shutdown between blinks)
+            for (uint8_t i = 0; i < blink_params.times; i++)
+            {
+                ledWrite(blink_params.r_val, blink_params.g_val, blink_params.b_val);
+                vTaskDelay(pdMS_TO_TICKS(blink_params.duration));
+
+                ledWrite(false);
+                vTaskDelay(pdMS_TO_TICKS(blink_params.duration));
+            }
+        }
+    }
+
+    // Ensure LED is off before shutdown
+    ledWrite(false);
+
+    ESP_LOGI("blink_task", "Blink task shutting down gracefully");
+
+    // Notify the waiting task that we're done
+    TaskHandle_t waiting_task = (TaskHandle_t)pvTaskGetThreadLocalStoragePointer(NULL, 0);
+    if (waiting_task != nullptr)
+    {
+        xTaskNotifyGive(waiting_task);
+    }
+
+    // Clean up and delete ourselves
+    blink_task_handle = nullptr;
+    vTaskDelete(NULL);
+}
+
+// Function to gracefully shutdown the blink task
+void shutdownBlinkTask(uint32_t timeout_ms)
+{
+    if (blink_task_handle == nullptr)
+    {
+        ESP_LOGW("shutdownBlinkTask", "Blink task not running");
+        return;
+    }
+
+    ESP_LOGI("shutdownBlinkTask", "Requesting blink task shutdown");
+
+    // Store current task handle so blink task can notify us
+    vTaskSetThreadLocalStoragePointer(blink_task_handle, 0, xTaskGetCurrentTaskHandle());
+
+    // Send shutdown command to queue (in case task is waiting for queue items)
+    blink_params_t shutdown_cmd = {
+        .cmd_type = BLINK_CMD_SHUTDOWN,
+        .r_val = 0,
+        .g_val = 0,
+        .b_val = 0,
+        .times = 0,
+        .duration = 0};
+    xQueueSend(blink_queue, &shutdown_cmd, 0);
+
+    // Wait for task completion notification
+    uint32_t notification = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(timeout_ms));
+
+    if (notification > 0)
+    {
+        ESP_LOGI("shutdownBlinkTask", "Blink task shutdown completed gracefully");
+    }
+    else
+    {
+        ESP_LOGW("shutdownBlinkTask", "Blink task shutdown timeout, forcing termination");
+        if (blink_task_handle != nullptr)
+        {
+            vTaskDelete(blink_task_handle);
+            blink_task_handle = nullptr;
+        }
+    }
+
+    // Clean up resources
+    if (blink_queue != nullptr)
+    {
+        vQueueDelete(blink_queue);
+        blink_queue = nullptr;
+    }
+}
 
 void ledWrite(uint8_t r_val, uint8_t g_val, uint8_t b_val)
 {
@@ -44,12 +167,31 @@ void ledWrite(bool enable)
 
 void blink(uint8_t r_val, uint8_t g_val, uint8_t b_val, uint8_t times, uint32_t duration)
 {
-    for (uint8_t i = 0; i < times; i++)
+    if (blink_queue == nullptr)
     {
-        ledWrite(r_val, g_val, b_val);
-        vTaskDelay(pdMS_TO_TICKS(duration));
-        ledWrite(false);
-        vTaskDelay(pdMS_TO_TICKS(duration));
+        logError("blink", "Blink queue not initialized");
+        return;
+    }
+
+    // Prepare blink parameters
+    blink_params_t params = {
+        .cmd_type = BLINK_CMD_NORMAL,
+        .r_val = r_val,
+        .g_val = g_val,
+        .b_val = b_val,
+        .times = times,
+        .duration = duration};
+
+    // Try to queue the blink request
+    BaseType_t result = xQueueSend(blink_queue, &params, 0); // Don't block
+    if (result != pdPASS)
+    {
+        ESP_LOGW("blink", "Blink queue is full, request discarded");
+    }
+    else
+    {
+        ESP_LOGD("blink", "Blink request queued (R:%d G:%d B:%d times:%d duration:%lu)",
+                 r_val, g_val, b_val, times, duration);
     }
 }
 
@@ -59,11 +201,13 @@ void errorReset(uint8_t r_val, uint8_t g_val, uint8_t b_val)
     ESP_LOGI("errorReset", "Error detected, resetting board");
     blink(r_val, g_val, b_val, 10, 50);
 
+    shutdownBlinkTask(RESET_TIMEOUT_MS);
+
     // Reset and restart board
     esp_restart();
 }
 
-led_strip_handle_t setupLED(void)
+static led_strip_handle_t setupLED(void)
 {
     // LED strip general initialization, according to your led board design
     led_strip_config_t strip_config = {
@@ -101,7 +245,7 @@ led_strip_handle_t setupLED(void)
     return led_strip;
 }
 
-i2c_master_bus_handle_t setupI2C()
+static i2c_master_bus_handle_t setupI2C()
 {
     i2c_master_bus_config_t i2c_mst_config = {
         .i2c_port = I2C_MASTER_PORT,
@@ -126,11 +270,50 @@ i2c_master_bus_handle_t setupI2C()
     return bus_handle;
 }
 
+// Initialize the blink queue and task
+static void initBlinkTask(void)
+{
+    // Create the queue
+    blink_queue = xQueueCreate(BLINK_QUEUE_SIZE, sizeof(blink_params_t));
+    if (blink_queue == nullptr)
+    {
+        ESP_LOGE("initBlinkQueue", "Failed to create blink queue");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return;
+    }
+
+    // Create the task
+    BaseType_t result = xTaskCreate(
+        blink_task,           // Task function
+        "blink_task",         // Task name
+        2048,                 // Stack size
+        nullptr,              // Parameters
+        tskIDLE_PRIORITY + 1, // Priority
+        &blink_task_handle    // Task handle
+    );
+
+    if (result != pdPASS)
+    {
+        ESP_LOGE("initBlinkQueue", "Failed to create blink task");
+        vQueueDelete(blink_queue);
+        blink_queue = nullptr;
+        blink_task_handle = nullptr;
+
+        errorReset(COLOR_RUNTIME_ERROR);
+    }
+    else
+    {
+        ESP_LOGI("initBlinkQueue", "Blink queue and task initialized");
+    }
+}
+
 void setupBoard()
 {
     ESP_LOGI("setupBoard", "Setting up ESP board peripherals");
 
     rgb_led = setupLED();
+
+    initBlinkTask();
 
     i2c_handle = setupI2C();
 }
@@ -159,6 +342,8 @@ void logError(const char *tag, const char *fmt, ...)
 
     // Log to console
     ESP_LOGE(tag, "%s", buf);
+
+    // TODO log to memory if logging
 
 #ifdef ERR_LOG_SERIAL
     // If USB serial is available, send error frame

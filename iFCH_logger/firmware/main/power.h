@@ -23,6 +23,8 @@
 
 #define I2C_MAX17048_ADDR 0x36
 
+#define SHUTDOWN_TIMEOUT_MS 3000
+
 // Setup the MAX17048 fuel gauge
 void setupGauge();
 

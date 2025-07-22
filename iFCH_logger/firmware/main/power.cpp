@@ -101,7 +101,11 @@ void enterHibernation(bool waketimer)
 {
     ESP_LOGI("enterHibernation", "Preparing to enter hibernation");
 
-    blink(COLOR_POWER, 1, 300); // Blink blue to indicate hibernation
+    shutdownBlinkTask(SHUTDOWN_TIMEOUT_MS);
+
+    ledWrite(COLOR_POWER);          // Blink blue to indicate hibernation
+    vTaskDelay(pdMS_TO_TICKS(300)); // Wait for the LED to blink
+    ledWrite(false);
 
     esp_err_t result;
 

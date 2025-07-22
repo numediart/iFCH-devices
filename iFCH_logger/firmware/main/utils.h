@@ -34,6 +34,8 @@
 #define COLOR_SERIAL 0, RGB_MAX, 0
 #define COLOR_RUNTIME_ERROR RGB_MAX, 0, 0
 
+#define RESET_TIMEOUT_MS 2000
+
 // Write RGB values to the LED
 void ledWrite(uint8_t r_val, uint8_t g_val, uint8_t b_val);
 
@@ -48,6 +50,9 @@ void errorReset(uint8_t r_val, uint8_t g_val, uint8_t b_val);
 
 // Setup the LED and I2C bus
 void setupBoard();
+
+// Shutdown the blink task and clean up resources
+void shutdownBlinkTask(uint32_t timeout_ms);
 
 // Log an error message with a tag and formatted string
 void logError(const char *tag, const char *fmt, ...);
