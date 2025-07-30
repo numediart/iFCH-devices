@@ -43,6 +43,16 @@ async def test_device(port):
     else:
         logging.info("Free space: %.02fGB", free_space)
 
+    logging.info("Getting error log...")
+    error_log = await device.get_error_log()
+    if error_log is None:
+        logging.error("Failed to get error log")
+    else:
+        logging.info("Error log retrieved successfully")
+        logging.info("Error log content:\n%s", error_log)
+
+    return
+
     logging.info("Scanning for devices...")
     devices = await device.scan()
 

@@ -30,10 +30,12 @@ typedef struct
 #define BLINK_QUEUE_SIZE 10
 static QueueHandle_t blink_queue = nullptr;
 static TaskHandle_t blink_task_handle = nullptr;
+static TaskHandle_t waiting_for_blink_task = nullptr;
 
 #define LOG_QUEUE_SIZE 10
 static QueueHandle_t log_queue = nullptr;
 static TaskHandle_t log_task_handle = nullptr;
+static TaskHandle_t waiting_for_log_task = nullptr;
 
 // Task function for processing log queue
 static void log_task(void *params)
@@ -61,10 +63,9 @@ static void log_task(void *params)
     ESP_LOGI("log_task", "Log task shutting down gracefully");
 
     // Notify the waiting task that we're done
-    TaskHandle_t waiting_task = (TaskHandle_t)pvTaskGetThreadLocalStoragePointer(NULL, 1);
-    if (waiting_task != nullptr)
+    if (waiting_for_log_task != nullptr)
     {
-        xTaskNotifyGive(waiting_task);
+        xTaskNotifyGive(waiting_for_log_task);
     }
 
     // Clean up and delete ourselves
@@ -108,10 +109,9 @@ static void blink_task(void *params)
     ESP_LOGI("blink_task", "Blink task shutting down gracefully");
 
     // Notify the waiting task that we're done
-    TaskHandle_t waiting_task = (TaskHandle_t)pvTaskGetThreadLocalStoragePointer(NULL, 0);
-    if (waiting_task != nullptr)
+    if (waiting_for_blink_task != nullptr)
     {
-        xTaskNotifyGive(waiting_task);
+        xTaskNotifyGive(waiting_for_blink_task);
     }
 
     // Clean up and delete ourselves
@@ -131,7 +131,7 @@ void shutdownLogTask(uint32_t timeout_ms)
     ESP_LOGI("shutdownLogTask", "Requesting log task shutdown");
 
     // Store current task handle so log task can notify us
-    vTaskSetThreadLocalStoragePointer(log_task_handle, 1, xTaskGetCurrentTaskHandle());
+    waiting_for_log_task = xTaskGetCurrentTaskHandle();
 
     // Send shutdown command to queue
     log_entry_t shutdown_cmd = {
@@ -143,6 +143,8 @@ void shutdownLogTask(uint32_t timeout_ms)
     // Wait for task completion notification
     uint32_t notification = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(timeout_ms));
 
+    waiting_for_log_task = nullptr;
+
     if (notification > 0)
     {
         ESP_LOGI("shutdownLogTask", "Log task shutdown completed gracefully");
@@ -150,6 +152,8 @@ void shutdownLogTask(uint32_t timeout_ms)
     else
     {
         ESP_LOGW("shutdownLogTask", "Log task shutdown timeout, forcing termination");
+
+        // Clean up and delete the log task
         if (log_task_handle != nullptr)
         {
             vTaskDelete(log_task_handle);
@@ -177,7 +181,7 @@ void shutdownBlinkTask(uint32_t timeout_ms)
     ESP_LOGI("shutdownBlinkTask", "Requesting blink task shutdown");
 
     // Store current task handle so blink task can notify us
-    vTaskSetThreadLocalStoragePointer(blink_task_handle, 0, xTaskGetCurrentTaskHandle());
+    waiting_for_blink_task = xTaskGetCurrentTaskHandle();
 
     // Send shutdown command to queue (in case task is waiting for queue items)
     blink_params_t shutdown_cmd = {
@@ -191,6 +195,8 @@ void shutdownBlinkTask(uint32_t timeout_ms)
 
     // Wait for task completion notification
     uint32_t notification = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(timeout_ms));
+
+    waiting_for_blink_task = nullptr;
 
     if (notification > 0)
     {
@@ -525,4 +531,38 @@ void logMessage(const char *message)
             ESP_LOGW("logMessage", "Log queue is full, entry discarded");
         }
     }
+}
+
+bool deleteLog()
+{
+    shutdownLogTask(RESET_TIMEOUT_MS);
+
+    bool success = true;
+
+    // Create a new log file
+    FILE *f = fopen(LOG_FILE, "w");
+    if (f == nullptr)
+    {
+        ESP_LOGE("deleteLog", "Failed to create new log file");
+        success = false;
+    }
+    else
+    {
+        fclose(f);
+    }
+
+    initLogTask();
+
+    return success;
+}
+
+bool sendLog()
+{
+    shutdownLogTask(RESET_TIMEOUT_MS);
+
+    bool success = sendFile(LOG_FILE);
+
+    initLogTask();
+
+    return success;
 }

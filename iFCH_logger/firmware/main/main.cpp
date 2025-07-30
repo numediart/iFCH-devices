@@ -203,6 +203,28 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    case CmdType::CMD_GET_ERROR_LOG:
+    {
+        if (!sendLog())
+        {
+            logError("CMD_GET_ERROR_LOG", "Failed to send error log");
+        }
+        break;
+    }
+
+    case CmdType::CMD_DELETE_ERROR_LOG:
+    {
+        if (!deleteLog())
+        {
+            logError("CMD_DELETE_ERROR_LOG", "Failed to delete error log");
+        }
+        else
+        {
+            sendCMD(CmdType::CMD_DELETE_ERROR_LOG);
+        }
+        break;
+    }
+
     // Get the current time from the RTC
     case CmdType::CMD_TIME_GET:
     {
@@ -637,8 +659,12 @@ extern "C" void app_main()
 
     logMessage("Booting");
 
-    setupVUSB();
     setupRTC();
+
+    uint32_t currentEpoch = getUNIXTime();
+    logMessage(("Current time: " + std::to_string(currentEpoch)).c_str());
+
+    setupVUSB();
     setupGauge();
     setupBLE();
 

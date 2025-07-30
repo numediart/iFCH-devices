@@ -63,6 +63,12 @@ void logError(const char *tag, const char *fmt, ...);
 // Log a message to the logfile and console
 void logMessage(const char *message);
 
+// Send the error log file over the serial port
+bool sendLog();
+
+// Delete the error log file
+bool deleteLog();
+
 // Global I2C master bus handle
 extern i2c_master_bus_handle_t i2c_handle;
 

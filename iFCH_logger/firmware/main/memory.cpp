@@ -344,6 +344,19 @@ void setupSDCard()
         return;
     }
     ESP_LOGI("setupSDCard", "Filesystem mounted");
+
+    if (!exists(LOG_FILE))
+    {
+        // Create the log file if it doesn't exist
+        FILE *f = fopen(LOG_FILE, "w");
+        if (f == nullptr)
+        {
+            ESP_LOGE("setupSDCard", "Failed to create log file");
+            errorReset(COLOR_SD);
+            return;
+        }
+        fclose(f);
+    }
 }
 
 bool loadJsonConfig()
@@ -743,15 +756,14 @@ void writeToLogFile(const char *tag, const char *message)
     FILE *log_file = fopen(LOG_FILE, "a");
     if (log_file == NULL)
     {
-        logError("setupSDCard", "Failed to open log file");
-        blink(COLOR_SD, 5, 50);
+        ESP_LOGE("writeToLogFile", "Failed to open log file");
         return;
     }
 
     // Write the message to the log file
     if (fprintf(log_file, " %s: %s\n", tag, message) < 0)
     {
-        logError("writeToLogFile", "Failed to write to log file");
+        ESP_LOGE("writeToLogFile", "Failed to write to log file");
         return;
     }
 

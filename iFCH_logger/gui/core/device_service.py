@@ -16,6 +16,7 @@ PLOT_SAMPLES = 12 * 200
 
 class DeviceService:
     CONFIG_FILE = "/sdcard/config.jsn"
+    ERROR_LOG_FILE = "/sdcard/log.txt"
 
     def __init__(self, port: str):
         self._port = port
@@ -309,6 +310,29 @@ class DeviceService:
             return None
 
         return dir_files
+
+    async def get_error_log(self):
+        self.proto.send_frame(Commands.CMD_GET_ERROR_LOG)
+
+        file_name, data = await self.proto.wait_for_file()
+
+        if file_name is None or file_name != self.ERROR_LOG_FILE:
+            logging.error("Failed to get error log file")
+            return None
+
+        return data.decode("utf-8")
+
+    async def delete_error_log(self):
+        self.proto.send_frame(Commands.CMD_DELETE_ERROR_LOG)
+        result = await self.proto.wait_for_cmd(
+            Commands.CMD_DELETE_ERROR_LOG, timeout=BLE_TIMEOUT_S
+        )
+        if result is None:
+            logging.error("Delete error log timed out")
+            return False
+        else:
+            logging.debug("Error log deleted successfully")
+            return True
 
     # ---------------------------------------------------------------------------
     # Movesense specific methods

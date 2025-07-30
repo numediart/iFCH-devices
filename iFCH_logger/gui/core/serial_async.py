@@ -38,6 +38,9 @@ class Commands(enum.IntEnum):
     CMD_LIST_LOG = 0x23
     CMD_GET_LOG = 0x24
     CMD_DIR_CHUNK = 0x25
+    CMD_ARCHIVE_LOG = 0x26
+    CMD_GET_ERROR_LOG = 0x27
+    CMD_DELETE_ERROR_LOG = 0x28
     # RTC
     CMD_TIME_GET = 0x31
     CMD_TIME_PUT = 0x32
