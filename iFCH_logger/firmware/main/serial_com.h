@@ -37,6 +37,7 @@ enum class CmdType : uint8_t
     CMD_LIST_LOG = 0x23,
     CMD_GET_LOG = 0x24,
     CMD_DIR_CHUNK = 0x25,
+    CMD_ARCHIVE_LOG = 0x26,
     // Peripherals
     CMD_TIME_GET = 0x31,
     CMD_TIME_PUT = 0x32,

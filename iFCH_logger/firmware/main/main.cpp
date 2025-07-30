@@ -156,6 +156,53 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    case CmdType::CMD_ARCHIVE_LOG:
+    {
+        if (isStreaming)
+        {
+            logError("CMD_ARCHIVE_LOG", "Movesense currently streaming, cannot archive log");
+            break;
+        }
+        else if (record.logging)
+        {
+            logError("CMD_ARCHIVE_LOG", "Movesense currently logging, cannot archive log");
+            break;
+        }
+        else
+        {
+            // Receive the log name
+            if (rx_payload_len < 1)
+            {
+                logError("CMD_ARCHIVE_LOG", "Invalid log file name payload");
+                break;
+            }
+
+            // Convert the log name to local path
+            std::string logName((char *)rx_payload, rx_payload_len);
+
+            if (logName[0] == '_')
+            {
+                logError("CMD_ARCHIVE_LOG", "Log already archived");
+                break;
+            }
+
+            std::string dirPath = std::string(MOUNT_POINT) + "/" + logName;
+            std::string archivePath = std::string(MOUNT_POINT) + "/_" + logName;
+
+            // Archive the log directory
+            if (!move(dirPath, archivePath))
+            {
+                logError("CMD_GET_LOG", "Failed to archive log directory");
+            }
+            else
+            {
+                // Send the archived log directory
+                sendCMD(CmdType::CMD_ARCHIVE_LOG);
+            }
+        }
+        break;
+    }
+
     // Get the current time from the RTC
     case CmdType::CMD_TIME_GET:
     {
