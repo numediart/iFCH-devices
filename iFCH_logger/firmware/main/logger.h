@@ -16,4 +16,7 @@ bool endMovesenseLogging();
 // Sets the current epoch to the saved timestamp
 bool saveCheckpoint(uint32_t &currentEpoch);
 
+// Read the starting timestamp of a Movesense record
+uint32_t readRecordTime(std::string path);
+
 #endif // LOGGER_H

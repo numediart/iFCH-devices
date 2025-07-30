@@ -727,7 +727,7 @@ bool listLogs()
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL)
     {
-        if (entry->d_type == DT_DIR && entry->d_name[0] != '_')
+        if (entry->d_type == DT_DIR)
         {
             sendFrame(CmdType::CMD_LIST_LOG, (uint8_t *)entry->d_name, strlen(entry->d_name));
         }

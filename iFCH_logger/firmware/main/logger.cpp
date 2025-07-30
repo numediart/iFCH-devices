@@ -338,3 +338,57 @@ bool endMovesenseLogging()
 
     return !record.logging;
 }
+
+uint32_t readRecordTime(std::string path)
+{
+    if (!exists(path))
+    {
+        logError("readRecordTime", "Record path does not exist: %s", path.c_str());
+        return UINT32_MAX;
+    }
+
+    std::string checkpointFile = path + "/000.jsn";
+
+    if (exists(checkpointFile))
+    {
+        FILE *f = fopen(checkpointFile.c_str(), "r");
+        if (f == NULL)
+        {
+            logError("readRecordTime", "Failed to open checkpoint file");
+            errorReset(COLOR_SD);
+            return UINT32_MAX;
+        }
+
+        char buffer[JSON_BUFFER_SIZE];
+        size_t len = fread(buffer, 1, JSON_BUFFER_SIZE, f);
+        fclose(f);
+
+        cJSON *json = cJSON_ParseWithLength(buffer, len);
+
+        if (json == NULL)
+        {
+            logError("readRecordTime", "Failed to parse checkpoint file");
+            cJSON_Delete(json);
+            return UINT32_MAX;
+        }
+
+        cJSON *epoch = cJSON_GetObjectItemCaseSensitive(json, "rtc_time");
+        if (epoch == NULL || !cJSON_IsNumber(epoch))
+        {
+            logError("readRecordTime", "Invalid rtc_time in checkpoint file");
+            cJSON_Delete(json);
+            return 0;
+        }
+
+        uint32_t recordTime = epoch->valueint;
+
+        cJSON_Delete(json);
+
+        return recordTime;
+    }
+    else
+    {
+        logError("readRecordTime", "No checkpoint file found at %s", path.c_str());
+        return 0;
+    }
+}
