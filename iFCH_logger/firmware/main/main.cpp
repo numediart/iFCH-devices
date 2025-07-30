@@ -299,7 +299,7 @@ void handleSerialCommand(CmdType cmd)
         // Stop logging if currently logging, then reset
         if (movStopLog() && movReset())
         {
-            sendFrame(CmdType::CMD_MOV_FULL_RESET, nullptr, 0);
+            sendCMD(CmdType::CMD_MOV_FULL_RESET);
         }
         else
         {
@@ -354,7 +354,7 @@ void handleSerialCommand(CmdType cmd)
         }
         else if (movHello())
         {
-            sendFrame(CmdType::CMD_BLE_HELLO, nullptr, 0);
+            sendCMD(CmdType::CMD_BLE_HELLO);
         }
         else
         {
@@ -407,7 +407,7 @@ void handleSerialCommand(CmdType cmd)
         }
         else if (movSubscribe())
         {
-            sendFrame(CmdType::CMD_MOV_STREAM, nullptr, 0);
+            sendCMD(CmdType::CMD_MOV_STREAM);
             isStreaming = true;
         }
         else
@@ -432,7 +432,7 @@ void handleSerialCommand(CmdType cmd)
         }
         else if (movUnsubscribe())
         {
-            sendFrame(CmdType::CMD_MOV_UNSTREAM, nullptr, 0);
+            sendCMD(CmdType::CMD_MOV_UNSTREAM);
             isStreaming = false;
 
             uint8_t discardBuffer[NOTIF_LEN];
@@ -469,7 +469,7 @@ void handleSerialCommand(CmdType cmd)
         }
         else if (startMovesenseLogging())
         {
-            sendFrame(CmdType::CMD_MOV_LOG_START, nullptr, 0);
+            sendCMD(CmdType::CMD_MOV_LOG_START);
         }
         else
         {
@@ -494,7 +494,7 @@ void handleSerialCommand(CmdType cmd)
         }
         else if (endMovesenseLogging())
         {
-            sendFrame(CmdType::CMD_MOV_LOG_END, nullptr, 0);
+            sendCMD(CmdType::CMD_MOV_LOG_END);
         }
         else
         {
