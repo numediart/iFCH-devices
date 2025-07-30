@@ -36,14 +36,12 @@ async def test_device(port):
     if not ok:
         logging.error("Failed to set epoch")
 
-    logging.info("Getting free space...")
     free_space = await device.get_free_space()
     if free_space is None:
         logging.error("Failed to get free space")
     else:
         logging.info("Free space: %.02fGB", free_space)
 
-    logging.info("Getting error log...")
     error_log = await device.get_error_log()
     if error_log is None:
         logging.error("Failed to get error log")
@@ -51,6 +49,29 @@ async def test_device(port):
         logging.info("Error log retrieved successfully")
         logging.info("Error log content:\n%s", error_log)
 
+    ok = await device.delete_error_log()
+    if not ok:
+        logging.error("Failed to delete error log")
+    else:
+        logging.info("Error log deleted successfully")
+
+    logs = await device.list_logs()
+    if logs is None:
+        logging.error("Failed to list logs")
+    else:
+        logging.info("Logs listed successfully: %s", logs)
+
+    if logs is not None and len(logs) > 0:
+        log = await device.get_log(logs[0])
+        if log is None:
+            logging.error("Failed to get log %s", logs[0])
+        else:
+            logging.info("Log %s retrieved successfully: %s", logs[0], list(log.keys()))
+
+    # TODO: Investigate blink error when sending folders / files.
+    # Possible fix: blink less? only for major steps? Maybe related to stack size?
+    # E (113707) rmt: rmt_tx_enable(775): channel not in init state
+    # E (113707) led_strip_rmt: led_strip_rmt_refresh(81): enable RMT channel failed
     return
 
     logging.info("Scanning for devices...")
