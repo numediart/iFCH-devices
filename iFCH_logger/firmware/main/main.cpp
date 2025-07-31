@@ -21,7 +21,7 @@ bool isStreaming = false;
 void handleSerialCommand(CmdType cmd)
 {
     // Visual indicator that a command was received
-    blink(COLOR_SERIAL, 1, 20);
+    blink(COLOR_SERIAL, 1, 1);
 
     switch (cmd)
     {

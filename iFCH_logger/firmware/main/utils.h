@@ -36,6 +36,9 @@
 
 #define RESET_TIMEOUT_MS 2000
 
+#define BLINK_QUEUE_SIZE 10
+#define LOG_QUEUE_SIZE 10
+
 // Write RGB values to the LED
 void ledWrite(uint8_t r_val, uint8_t g_val, uint8_t b_val);
 

@@ -68,12 +68,6 @@ async def test_device(port):
         else:
             logging.info("Log %s retrieved successfully: %s", logs[0], list(log.keys()))
 
-    # TODO: Investigate blink error when sending folders / files.
-    # Possible fix: blink less? only for major steps? Maybe related to stack size?
-    # E (113707) rmt: rmt_tx_enable(775): channel not in init state
-    # E (113707) led_strip_rmt: led_strip_rmt_refresh(81): enable RMT channel failed
-    return
-
     logging.info("Scanning for devices...")
     devices = await device.scan()
 

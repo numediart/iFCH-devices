@@ -27,12 +27,10 @@ typedef struct
     bool is_shutdown_cmd;
 } log_entry_t;
 
-#define BLINK_QUEUE_SIZE 10
 static QueueHandle_t blink_queue = nullptr;
 static TaskHandle_t blink_task_handle = nullptr;
 static TaskHandle_t waiting_for_blink_task = nullptr;
 
-#define LOG_QUEUE_SIZE 10
 static QueueHandle_t log_queue = nullptr;
 static TaskHandle_t log_task_handle = nullptr;
 static TaskHandle_t waiting_for_log_task = nullptr;
@@ -73,6 +71,42 @@ static void log_task(void *params)
     vTaskDelete(NULL);
 }
 
+void ledWrite_(uint8_t r_val, uint8_t g_val, uint8_t b_val)
+{
+    if (rgb_led == nullptr)
+    {
+        ESP_LOGE("ledWrite", "LED strip not initialized");
+        return;
+    }
+
+    // Set the RGB values for the LED
+    esp_err_t rc;
+    rc = led_strip_set_pixel(rgb_led, 0, r_val, g_val, b_val);
+    if (rc != ESP_OK)
+    {
+        ESP_LOGE("ledWrite", "Failed to set pixel color: %s", esp_err_to_name(rc));
+        return;
+    }
+    rc = led_strip_refresh(rgb_led);
+    if (rc != ESP_OK)
+    {
+        ESP_LOGE("ledWrite", "Failed to refresh LED strip: %s", esp_err_to_name(rc));
+        return;
+    }
+}
+
+void ledWrite_(bool enable)
+{
+    if (enable)
+    {
+        ledWrite_(RGB_MAX, RGB_MAX, RGB_MAX); // White color
+    }
+    else
+    {
+        ledWrite_(0, 0, 0); // Turn off the LED
+    }
+}
+
 // Task function for processing blink queue
 static void blink_task(void *params)
 {
@@ -91,20 +125,28 @@ static void blink_task(void *params)
                 break;
             }
 
-            // Execute the blink sequence (check for shutdown between blinks)
-            for (uint8_t i = 0; i < blink_params.times; i++)
+            if (blink_params.times == 0)
             {
-                ledWrite(blink_params.r_val, blink_params.g_val, blink_params.b_val);
-                vTaskDelay(pdMS_TO_TICKS(blink_params.duration));
+                // If times is 0, just set the LED color without blinking
+                ledWrite_(blink_params.r_val, blink_params.g_val, blink_params.b_val);
+            }
+            else
+            {
+                // Execute the blink sequence (check for shutdown between blinks)
+                for (uint8_t i = 0; i < blink_params.times; i++)
+                {
+                    ledWrite_(blink_params.r_val, blink_params.g_val, blink_params.b_val);
+                    vTaskDelay(pdMS_TO_TICKS(blink_params.duration));
 
-                ledWrite(false);
-                vTaskDelay(pdMS_TO_TICKS(blink_params.duration));
+                    ledWrite_(false);
+                    vTaskDelay(pdMS_TO_TICKS(blink_params.duration));
+                }
             }
         }
     }
 
     // Ensure LED is off before shutdown
-    ledWrite(false);
+    ledWrite_(false);
 
     ESP_LOGI("blink_task", "Blink task shutting down gracefully");
 
@@ -222,25 +264,31 @@ void shutdownBlinkTask(uint32_t timeout_ms)
 
 void ledWrite(uint8_t r_val, uint8_t g_val, uint8_t b_val)
 {
-    if (rgb_led == nullptr)
+    if (blink_queue == nullptr)
     {
-        ESP_LOGE("ledWrite", "LED strip not initialized");
+        logError("ledWrite", "Blink queue not initialized");
         return;
     }
 
-    // Set the RGB values for the LED
-    esp_err_t rc;
-    rc = led_strip_set_pixel(rgb_led, 0, r_val, g_val, b_val);
-    if (rc != ESP_OK)
+    // Prepare blink parameters
+    blink_params_t params = {
+        .shutdown = false,
+        .r_val = r_val,
+        .g_val = g_val,
+        .b_val = b_val,
+        .times = 0,
+        .duration = 0};
+
+    // Try to queue the blink request
+    BaseType_t result = xQueueSend(blink_queue, &params, 0); // Don't block
+    if (result != pdPASS)
     {
-        ESP_LOGE("ledWrite", "Failed to set pixel color: %s", esp_err_to_name(rc));
-        return;
+        ESP_LOGW("ledWrite", "Blink queue is full, request discarded");
     }
-    rc = led_strip_refresh(rgb_led);
-    if (rc != ESP_OK)
+    else
     {
-        ESP_LOGE("ledWrite", "Failed to refresh LED strip: %s", esp_err_to_name(rc));
-        return;
+        ESP_LOGD("ledWrite", "LED request queued (R:%d G:%d B:%d)",
+                 r_val, g_val, b_val);
     }
 }
 
@@ -415,7 +463,7 @@ static void initBlinkTask(void)
     BaseType_t result = xTaskCreate(
         blink_task,           // Task function
         "blink_task",         // Task name
-        2048,                 // Stack size
+        4096,                 // Stack size
         nullptr,              // Parameters
         tskIDLE_PRIORITY + 1, // Priority
         &blink_task_handle    // Task handle
