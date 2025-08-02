@@ -555,10 +555,10 @@ void logError(const char *tag, const char *fmt, ...)
 
 void logMessage(const char *message)
 {
-    char tag[] = "\tINFO";
+    char tag[] = "INFO";
 
     // Log to console
-    ESP_LOGE(tag, "%s", message);
+    ESP_LOGI(tag, "%s", message);
 
     if (log_queue != nullptr)
     {
