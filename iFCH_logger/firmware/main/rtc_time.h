@@ -8,10 +8,10 @@
 // Setup the RV8803 RTC chip
 void setupRTC();
 
-// Start a timer on the RTC chip
+// Start a timer on the RTC chip (resets everything first)
 bool startRTCTimer();
 
-// Stop the timer on the RTC chip
+// Stop the timer on the RTC chip and reset flags
 bool stopRTCTimer();
 
 // Check if the timer is over

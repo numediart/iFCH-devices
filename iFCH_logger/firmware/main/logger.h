@@ -3,8 +3,10 @@
 
 #include "globals.h"
 
+#define POLL_INTERVAL_MS 10 // Polling interval for Movesense data fetching
+
 // Fetches the last Movesense logging chunk and starts the next one
-void fetchMovesenseData();
+bool fetchMovesenseData();
 
 // Sets up the logging folder and starts Movesense logging
 bool startMovesenseLogging();

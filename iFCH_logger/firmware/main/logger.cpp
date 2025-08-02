@@ -8,26 +8,286 @@
 #include <cJSON.h>
 #include <format>
 
-void fetchMovesenseData()
-{
-    ESP_LOGI("fetchMovesenseData", "Fetching data from Movesense");
-    blink(0, RGB_MAX, 0, 1, 1000);
+static TaskHandle_t stream_dump_task = nullptr;
+static TaskHandle_t stream_dump_control = nullptr;
 
-    uint32_t currentEpoch = getUNIXTime();
-    if (currentEpoch == 0)
+bool backupIfExists(std::string &filename)
+{
+    // Check if the file exists
+    if (exists(filename))
     {
-        logError("fetchMovesenseData", "Failed to get current time");
-        errorReset(COLOR_RTC);
+        uint8_t bkNum;
+        std::string backupFilename;
+        size_t dotPos = filename.find_last_of('.');
+        std::string safeName = filename;
+        if (dotPos != std::string::npos)
+        {
+            // If the file has an extension, create a backup with .bXX extension
+            safeName[dotPos] = '_'; // Temporarily remove the extension
+        }
+
+        for (bkNum = 1; bkNum < 100; bkNum++)
+        {
+            // Check if a backup with this number already exists
+            backupFilename = std::format("{}.b{:02}", safeName, bkNum);
+            if (!exists(backupFilename))
+            {
+                break;
+            }
+        }
+        if (bkNum == 100)
+        {
+            logError("backupIfExists", "Too many backups for file: %s, overwriting last", filename.c_str());
+        }
+
+        return move(filename, backupFilename);
+    }
+
+    return true;
+}
+
+void streamDumpTask(void *params)
+{
+    ESP_LOGI("streamDumpTask", "Starting stream dump task");
+    bool success;
+
+    // Prepare the file for saving the stream
+    std::string streamFile = std::format(MOUNT_POINT "/{:03}/{:03}.bin", record.id, record.part);
+    if (!backupIfExists(streamFile))
+    {
+        logError("streamDumpTask", "Failed to backup bin file %s", streamFile.c_str());
+        errorReset(COLOR_SD);
         return;
     }
 
-    record.lastFetch = currentEpoch;
+    // Open the file for writing
+    FILE *f = fopen(streamFile.c_str(), "w");
+    if (f == NULL)
+    {
+        logError("streamDumpTask", "Failed to open file for writing: %s", streamFile.c_str());
+        errorReset(COLOR_SD);
+        goto cleanup;
+    }
 
-    // TODO: fetch data from the Movesense, save the record state
+    // Subscribe to Movesense sensors for stream dumping
+    success = movSubscribe();
 
-    // TODO: clean up space if necessary
+    // Notify the control task that the stream dump has started
+    if (stream_dump_control == nullptr)
+    {
+        logError("streamDumpTask", "Stream dump control task not set, cannot notify");
+        errorReset(COLOR_RUNTIME_ERROR);
 
-    bool success = startRTCTimer();
+        movUnsubscribe();
+        goto cleanup;
+    }
+    else
+    {
+        // 0 if success, 1 if failure
+        uint32_t code = 1;
+        if (success)
+        {
+            code = 0;
+        }
+
+        // Send the code to the control task
+        if (xTaskNotify(stream_dump_control, code, eSetValueWithoutOverwrite) != pdPASS)
+        {
+            logError("streamDumpTask", "Failed to notify stream dump control task");
+            errorReset(COLOR_RUNTIME_ERROR);
+
+            movUnsubscribe();
+            goto cleanup;
+        }
+    }
+
+    if (!success)
+    {
+        logError("streamDumpTask", "Failed to subscribe to Movesense sensors for stream dumping");
+        goto cleanup;
+    }
+
+    uint8_t dataBuffer[NOTIF_LEN]; // +1 for the length byte
+
+    while (true)
+    {
+        if (ulTaskNotifyTake(pdTRUE, 0) > 0)
+        {
+            // If we received a notification, it means the task is being stopped
+            ESP_LOGI("streamDumpTask", "Stream dump task stopping");
+            break;
+        }
+        else if (xQueueReceive(dataQueue, dataBuffer, 0) == pdTRUE)
+        {
+            size_t notifLen = dataBuffer[0] + 1; // First byte is the length of the notification
+            size_t written = fwrite(dataBuffer, 1, notifLen, f);
+            if (written != notifLen)
+            {
+                logError("streamDumpTask", "Failed to write data to file");
+                blink(COLOR_RUNTIME_ERROR, 1, 1);
+            }
+        }
+        else
+        {
+            vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS)); // Prevent busy-waiting
+        }
+    }
+
+    // Stop the subscription to Movesense sensors
+    success = movUnsubscribe();
+
+    // Notify the control task that the stream dump has started
+    if (stream_dump_control == nullptr)
+    {
+        logError("streamDumpTask", "Stream dump control task not set, cannot notify");
+        errorReset(COLOR_RUNTIME_ERROR);
+        goto cleanup;
+    }
+    else
+    {
+        // 0 if success, 1 if failure
+        uint32_t code = 1;
+        if (success)
+        {
+            code = 0;
+        }
+
+        // Send the code to the control task
+        if (xTaskNotify(stream_dump_control, code, eSetValueWithoutOverwrite) != pdPASS)
+        {
+            logError("streamDumpTask", "Failed to notify stream dump control task for unsubscribe");
+            errorReset(COLOR_RUNTIME_ERROR);
+            goto cleanup;
+        }
+    }
+
+cleanup:
+    if (f != NULL)
+    {
+        // Close the file if it was opened
+        fflush(f);
+        fclose(f);
+    }
+
+    // Delete the remaining data in the queue
+    xQueueReset(dataQueue);
+
+    // Clean up the task handle
+    stream_dump_task = nullptr;
+    vTaskDelete(NULL);
+
+    ESP_LOGI("streamDumpTask", "Stream dump task finished");
+}
+
+bool startStreamDumpTask()
+{
+    ESP_LOGI("startStreamDumpTask", "Starting stream dump task");
+    stream_dump_control = xTaskGetCurrentTaskHandle();
+
+    BaseType_t result;
+
+    result = xTaskCreate(
+        streamDumpTask,
+        "stream_dump_task",   // Task name
+        4096,                 // Stack size (larger for file operations)
+        nullptr,              // Parameters
+        tskIDLE_PRIORITY + 3, // Priority
+        &stream_dump_task     // Task handle
+    );
+
+    if (result != pdPASS)
+    {
+        ESP_LOGE("startStreamDumpTask", "Failed to create task");
+        stream_dump_task = nullptr;
+
+        errorReset(COLOR_RUNTIME_ERROR);
+        return false;
+    }
+
+    uint32_t notification;
+    result = xTaskNotifyWait(
+        0,
+        ULONG_MAX,
+        &notification,
+        pdMS_TO_TICKS(BLE_TIMEOUT)); // Wait for notification from the task
+
+    stream_dump_control = nullptr;
+
+    if (result != pdTRUE)
+    {
+        logError("startStreamDumpTask", "Stream dump task creation notification timeout");
+
+        if (stream_dump_task != nullptr)
+        {
+            vTaskDelete(stream_dump_task);
+            stream_dump_task = nullptr;
+        }
+
+        errorReset(COLOR_RUNTIME_ERROR);
+        return false;
+    }
+
+    // On failure notification
+    if (notification != 0)
+    {
+        logError("startStreamDumpTask", "Stream dump task failed to start");
+
+        return false;
+    }
+
+    ESP_LOGI("startStreamDumpTask", "Stream dump task started");
+
+    return true;
+}
+
+bool stopStreamDumpTask()
+{
+    if (stream_dump_task == nullptr)
+    {
+        ESP_LOGW("stopStreamDumpTask", "Stream dump task not running");
+        return true; // Nothing to stop
+    }
+
+    ESP_LOGI("stopStreamDumpTask", "Stopping stream dump task");
+    stream_dump_control = xTaskGetCurrentTaskHandle();
+
+    xTaskNotifyGive(stream_dump_task); // Notify the task to stop
+
+    uint32_t notification;
+    BaseType_t result = xTaskNotifyWait(
+        0,
+        ULONG_MAX,
+        &notification,
+        pdMS_TO_TICKS(BLE_TIMEOUT)); // Wait for notification from the task
+
+    stream_dump_control = nullptr;
+
+    if (result != pdTRUE)
+    {
+        logError("stopStreamDumpTask", "Stream dump task deletion notification timeout");
+
+        // Force termination
+        if (stream_dump_task != nullptr)
+        {
+            vTaskDelete(stream_dump_task);
+            stream_dump_task = nullptr;
+        }
+
+        errorReset(COLOR_RUNTIME_ERROR);
+        return false;
+    }
+
+    // On failure notification
+    if (notification != 0)
+    {
+        logError("startStreamDumpTask", "Stream dump task failed to start");
+
+        return false;
+    }
+
+    ESP_LOGI("stopStreamDumpTask", "Stream dump task stopped gracefully");
+
+    return true;
 }
 
 bool getMovesenseLastLogId(uint32_t &logId)
@@ -134,33 +394,6 @@ bool saveCheckpoint(uint32_t &currentEpoch)
     cJSON_Delete(json);
 
     ESP_LOGI("saveCheckpoint", "Checkpoint saved to %s", checkpoint.c_str());
-
-    return true;
-}
-
-bool backupIfExists(std::string &filename)
-{
-    // Check if the file exists
-    if (exists(filename))
-    {
-        uint8_t bkNum;
-        std::string backupFilename;
-        for (bkNum = 1; bkNum < 100; bkNum++)
-        {
-            // Check if a backup with this number already exists
-            backupFilename = std::format("{}.b{:02}", filename, bkNum);
-            if (!exists(backupFilename))
-            {
-                break;
-            }
-        }
-        if (bkNum == 100)
-        {
-            logError("backupIfExists", "Too many backups for file: %s, overwriting last", filename.c_str());
-        }
-
-        return move(filename, backupFilename);
-    }
 
     return true;
 }
@@ -391,4 +624,112 @@ uint32_t readRecordTime(std::string path)
         logError("readRecordTime", "No checkpoint file found at %s", path.c_str());
         return 0;
     }
+}
+
+bool fetchMovesenseData()
+{
+    if (!record.logging)
+    {
+        logError("fetchMovesenseData", "device is not currently logging!");
+        return false;
+    }
+
+    // Start by incrementing the record part number and checkpointing
+    record.part++;
+    if (!saveCheckpoint(record.lastFetch)) // This saves the checkpoint epoch
+    {
+        logError("fetchMovesenseData", "Failed to save checkpoint before ending logging");
+        record.part--;
+        return false;
+    }
+
+    // Fetch the last Movesense log ID
+    uint32_t logId;
+    if (!getMovesenseLastLogId(logId))
+    {
+        logError("fetchMovesenseData", "Failed to get Movesense last log ID");
+        record.part--;
+        return false;
+    }
+
+    // Prepare the record file
+    std::string recordFile = std::format(MOUNT_POINT "/{:03}/{:03}.sbm", record.id, record.part);
+    if (!backupIfExists(recordFile))
+    {
+        logError("fetchMovesenseData", "Failed to backup record file %s", recordFile.c_str());
+        record.part--;
+        return false;
+    }
+
+    ESP_LOGI("fetchMovesenseData", "Fetching data from Movesense");
+
+    // TODO investigate if this is possible
+    // Start dumping the Movesense stream to a file to avoid gaps in data
+    // if (!startStreamDumpTask())
+    // {
+    //     logError("fetchMovesenseData", "Failed to start stream dump task");
+    //     record.part--;
+    //     return false;
+    // }
+
+    // Stop Movesense logging
+    if (!movStopLog())
+    {
+        logError("fetchMovesenseData", "Failed to stop Movesense logging");
+        record.part--;
+        stopStreamDumpTask();
+        return false;
+    }
+
+    // Fetch the Movesense log and save it to SD card
+    if (!movFetchLog(recordFile, logId))
+    {
+        logError("fetchMovesenseData", "Failed to fetch Movesense log with ID: %d", logId);
+        record.part--;
+        stopStreamDumpTask();
+        return false;
+    }
+
+    // Delete the fetched logs from Movesense
+    if (!movClearLogs())
+    {
+        logError("fetchMovesenseData", "Failed to clear Movesense logs after fetching data");
+        record.part--;
+        stopStreamDumpTask();
+        return false;
+    }
+
+    // Restart Movesense logging
+    if (!movStartLog())
+    {
+        logError("fetchMovesenseData", "Failed to restart Movesense logging after fetching data");
+        record.part--;
+        stopStreamDumpTask();
+        return false;
+    }
+
+    // TODO investigate if this is possible
+    // Stop the stream dump task (not needed anymore since logging is restarted)
+    // if (!stopStreamDumpTask())
+    // {
+    //     logError("fetchMovesenseData", "Failed to stop stream dump task");
+    //     record.part--;
+    //     return false;
+    // }
+
+    // Save the record state to the JSON file
+    if (!saveJsonRecord())
+    {
+        logError("fetchMovesenseData", "Failed to save record file");
+        record.part--;
+        return false;
+    }
+
+    // Restart the RTC timer to continue fetching data
+    if (!startRTCTimer())
+    {
+        logError("fetchMovesenseData", "Failed to start RTC timer after fetching data");
+    }
+
+    return true;
 }

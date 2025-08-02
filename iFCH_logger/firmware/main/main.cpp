@@ -312,20 +312,42 @@ void handleSerialCommand(CmdType cmd)
     // it stops logging, and clears all logs and subscriptions
     case CmdType::CMD_MOV_FULL_RESET:
     {
+        // TODO Break this down into two reset functions
+        //  1) Reset the Movesense device
+        //  2) Reset the logger state
+        // Then, create a command for the forced logger reset
+
         if (!isMovesenseConnected)
         {
             logError("MOV_FULL_RESET", "Movesense not connected");
             break;
         }
 
-        // Stop logging if currently logging, then reset
-        if (movStopLog() && movReset())
+        bool success = true;
+
+        // Stop logging if currently logging, also stop streaming then reset
+        if (!movStopLog())
         {
-            sendCMD(CmdType::CMD_MOV_FULL_RESET);
+            logError("MOV_FULL_RESET", "Failed to stop Movesense logging");
         }
-        else
+        if (!movUnsubscribe())
         {
             logError("MOV_FULL_RESET", "Failed to reset Movesense");
+        }
+        if (!movReset())
+        {
+            logError("MOV_FULL_RESET", "Failed to reset Movesense");
+        }
+
+        record.logging = false;
+        isStreaming = false;
+        xQueueReset(dataQueue);
+        xQueueReset(responseQueue);
+        xQueueReset(logQueue);
+
+        if (success)
+        {
+            sendCMD(CmdType::CMD_MOV_FULL_RESET);
         }
 
         break;
@@ -457,12 +479,8 @@ void handleSerialCommand(CmdType cmd)
             sendCMD(CmdType::CMD_MOV_UNSTREAM);
             isStreaming = false;
 
-            uint8_t discardBuffer[NOTIF_LEN];
-            while (xQueueReceive(dataQueue, discardBuffer, 0) == pdTRUE)
-            {
-                // Clear the data queue
-                ESP_LOGD("CMD_MOV_UNSTREAM", "Clearing data queue: message discarded");
-            }
+            // Clear the data queue
+            xQueueReset(dataQueue);
         }
         else
         {
@@ -574,7 +592,21 @@ void loop()
     // The clock interrupt is active, fetch data
     if (timerIsOver())
     {
-        fetchMovesenseData();
+        ESP_LOGI("loop", "Clock interrupt active");
+        if (record.logging)
+        {
+            if (!fetchMovesenseData())
+            {
+                logError("loop", "Failed to fetch Movesense data");
+                errorReset(COLOR_RUNTIME_ERROR);
+            }
+            // TODO: clean up space if necessary
+        }
+        else
+        {
+            logError("loop", "Clock interrupt active but not logging");
+            stopRTCTimer();
+        }
     }
 
     uint8_t queueNotif[NOTIF_LEN]; // +1 for the length byte
@@ -620,7 +652,6 @@ void loop()
     }
 
     // If the USB is disconnected, enter hibernation
-    // TODO do not sleep if the Movesense is connected
     if (isVUSBConnected() == false)
     {
         if (isMovesenseConnected)
@@ -628,7 +659,7 @@ void loop()
             disconnectMovesense();
         }
 
-        enterHibernation(true); // TODO: set the waketimer
+        enterHibernation(record.logging);
     }
 }
 
@@ -676,9 +707,23 @@ extern "C" void app_main()
     }
 
     // If the clock interrupt is active, fetch data
-    if ((esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER || timerIsOver()) && record.logging)
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER || timerIsOver())
     {
-        fetchMovesenseData();
+        ESP_LOGI("app_main", "Clock interrupt active");
+        if (record.logging)
+        {
+            if (!fetchMovesenseData())
+            {
+                logError("app_main", "Failed to fetch Movesense data");
+                errorReset(COLOR_RUNTIME_ERROR);
+            }
+            // TODO: clean up space if necessary
+        }
+        else
+        {
+            logError("app_main", "Clock interrupt active but not logging");
+            stopRTCTimer();
+        }
     }
 
     // If USB is connected, start the Serial interface
@@ -687,7 +732,6 @@ extern "C" void app_main()
         setupSerial();
     }
     // If the USB is not connected, enter hibernation
-    // TODO do not sleep if the Movesense is connected
     else
     {
         if (isMovesenseConnected)
@@ -695,8 +739,23 @@ extern "C" void app_main()
             disconnectMovesense();
         }
 
-        enterHibernation(true); // TODO: set the waketimer
+        enterHibernation(record.logging);
     }
+
+    // TODO remove
+    // TODO investigate:
+    // E (8688) writeMovesenseCommand: Command response timed out
+    // E (8696) _movFetchLog: Failed to wait for final response after fetching log
+    // I (8745) rremove: Successfully removed file: /sdcard/002/001.sbm
+    // E (8746) endMovesenseLogging: Failed to fetch Movesense log with ID: 1
+
+    connectMovesense();
+    startMovesenseLogging();
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    // fetchMovesenseData();
+    // vTaskDelay(pdMS_TO_TICKS(1000));
+    endMovesenseLogging();
+    disconnectMovesense();
 
     // Prevent watchdog timeout
     while (true)
