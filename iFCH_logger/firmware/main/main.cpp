@@ -592,7 +592,7 @@ void loop()
         {
             // We should not be here, commands should have been processed
             logError("loop", "Unhandled data notification");
-            blink(COLOR_RUNTIME_ERROR, 5, 50);
+            blink(COLOR_RUNTIME_ERROR, 1, 1);
         }
     }
 
@@ -600,14 +600,14 @@ void loop()
     {
         // We should not be here, commands should have been processed
         logError("loop", "Unhandled log notification");
-        blink(COLOR_RUNTIME_ERROR, 5, 50);
+        blink(COLOR_RUNTIME_ERROR, 1, 1);
     }
 
     while (xQueueReceive(responseQueue, queueNotif, 0) == pdTRUE)
     {
         // We should not be here, commands should have been processed
         logError("loop", "Unhandled response notification");
-        blink(COLOR_RUNTIME_ERROR, 5, 50);
+        blink(COLOR_RUNTIME_ERROR, 1, 1);
     }
 
     // Handle incoming Serial commands without waiting
