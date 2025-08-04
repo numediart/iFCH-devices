@@ -537,6 +537,8 @@ bool endMovesenseLogging()
         return false;
     }
 
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
     // Fetch the Movesense log and save it to SD card
     if (!movFetchLog(recordFile, logId))
     {
@@ -561,6 +563,11 @@ bool endMovesenseLogging()
         logError("endMovesenseLogging", "Failed to stop RTC timer after ending logging");
         // Do not return false here, as the logging was stopped successfully
     }
+
+    // TODO remove log and investigate why this fails
+    ESP_LOGW("endMovesenseLogging", "Done receiving the log, waiting");
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+    ESP_LOGW("endMovesenseLogging", "Clearing logs");
 
     // And clear the Movesense logs
     if (!movClearLogs())

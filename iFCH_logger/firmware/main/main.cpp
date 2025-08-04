@@ -629,7 +629,14 @@ void loop()
         ESP_LOGI("loop", "Clock interrupt active");
         if (record.logging)
         {
-            if (!fetchMovesenseData())
+            if (!isMovesenseConnected && !connectMovesense())
+            {
+                logError("loop", "Failed to connect to Movesense");
+                // TODO: handle this error properly
+                // errorReset(COLOR_RUNTIME_ERROR);
+            }
+            // TODO else if (!fetchMovesenseData())
+            else if (false)
             {
                 logError("loop", "Failed to fetch Movesense data");
                 errorReset(COLOR_RUNTIME_ERROR);
@@ -756,7 +763,14 @@ extern "C" void app_main()
         ESP_LOGI("app_main", "Clock interrupt active");
         if (record.logging)
         {
-            if (!fetchMovesenseData())
+            if (!connectMovesense())
+            {
+                logError("app_main", "Failed to connect to Movesense");
+                // TODO: handle this error properly
+                // errorReset(COLOR_RUNTIME_ERROR);
+            }
+            // TODO else if (!fetchMovesenseData())
+            else if (false)
             {
                 logError("app_main", "Failed to fetch Movesense data");
                 errorReset(COLOR_RUNTIME_ERROR);
@@ -787,18 +801,19 @@ extern "C" void app_main()
     }
 
     // TODO remove
-    // TODO investigate:
-    // E (8688) writeMovesenseCommand: Command response timed out
-    // E (8696) _movFetchLog: Failed to wait for final response after fetching log
-    // I (8745) rremove: Successfully removed file: /sdcard/002/001.sbm
-    // E (8746) endMovesenseLogging: Failed to fetch Movesense log with ID: 1
+    disconnectMovesense();
 
     connectMovesense();
+    resetMovesense();
+    resetState();
+    vTaskDelay(pdMS_TO_TICKS(200));
     startMovesenseLogging();
     vTaskDelay(pdMS_TO_TICKS(1000));
     // fetchMovesenseData();
     // vTaskDelay(pdMS_TO_TICKS(1000));
     endMovesenseLogging();
+
+    vTaskDelay(pdMS_TO_TICKS(5000));
     disconnectMovesense();
 
     // Prevent watchdog timeout
