@@ -4,6 +4,7 @@
 #include "serial_com.h"
 #include "memory.h"
 #include "rtc_time.h"
+#include "ble_com.h"
 
 static led_strip_handle_t rgb_led = nullptr;
 i2c_master_bus_handle_t i2c_handle = nullptr;
@@ -342,6 +343,8 @@ void errorReset(uint8_t r_val, uint8_t g_val, uint8_t b_val)
 
     shutdownBlinkTask(RESET_TIMEOUT_MS);
     shutdownLogTask(RESET_TIMEOUT_MS);
+
+    disconnectMovesense();
 
     // Reset and restart board
     esp_restart();

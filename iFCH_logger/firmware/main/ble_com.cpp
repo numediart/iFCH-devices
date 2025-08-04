@@ -1011,6 +1011,11 @@ bool connectMovesense()
 
 void disconnectMovesense()
 {
+    if (!isMovesenseConnected)
+    {
+        ESP_LOGW("disconnectMovesense", "Not connected to Movesense, nothing to disconnect (should print error)");
+    }
+
     int rc = ble_gap_terminate(movesense_handle, BLE_ERR_REM_USER_CONN_TERM);
     if (rc != 0)
     {

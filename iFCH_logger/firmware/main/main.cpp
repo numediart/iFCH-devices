@@ -18,6 +18,61 @@ QueueHandle_t logQueue;
 
 bool isStreaming = false;
 
+bool resetState()
+{
+    record.logging = false;
+    isStreaming = false;
+    xQueueReset(dataQueue);
+    xQueueReset(responseQueue);
+    xQueueReset(logQueue);
+
+    bool success = stopRTCTimer();
+
+    ESP_LOGW("resetState", "State reset to default values");
+    if (!success)
+    {
+        ESP_LOGW("resetState", "Failed to stop RTC timer");
+    }
+
+    return success;
+}
+
+bool resetMovesense()
+{
+    if (!isMovesenseConnected)
+    {
+        logError("MOV_FULL_RESET", "Movesense not connected");
+        return false;
+    }
+
+    bool success = true;
+
+    // Stop logging if currently logging, also stop streaming then reset
+    if (!movStopLog())
+    {
+        logError("MOV_FULL_RESET", "Failed to stop Movesense logging");
+    }
+    if (!movUnsubscribe())
+    {
+        logError("MOV_FULL_RESET", "Failed to reset Movesense");
+    }
+    if (!movReset())
+    {
+        logError("MOV_FULL_RESET", "Failed to reset Movesense");
+    }
+
+    if (success)
+    {
+        ESP_LOGI("resetMovesense", "Movesense reset successfully");
+    }
+    else
+    {
+        ESP_LOGW("resetMovesense", "Movesense reset failed, some commands may not have been executed");
+    }
+
+    return success;
+}
+
 void handleSerialCommand(CmdType cmd)
 {
     // Visual indicator that a command was received
@@ -310,46 +365,25 @@ void handleSerialCommand(CmdType cmd)
 
     // This command does a full forced reset of the Movesense:
     // it stops logging, and clears all logs and subscriptions
+    // it then resets the logger state
     case CmdType::CMD_MOV_FULL_RESET:
     {
-        // TODO Break this down into two reset functions
-        //  1) Reset the Movesense device
-        //  2) Reset the logger state
-        // Then, create a command for the forced logger reset
 
-        if (!isMovesenseConnected)
+        if (resetMovesense())
         {
-            logError("MOV_FULL_RESET", "Movesense not connected");
-            break;
-        }
-
-        bool success = true;
-
-        // Stop logging if currently logging, also stop streaming then reset
-        if (!movStopLog())
-        {
-            logError("MOV_FULL_RESET", "Failed to stop Movesense logging");
-        }
-        if (!movUnsubscribe())
-        {
-            logError("MOV_FULL_RESET", "Failed to reset Movesense");
-        }
-        if (!movReset())
-        {
-            logError("MOV_FULL_RESET", "Failed to reset Movesense");
-        }
-
-        record.logging = false;
-        isStreaming = false;
-        xQueueReset(dataQueue);
-        xQueueReset(responseQueue);
-        xQueueReset(logQueue);
-
-        if (success)
-        {
+            resetState();
             sendCMD(CmdType::CMD_MOV_FULL_RESET);
         }
 
+        break;
+    }
+
+    // Reset this device's state without resetting the associated Movesense
+    // This bypasses any safety checks
+    case CmdType::CMD_RESET_STATE:
+    {
+        resetState();
+        sendCMD(CmdType::CMD_RESET_STATE);
         break;
     }
 
@@ -638,7 +672,17 @@ void loop()
     while (xQueueReceive(responseQueue, queueNotif, 0) == pdTRUE)
     {
         // We should not be here, commands should have been processed
-        logError("loop", "Unhandled response notification");
+        size_t len = queueNotif[0];
+        if (len > 3)
+        {
+            logError("loop", "Unhandled response notification: Type %d, Reference %d, Status %d, Code 0x%02x, Data %d bytes",
+                     queueNotif[1], queueNotif[2], queueNotif[3], queueNotif[4], len - 4);
+        }
+        else
+        {
+            logError("loop", "Unhandled invalid response notification");
+        }
+
         blink(COLOR_RUNTIME_ERROR, 1, 1);
     }
 
