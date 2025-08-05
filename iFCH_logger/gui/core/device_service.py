@@ -23,9 +23,6 @@ class DeviceService:
         self.proto = None
         self._tasks: list[asyncio.Task] = []
 
-        self.connected = False
-        self.subscribed = False
-
         self.plot_y = collections.deque(maxlen=PLOT_SAMPLES)
         self.plot_x = collections.deque(maxlen=PLOT_SAMPLES)
         self.time_start = -1
@@ -56,10 +53,9 @@ class DeviceService:
         for t in self._tasks:
             t.cancel()
 
-        if self.connected:
-            if self.subscribed:
-                await self.unsub_stream()
-            await self.disconnect()
+        # TODO replace this with a proper cleanup on the device itself
+        await self.unsub_stream()
+        await self.disconnect()
 
         if self.proto:
             self.proto.transport.close()
@@ -80,8 +76,6 @@ class DeviceService:
                 timestamps = [t + self.time_start for t in timestamps]
                 self.plot_x.extend(timestamps)
                 self.plot_y.extend(samples)
-                print(timestamps, samples)
-                # self.plot_y.extend([sample[0] for sample in samples])
 
     async def scan(self, retries=5, filter_movesense=True):
         scanned = set()
@@ -341,7 +335,6 @@ class DeviceService:
         result = await self.proto.wait_for_cmd(
             Commands.CMD_CONNECT, timeout=BLE_CONNECT_TIMEOUT_S
         )
-        self.connected = False
 
         if result is None:
             logging.error("Connect timed out")
@@ -355,12 +348,11 @@ class DeviceService:
                     return False
 
             logging.debug("Connected to device %s", result)
-            self.connected = True
+            return True
 
         else:
             logging.warning("Failed to connect to Movesense")
-
-        return self.connected
+            return False
 
     async def disconnect(self):
         self.proto.send_frame(Commands.CMD_DISCONNECT)
@@ -372,7 +364,6 @@ class DeviceService:
             return None
         elif result:
             logging.debug("Disconnected from device %s", result)
-            self.connected = False
             return True
         else:
             logging.warning("Failed to connect from Movesense")
@@ -416,9 +407,7 @@ class DeviceService:
             return None
         else:
             logging.debug("Subscribed to Movesense stream")
-            self.subscribed = True
-
-        return self.subscribed
+            return True
 
     async def unsub_stream(self):
         self.proto.send_frame(Commands.CMD_MOV_UNSTREAM)
@@ -427,10 +416,10 @@ class DeviceService:
         )
         if result is not None:
             logging.debug("Unsubscribed from device stream %s", result)
-            self.subscribed = False
+            return True
         else:
             logging.warning("Unsubscribe timed out")
-        return not self.subscribed
+            return False
 
     async def notify_stream(self):
         while True:

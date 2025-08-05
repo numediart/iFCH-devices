@@ -207,7 +207,7 @@ class FrameProtocol(asyncio.Protocol):
                     if char == "\n" or len(self.other_rx) > 512:
                         while len(self.other_rx) and self.other_rx[-1] == "\n":
                             self.other_rx.pop(-1)
-                        logging.info("ESP RX: %s", "".join(self.other_rx))
+                        logging.debug("ESP RX: %s", "".join(self.other_rx))
                         self.other_rx = []
                 except UnicodeDecodeError:
                     pass
@@ -256,7 +256,9 @@ class FrameProtocol(asyncio.Protocol):
                     logging.warning("Unknown command: %s", cmd)
                     return
             else:
-                logging.warning("CRC mismatch - discarded one frame")
+                logging.warning(
+                    "CRC mismatch - discarded one frame: %s - %s", cmd, payload.hex(" ")
+                )
 
     @staticmethod
     def _decode_frame(frame: bytes):

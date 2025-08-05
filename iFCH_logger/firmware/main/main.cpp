@@ -801,20 +801,18 @@ extern "C" void app_main()
     }
 
     // TODO remove
-    disconnectMovesense();
-
-    connectMovesense();
-    resetMovesense();
-    resetState();
-    vTaskDelay(pdMS_TO_TICKS(200));
-    startMovesenseLogging();
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    // disconnectMovesense();
+    // connectMovesense();
+    // resetMovesense();
+    // resetState();
+    // vTaskDelay(pdMS_TO_TICKS(200));
+    // startMovesenseLogging();
+    // vTaskDelay(pdMS_TO_TICKS(1000));
     // fetchMovesenseData();
     // vTaskDelay(pdMS_TO_TICKS(1000));
-    endMovesenseLogging();
-
-    vTaskDelay(pdMS_TO_TICKS(5000));
-    disconnectMovesense();
+    // endMovesenseLogging();
+    // vTaskDelay(pdMS_TO_TICKS(5000));
+    // disconnectMovesense();
 
     // Prevent watchdog timeout
     while (true)
