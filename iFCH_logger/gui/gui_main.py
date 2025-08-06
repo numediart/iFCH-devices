@@ -5,12 +5,12 @@ import time
 from enum import Enum
 
 import numpy as np
-import pyqtgraph as pg
 import qasync
 from core.device_service import DeviceService
 from core.serial_async import detect_device
+from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import Qt, QTimer, Slot
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QFormLayout,
@@ -48,25 +48,29 @@ class DisconnectedView(QWidget):
 
         # Main message
         message = QLabel("Please connect your iFCH device via USB")
-        message.setStyleSheet("""
+        message.setStyleSheet(
+            """
             QLabel {
                 font-size: 24px;
                 font-weight: bold;
                 color: #666666;
             }
-        """)
+        """
+        )
         message.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(message)
         layout.addSpacing(30)
 
         # Status label
         self.status_label = QLabel("Scanning for devices...")
-        self.status_label.setStyleSheet("""
+        self.status_label.setStyleSheet(
+            """
             QLabel {
                 font-size: 14px;
                 color: #999999;
             }
-        """)
+        """
+        )
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_label)
 
@@ -80,25 +84,29 @@ class ScanningView(QWidget):
 
         # Main message
         message = QLabel("Scanning for sensors...")
-        message.setStyleSheet("""
+        message.setStyleSheet(
+            """
             QLabel {
                 font-size: 24px;
                 font-weight: bold;
                 color: #2196F3;
             }
-        """)
+        """
+        )
         message.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(message)
         layout.addSpacing(30)
 
         # Status label
         self.status_label = QLabel("Looking for Movesense devices...")
-        self.status_label.setStyleSheet("""
+        self.status_label.setStyleSheet(
+            """
             QLabel {
                 font-size: 14px;
                 color: #666666;
             }
-        """)
+        """
+        )
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_label)
 
@@ -107,14 +115,16 @@ class ScanningView(QWidget):
         device_layout = QVBoxLayout(self.device_container)
 
         device_title = QLabel("Available Movesense devices:")
-        device_title.setStyleSheet("""
+        device_title.setStyleSheet(
+            """
             QLabel {
                 font-size: 16px;
                 font-weight: bold;
                 color: #333333;
                 margin-top: 20px;
             }
-        """)
+        """
+        )
         device_layout.addWidget(device_title)
 
         # Container for device buttons
@@ -137,7 +147,8 @@ class ScanningView(QWidget):
 
             button = QPushButton(f"{device_name} ({device_address})")
             button.setMinimumHeight(40)
-            button.setStyleSheet("""
+            button.setStyleSheet(
+                """
                 QPushButton {
                     font-size: 14px;
                     background-color: #f0f0f0;
@@ -153,7 +164,8 @@ class ScanningView(QWidget):
                 QPushButton:pressed {
                     background-color: #d0d0d0;
                 }
-            """)
+            """
+            )
             # Store the full device string as property
             button.device_info = device
             self.device_buttons_layout.addWidget(button)
@@ -177,25 +189,29 @@ class LoggingView(QWidget):
 
         # Main message
         message = QLabel("Recording in Progress")
-        message.setStyleSheet("""
+        message.setStyleSheet(
+            """
             QLabel {
                 font-size: 28px;
                 font-weight: bold;
                 color: #f44336;
             }
-        """)
+        """
+        )
         message.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(message)
         layout.addSpacing(30)
 
         # Warning message
         warning = QLabel("Do not disconnect the device during recording")
-        warning.setStyleSheet("""
+        warning.setStyleSheet(
+            """
             QLabel {
                 font-size: 14px;
                 color: #666666;
             }
-        """)
+        """
+        )
         warning.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(warning)
         layout.addSpacing(20)
@@ -203,7 +219,8 @@ class LoggingView(QWidget):
         # Stop button
         self.stop_button = QPushButton("STOP RECORDING")
         self.stop_button.setMinimumHeight(60)
-        self.stop_button.setStyleSheet("""
+        self.stop_button.setStyleSheet(
+            """
             QPushButton {
                 font-size: 18px;
                 font-weight: bold;
@@ -219,7 +236,8 @@ class LoggingView(QWidget):
             QPushButton:pressed {
                 background-color: #c62828;
             }
-        """)
+        """
+        )
         layout.addWidget(self.stop_button)
 
 
@@ -234,15 +252,46 @@ class MonitoringView(QWidget):
         self.plot_frame = QWidget()
         plot_layout = QVBoxLayout(self.plot_frame)
 
-        pg.setConfigOption("background", "w")
-        pg.setConfigOption("foreground", "k")
+        # Create a line series
+        self.series = QLineSeries()
+        self.series.setName("ECG")
 
-        self.plot_widget = pg.PlotWidget()
-        self.plot_widget.getViewBox().setMouseEnabled(x=False, y=False)
-        self.plot_widget.setLabel("left", "ECG", units="V")
-        self.plot_widget.setLabel("bottom", "Seconds")
-        self.ecg_curve = self.plot_widget.plot(pen="r")
-        plot_layout.addWidget(self.plot_widget)
+        pen = self.series.pen()
+        pen.setWidth(1.5)
+        pen.setColor(Qt.red)
+        self.series.setPen(pen)
+
+        # Create chart and add series
+        self.chart = QChart()
+        self.chart.addSeries(self.series)
+
+        # Create axes with fixed ranges
+        self.axis_x = QValueAxis()
+        self.axis_x.setTitleText("Time (seconds)")
+        self.axis_x.setRange(0, 9)  # For 10 data points (0-9)
+        self.axis_x.setGridLineVisible(False)  # Hide X-axis grid lines
+        self.axis_x.setVisible(False)
+
+        self.axis_y = QValueAxis()
+        self.axis_y.setTitleText("ECG (mV)")  # TODO check if mV or V
+        self.axis_y.setRange(0, 10)  # Match your random data range
+        self.axis_y.setGridLineVisible(False)  # Hide Y-axis grid lines
+
+        # Add axes to chart
+        self.chart.addAxis(self.axis_x, Qt.AlignBottom)
+        self.chart.addAxis(self.axis_y, Qt.AlignLeft)
+
+        self.chart.legend().setVisible(False)  # Hide the legend
+
+        # Attach series to axes
+        self.series.attachAxis(self.axis_x)
+        self.series.attachAxis(self.axis_y)
+
+        # Create chart view and set as central widget
+        self.chart_view = QChartView(self.chart)
+        self.chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        plot_layout.addWidget(self.chart_view)
 
         # Right zone: form with fixed labels and value fields
         self.info_widget = QWidget()
@@ -252,13 +301,15 @@ class MonitoringView(QWidget):
 
         # Main message
         message = QLabel("Device ready")
-        message.setStyleSheet("""
+        message.setStyleSheet(
+            """
             QLabel {
                 font-size: 24px;
                 font-weight: bold;
                 color: #4CAF50;
             }
-        """)
+        """
+        )
         message.setAlignment(Qt.AlignmentFlag.AlignCenter)
         info_layout.addWidget(message)
         info_layout.addSpacing(20)
@@ -282,7 +333,8 @@ class MonitoringView(QWidget):
         # Start recording button
         self.start_button = QPushButton("START RECORDING")
         self.start_button.setMinimumHeight(60)
-        self.start_button.setStyleSheet("""
+        self.start_button.setStyleSheet(
+            """
             QPushButton {
                 font-size: 18px;
                 font-weight: bold;
@@ -301,7 +353,8 @@ class MonitoringView(QWidget):
                 background-color: #cccccc;
                 color: #666666;
             }
-        """)
+        """
+        )
         info_layout.addWidget(self.start_button)
 
         info_layout.addStretch(1)
@@ -345,7 +398,7 @@ class MainWindow(QWidget):
         # Timer to update the live plot (only active in monitoring view)
         self.plot_timer = QTimer(self)
         self.plot_timer.timeout.connect(self.poll_ecg_data)
-        self.plot_timer.start(50)
+        self.plot_timer.start(20)
 
         # Non UI related stuff
         self._tasks = []
@@ -399,13 +452,12 @@ class MainWindow(QWidget):
 
         t = time.time()
         x_time = np.asarray(self.backend.svc.plot_x) - t
-        self.monitoring_view.ecg_curve.setData(
-            x_time, self.backend.svc.plot_y, autoDownsample=True
-        )
+        y_ecg = np.asarray(self.backend.svc.plot_y)
+        self.monitoring_view.series.replaceNp(x_time.astype(float), y_ecg.astype(float))
 
-        maxY = np.max(np.abs(self.backend.svc.plot_y))
-        self.monitoring_view.plot_widget.setYRange(-maxY, maxY)
-        self.monitoring_view.plot_widget.setXRange(-10, 0, padding=0)
+        maxY = np.max(np.abs(y_ecg))
+        self.monitoring_view.axis_y.setRange(-maxY, maxY)
+        self.monitoring_view.axis_x.setRange(-10, 0)
 
     # State change methods called by backend
     @Slot()
