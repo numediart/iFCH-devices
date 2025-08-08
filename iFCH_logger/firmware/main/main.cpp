@@ -800,19 +800,26 @@ extern "C" void app_main()
         enterHibernation(record.logging);
     }
 
+    uint8_t loggingStatus;
     // TODO remove
     // disconnectMovesense();
-    // connectMovesense();
-    // resetMovesense();
-    // resetState();
-    // vTaskDelay(pdMS_TO_TICKS(200));
-    // startMovesenseLogging();
-    // vTaskDelay(pdMS_TO_TICKS(1000));
-    // fetchMovesenseData();
-    // vTaskDelay(pdMS_TO_TICKS(1000));
-    // endMovesenseLogging();
-    // vTaskDelay(pdMS_TO_TICKS(5000));
-    // disconnectMovesense();
+    if (connectMovesense())
+    {
+        resetMovesense();
+        resetState();
+        vTaskDelay(pdMS_TO_TICKS(500));
+        startMovesenseLogging();
+        // vTaskDelay(pdMS_TO_TICKS(1000));
+        // fetchMovesenseData();
+        vTaskDelay(pdMS_TO_TICKS(500));
+        endMovesenseLogging();
+
+        vTaskDelay(pdMS_TO_TICKS(500));
+        movGetLoggingStatus(loggingStatus);
+    }
+    disconnectMovesense();
+
+    resetState();
 
     // Prevent watchdog timeout
     while (true)

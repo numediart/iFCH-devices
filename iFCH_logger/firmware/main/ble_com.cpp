@@ -1276,6 +1276,7 @@ bool movListLogs(std::vector<uint32_t> &logIds)
 
 bool _movFetchLog(FILE *f, uint32_t logId)
 {
+    // TODO investigate why this causes to lose connection
     uint8_t fetchReference = Commands::FETCH_LOG + REF_OFFSET_COMMAND;
     uint8_t logIdBytes[] = {
         static_cast<uint8_t>(logId & 0xFF),
