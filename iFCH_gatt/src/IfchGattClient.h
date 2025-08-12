@@ -5,7 +5,7 @@
 #include <queue>
 
 #define MAX_PATH_LEN 32
-#define MTU 161
+#define MTU 158
 
 struct IndicateRequest
 {
@@ -86,6 +86,7 @@ private:
 
     wb::TimerId mShutdownTimer;
     wb::TimerId mIndicateTimer;
+    wb::TimerId mIndicateTimeoutTimer;
     uint32_t mCounter;
     bool mLeadsConnected;
     uint8_t mDataLoggerState;

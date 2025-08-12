@@ -49,6 +49,8 @@ constexpr uint16_t logCharUUID16 = 0x0004;
 
 // To avoid losing Indicate messages, we need to wait a bit before sending the next one
 #define INDICATE_DELAY 50
+#define MAX_INDICATE_QUEUE_SIZE 10
+#define INDICATE_TIMEOUT 5000 // 5 seconds
 
 enum Commands
 {
@@ -117,6 +119,7 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mLogListDataSent(0),
                                    mShutdownTimer(wb::ID_INVALID_TIMER),
                                    mIndicateTimer(wb::ID_INVALID_TIMER),
+                                   mIndicateTimeoutTimer(wb::ID_INVALID_TIMER),
                                    mLeadsConnected(false),
                                    mDataLoggerState(WB_RES::DataLoggerStateValues::DATALOGGER_INVALID),
                                    mCounter(0),
@@ -182,8 +185,10 @@ void IfchGattClient::stopModule()
     // Stop LED timer
     stopTimer(mShutdownTimer);
     stopTimer(mIndicateTimer);
+    stopTimer(mIndicateTimeoutTimer);
     mShutdownTimer = wb::ID_INVALID_TIMER;
     mIndicateTimer = wb::ID_INVALID_TIMER;
+    mIndicateTimeoutTimer = wb::ID_INVALID_TIMER;
 
     // Unsubscribe lead state
     asyncUnsubscribe(WB_RES::LOCAL::SYSTEM_STATES_STATEID(), AsyncRequestOptions::Empty, WB_RES::StateIdValues::CONNECTOR);
@@ -259,6 +264,18 @@ void IfchGattClient::configGattSvc()
 void IfchGattClient::asyncPutIndicate(wb::ResourceId resourceId, const AsyncRequestOptions &rOptions,
                                       const uint8_t *data, size_t length)
 {
+    if (length > PAYLOAD_SIZE)
+    {
+        DEBUGLOG("Error: Indicate data length %zu exceeds maximum %d", length, PAYLOAD_SIZE);
+        return;
+    }
+
+    if (mIndicateQueue.size() >= MAX_INDICATE_QUEUE_SIZE)
+    {
+        DEBUGLOG("Indicate queue is full, dropping message");
+        return;
+    }
+
     IndicateRequest pIndicateRequest(resourceId, rOptions, data, length);
 
     mIndicateQueue.push(pIndicateRequest);
@@ -271,13 +288,23 @@ void IfchGattClient::asyncPutIndicate(wb::ResourceId resourceId, const AsyncRequ
 
 void IfchGattClient::putNextIndicate()
 {
+    if (mIndicateTimeoutTimer != wb::ID_INVALID_TIMER)
+    {
+        stopTimer(mIndicateTimeoutTimer);
+        mIndicateTimeoutTimer = wb::ID_INVALID_TIMER;
+    }
+
     if (mIndicateQueue.empty())
     {
         mIsIndicating = false;
+
         return;
     }
 
     mIsIndicating = true;
+
+    // Start timeout timer
+    mIndicateTimeoutTimer = startTimer(INDICATE_TIMEOUT, false);
 
     IndicateRequest pIndicateRequest = mIndicateQueue.front();
     mIndicateQueue.pop();
@@ -617,7 +644,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             // 403: forbidden
             uint8_t respError[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::FORBIDDEN};
-            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions::ForceAsync, respError, sizeof(respError));
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), respError, sizeof(respError));
 
             // We return here to avoid starting logging with no subscriptions
             return;
@@ -1209,7 +1236,21 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
                 stopTimer(mIndicateTimer);
                 mIndicateTimer = wb::ID_INVALID_TIMER;
             }
+            if (mIndicateTimeoutTimer != wb::ID_INVALID_TIMER)
+            {
+                stopTimer(mIndicateTimeoutTimer);
+                mIndicateTimeoutTimer = wb::ID_INVALID_TIMER;
+            }
+
             mIsIndicating = false;
+            mIndicateQueue = std::queue<IndicateRequest>();
+
+            // Clear pending operations
+            mLogListReference = 0;
+            mLogFetchReference = 0;
+            mGetTimeReference = 0;
+            mGetLoggingReference = 0;
+            mDataloggerStateReference = 0;
 
             setShutdownTimer();
         }
@@ -1375,6 +1416,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
 
         // Write the first part of notification value
         length = writeToSbemBuffer(&mDataMsgBuffer[2], sizeof(mDataMsgBuffer) - 2, 0, resourceId.localResourceId, value);
+        // TODO check why not ASSERT(length == firstPartLen)
         writePos += firstPartLen;
 
         WB_RES::Characteristic dataCharValue;
@@ -1387,6 +1429,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             writePos = 2;
             // Write the second part of data starting from offset "firstPartLen"
             length = writeToSbemBuffer(&mDataMsgBuffer[2], sizeof(mDataMsgBuffer) - 2, firstPartLen, resourceId.localResourceId, value);
+            // TODO check why not ASSERT(length == secondPartLen);
             writePos += secondPartLen;
             // And send it
             dataCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
@@ -1469,7 +1512,7 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
     }
 
     // We just completed an INDICATE request
-    if (resourceId == mLogCharResource || resourceId == mResponseCharResource)
+    if (resourceId == mResponseCharResource && mIndicateTimer == wb::ID_INVALID_TIMER)
     {
         // Schedule next INDICATE
         mIndicateTimer = startTimer(INDICATE_DELAY, false);
@@ -1537,6 +1580,21 @@ void IfchGattClient::onTimer(wb::TimerId timerId)
         // We just completed an INDICATE request
         // Send the next one
         mIndicateTimer = wb::ID_INVALID_TIMER;
+        putNextIndicate();
+    }
+
+    else if (timerId == mIndicateTimeoutTimer)
+    {
+        // Timeout for INDICATE
+        DEBUGLOG("Indicate timeout - forcing next message");
+        mIndicateTimeoutTimer = wb::ID_INVALID_TIMER;
+
+        if (mIndicateTimer != wb::ID_INVALID_TIMER)
+        {
+            stopTimer(mIndicateTimer);
+            mIndicateTimer = wb::ID_INVALID_TIMER;
+        }
+
         putNextIndicate();
     }
 }
