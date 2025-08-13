@@ -70,8 +70,6 @@ enum Commands
     GET_LOGGING_STATE = 13,
 };
 
-// TODO: add a command to get the Movesense version
-
 enum Responses
 {
     COMMAND_RESULT = 1,
@@ -1138,8 +1136,9 @@ void IfchGattClient::handleSendingLogbookData(const uint8_t *pData, uint32_t len
     memcpy(&(mDataMsgBuffer[writePos]), &mLogFetchOffset, sizeof(mLogFetchOffset));
     writePos += sizeof(mLogFetchOffset);
 
-    size_t firstPartLen = (length > MAX_DATA_SIZE) ? MAX_DATA_SIZE : length;
-    size_t secondPartLen = (length == firstPartLen) ? 0 : length - firstPartLen;
+    size_t dataSize = sizeof(mDataMsgBuffer) - writePos;
+    size_t firstPartLen = (length > dataSize) ? dataSize : length;
+    size_t secondPartLen = length - firstPartLen;
     DEBUGLOG("firstPartLen: %d, secondPartLen: %d", firstPartLen, secondPartLen);
 
     if (firstPartLen > 0)
@@ -1276,33 +1275,6 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             handleIncomingCommand(charValue.bytes);
             return;
         }
-        // else if (parameterRef.getCharHandle() == mDataCharHandle)
-        // {
-        //     const WB_RES::Characteristic &charValue = value.convertTo<const WB_RES::Characteristic &>();
-        //     // Update the notification state so we know if to forward data to datapipe
-        //     mNotificationsEnabled = charValue.notifications.hasValue() ? charValue.notifications.getValue() : false;
-        //     DEBUGLOG("onNotify: mDataCharHandle. mNotificationsEnabled: %d", mNotificationsEnabled);
-
-        //     return;
-        // }
-        // else if (parameterRef.getCharHandle() == mResponseCharHandle)
-        // {
-        //     const WB_RES::Characteristic &charValue = value.convertTo<const WB_RES::Characteristic &>();
-
-        //     mResponseNotificationsEnabled = charValue.notifications.hasValue() ? charValue.notifications.getValue() : false;
-        //     DEBUGLOG("onNotify: mResponseCharHandle. mResponseNotificationsEnabled: %d", mResponseNotificationsEnabled);
-
-        //     return;
-        // }
-        // else if (parameterRef.getCharHandle() == mLogCharHandle)
-        // {
-        //     const WB_RES::Characteristic &charValue = value.convertTo<const WB_RES::Characteristic &>();
-
-        //     mResponseNotificationsEnabled = charValue.notifications.hasValue() ? charValue.notifications.getValue() : false;
-        //     DEBUGLOG("onNotify: mLogCharHandle. mLogNotificationsEnabled: %d", mLogNotificationsEnabled);
-
-        //     return;
-        // }
         break;
     }
 
@@ -1330,8 +1302,9 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         size_t writePos = 2;
         memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.offset), sizeof(dataNotification.offset));
         writePos += sizeof(dataNotification.offset);
-        size_t firstPartLen = (length > MAX_DATA_SIZE) ? MAX_DATA_SIZE : length;
-        size_t secondPartLen = (length == firstPartLen) ? 0 : length - firstPartLen;
+        size_t dataSize = sizeof(mDataMsgBuffer) - writePos;
+        size_t firstPartLen = (length > dataSize) ? dataSize : length;
+        size_t secondPartLen = length - firstPartLen;
         DEBUGLOG("firstPartLen: %d, secondPartLen: %d", firstPartLen, secondPartLen);
         if (firstPartLen > 0)
         {
@@ -1410,13 +1383,17 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         mDataMsgBuffer[1] = ds->clientReference;
 
         size_t writePos = 2;
-        size_t firstPartLen = (length > MAX_DATA_SIZE) ? MAX_DATA_SIZE : length;
-        size_t secondPartLen = (length == firstPartLen) ? 0 : length - firstPartLen;
+        size_t dataSize = sizeof(mDataMsgBuffer) - 2;
+        size_t firstPartLen = (length > dataSize) ? dataSize : length;
+        size_t secondPartLen = length - firstPartLen;
         DEBUGLOG("firstPartLen: %d, secondPartLen: %d", firstPartLen, secondPartLen);
 
         // Write the first part of notification value
-        length = writeToSbemBuffer(&mDataMsgBuffer[2], sizeof(mDataMsgBuffer) - 2, 0, resourceId.localResourceId, value);
-        // TODO check why not ASSERT(length == firstPartLen)
+        length = writeToSbemBuffer(&mDataMsgBuffer[2], dataSize, 0, resourceId.localResourceId, value);
+        if (length != firstPartLen)
+        {
+            DEBUGLOG("writeToSbemBuffer returned unexpected length: %d, expected: %d", length, firstPartLen);
+        }
         writePos += firstPartLen;
 
         WB_RES::Characteristic dataCharValue;
@@ -1428,8 +1405,11 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             mDataMsgBuffer[0] = DATA_PART2;
             writePos = 2;
             // Write the second part of data starting from offset "firstPartLen"
-            length = writeToSbemBuffer(&mDataMsgBuffer[2], sizeof(mDataMsgBuffer) - 2, firstPartLen, resourceId.localResourceId, value);
-            // TODO check why not ASSERT(length == secondPartLen);
+            length = writeToSbemBuffer(&mDataMsgBuffer[2], dataSize, firstPartLen, resourceId.localResourceId, value);
+            if (length != secondPartLen)
+            {
+                DEBUGLOG("writeToSbemBuffer returned unexpected length: %d, expected: %d", length, secondPartLen);
+            }
             writePos += secondPartLen;
             // And send it
             dataCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);

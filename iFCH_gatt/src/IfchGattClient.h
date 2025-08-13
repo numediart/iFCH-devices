@@ -157,8 +157,8 @@ private:
     LogSub *getFreeLogSubSlot();
 
     // Buffer for outgoing data messages
+    // TODO check if this avoids fragmentation
     static constexpr size_t PAYLOAD_SIZE = MTU - 3;
-    static constexpr size_t MAX_DATA_SIZE = PAYLOAD_SIZE - 8;
     uint8_t mDataMsgBuffer[PAYLOAD_SIZE];
 
     DataSub *findDataSub(const wb::ResourceId resourceId);
