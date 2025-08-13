@@ -443,6 +443,8 @@ bool startMovesenseLogging()
         return false;
     }
 
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
     uint32_t currentEpoch;
     // Save the starting timestamps and battery levels checkpoint
     if (!saveCheckpoint(currentEpoch))
@@ -451,6 +453,8 @@ bool startMovesenseLogging()
         record.logging = false;
         return false;
     }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Subscribe to Movesense logs
     if (!movSubLogs())
@@ -462,6 +466,8 @@ bool startMovesenseLogging()
 
     // Set the last fetch time to the current epoch (starting point)
     record.lastFetch = currentEpoch;
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Start Movesense logging
     if (!movStartLog())
@@ -478,6 +484,8 @@ bool startMovesenseLogging()
         // If saving the record file failed, stop logging
         logError("startMovesenseLogging", "Failed to save record file or start timer after starting logging");
         record.logging = false;
+
+        vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
         // Wait for the Movesense to stop logging
         if (!movStopLog())
@@ -511,6 +519,8 @@ bool endMovesenseLogging()
         return false;
     }
 
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
     // Fetch the last Movesense log ID
     uint32_t logId;
     if (!getMovesenseLastLogId(logId))
@@ -519,6 +529,8 @@ bool endMovesenseLogging()
         record.part--;
         return false;
     }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Stop Movesense logging
     if (!movStopLog())
@@ -564,10 +576,7 @@ bool endMovesenseLogging()
         // Do not return false here, as the logging was stopped successfully
     }
 
-    // TODO remove log and investigate why this fails
-    ESP_LOGW("endMovesenseLogging", "Done receiving the log, waiting");
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-    ESP_LOGW("endMovesenseLogging", "Clearing logs");
 
     // And clear the Movesense logs
     if (!movClearLogs())
@@ -650,6 +659,8 @@ bool fetchMovesenseData()
         return false;
     }
 
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
     // Fetch the last Movesense log ID
     uint32_t logId;
     if (!getMovesenseLastLogId(logId))
@@ -670,14 +681,17 @@ bool fetchMovesenseData()
 
     ESP_LOGI("fetchMovesenseData", "Fetching data from Movesense");
 
-    // TODO investigate if this is possible
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
     // Start dumping the Movesense stream to a file to avoid gaps in data
-    // if (!startStreamDumpTask())
-    // {
-    //     logError("fetchMovesenseData", "Failed to start stream dump task");
-    //     record.part--;
-    //     return false;
-    // }
+    if (!startStreamDumpTask())
+    {
+        logError("fetchMovesenseData", "Failed to start stream dump task");
+        record.part--;
+        return false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Stop Movesense logging
     if (!movStopLog())
@@ -688,6 +702,8 @@ bool fetchMovesenseData()
         return false;
     }
 
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
     // Fetch the Movesense log and save it to SD card
     if (!movFetchLog(recordFile, logId))
     {
@@ -696,6 +712,8 @@ bool fetchMovesenseData()
         stopStreamDumpTask();
         return false;
     }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Delete the fetched logs from Movesense
     if (!movClearLogs())
@@ -706,6 +724,8 @@ bool fetchMovesenseData()
         return false;
     }
 
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
     // Restart Movesense logging
     if (!movStartLog())
     {
@@ -715,14 +735,15 @@ bool fetchMovesenseData()
         return false;
     }
 
-    // TODO investigate if this is possible
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
     // Stop the stream dump task (not needed anymore since logging is restarted)
-    // if (!stopStreamDumpTask())
-    // {
-    //     logError("fetchMovesenseData", "Failed to stop stream dump task");
-    //     record.part--;
-    //     return false;
-    // }
+    if (!stopStreamDumpTask())
+    {
+        logError("fetchMovesenseData", "Failed to stop stream dump task");
+        record.part--;
+        return false;
+    }
 
     // Save the record state to the JSON file
     if (!saveJsonRecord())

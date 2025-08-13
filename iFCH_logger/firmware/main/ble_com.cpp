@@ -79,7 +79,7 @@ enum Codes
 std::string
 addr_to_str(const void *addr)
 {
-    char buf[6 * 2 + 5 + 1];
+    char buf[6 * 2 + 5 + 1] = {0};
     const uint8_t *u8p;
 
     u8p = (uint8_t *)addr;
@@ -304,6 +304,8 @@ static int registerCharacteristics()
             return BLE_HS_ETIMEOUT;
         }
     }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Discover the ifch service
     rc = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&ifch_svc_uuid, disc_svc_cb, &registered);
@@ -956,7 +958,7 @@ bool connectMovesense()
     {
         logError("connectMovesense", "Error: Failed to connect to device; addr_type=%d "
                                      "addr=%s; rc=%d\n",
-                 peer_addr.type, addr_to_str(peer_addr.val), rc);
+                 peer_addr.type, config.address.c_str(), rc);
         return false;
     }
 
@@ -970,7 +972,14 @@ bool connectMovesense()
             logError("connectMovesense", "Connection timed out");
             return false;
         }
+        else if (!isMovesenseConnected)
+        {
+            logError("connectMovesense", "Warning: Failed to connect to device; addr=%s", config.address.c_str());
+            return false;
+        }
     }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY)); // Give some time for the connection to stabilize
 
     ESP_LOGI("connectMovesense", "Registering characteristics...");
 
@@ -984,6 +993,8 @@ bool connectMovesense()
         return false;
     }
 
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
     // Subscribe to the response characteristic
     ESP_LOGI("connectMovesense", "Subscribing to response characteristic...");
     if (!subscribeCharacteristic(response_char_handle, true))
@@ -993,7 +1004,7 @@ bool connectMovesense()
         return false;
     }
 
-    ESP_LOGI("connectMovesense", "Connected to Movesense");
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Subscribe to the log characteristic
     ESP_LOGI("connectMovesense", "Subscribing to log characteristic...");
@@ -1145,6 +1156,8 @@ bool movSubscribe()
             logError("movSubscribe", "Failed to send subscribe command for path: %s", path.c_str());
             return false;
         }
+
+        vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
     }
 
     bool success = subscribeCharacteristic(data_char_handle, false);
@@ -1188,6 +1201,8 @@ bool movSubLogs()
             logError("movSubLogs", "Failed to send log subscribe command for path: %s", path.c_str());
             return false;
         }
+
+        vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
     }
 
     return true;
@@ -1276,7 +1291,6 @@ bool movListLogs(std::vector<uint32_t> &logIds)
 
 bool _movFetchLog(FILE *f, uint32_t logId)
 {
-    // TODO investigate why this causes to lose connection
     uint8_t fetchReference = Commands::FETCH_LOG + REF_OFFSET_COMMAND;
     uint8_t logIdBytes[] = {
         static_cast<uint8_t>(logId & 0xFF),

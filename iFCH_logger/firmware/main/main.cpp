@@ -52,10 +52,12 @@ bool resetMovesense()
     {
         logError("MOV_FULL_RESET", "Failed to stop Movesense logging");
     }
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
     if (!movUnsubscribe())
     {
-        logError("MOV_FULL_RESET", "Failed to reset Movesense");
+        logError("MOV_FULL_RESET", "Failed to unsubscribe from Movesense sensors");
     }
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
     if (!movReset())
     {
         logError("MOV_FULL_RESET", "Failed to reset Movesense");
@@ -635,8 +637,7 @@ void loop()
                 // TODO: handle this error properly
                 // errorReset(COLOR_RUNTIME_ERROR);
             }
-            // TODO else if (!fetchMovesenseData())
-            else if (false)
+            else if (!fetchMovesenseData())
             {
                 logError("loop", "Failed to fetch Movesense data");
                 errorReset(COLOR_RUNTIME_ERROR);
@@ -769,8 +770,7 @@ extern "C" void app_main()
                 // TODO: handle this error properly
                 // errorReset(COLOR_RUNTIME_ERROR);
             }
-            // TODO else if (!fetchMovesenseData())
-            else if (false)
+            else if (!fetchMovesenseData())
             {
                 logError("app_main", "Failed to fetch Movesense data");
                 errorReset(COLOR_RUNTIME_ERROR);
@@ -799,27 +799,6 @@ extern "C" void app_main()
 
         enterHibernation(record.logging);
     }
-
-    uint8_t loggingStatus;
-    // TODO remove
-    // disconnectMovesense();
-    if (connectMovesense())
-    {
-        resetMovesense();
-        resetState();
-        vTaskDelay(pdMS_TO_TICKS(500));
-        startMovesenseLogging();
-        // vTaskDelay(pdMS_TO_TICKS(1000));
-        // fetchMovesenseData();
-        vTaskDelay(pdMS_TO_TICKS(500));
-        endMovesenseLogging();
-
-        vTaskDelay(pdMS_TO_TICKS(500));
-        movGetLoggingStatus(loggingStatus);
-    }
-    disconnectMovesense();
-
-    resetState();
 
     // Prevent watchdog timeout
     while (true)
