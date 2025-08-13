@@ -673,7 +673,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::STOP_LOG. reference: %d", reference);
 
-        if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_READY)
+        if (mDataLoggerState != WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
         {
             // There is already no logging in progress, so we can return immediately
             // 202: Accepted
