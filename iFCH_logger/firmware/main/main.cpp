@@ -631,10 +631,11 @@ void loop()
         ESP_LOGI("loop", "Clock interrupt active");
         if (record.logging)
         {
+            // TODO move duplicated code to a function
             if (!isMovesenseConnected && !connectMovesense())
             {
                 logError("loop", "Failed to connect to Movesense");
-                // TODO: handle this error properly
+                // TODO: handle this error properly using retry and a wake timer
                 // errorReset(COLOR_RUNTIME_ERROR);
             }
             else if (!fetchMovesenseData())

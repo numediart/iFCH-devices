@@ -5,6 +5,8 @@
 
 #include "globals.h"
 
+#include <functional>
+
 #define RGB_MAX 64
 
 #ifdef CONFIG_IDF_TARGET_ESP32S3
@@ -72,6 +74,9 @@ bool sendLog();
 
 // Delete the error log file
 bool deleteLog();
+
+// Retry a function call with a specified number of retries and delay
+bool retry(std::function<bool()> func, int retries, int delay_ms);
 
 // Global I2C master bus handle
 extern i2c_master_bus_handle_t i2c_handle;

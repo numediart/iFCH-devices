@@ -112,6 +112,7 @@ void enterHibernation(bool waketimer)
     if (waketimer)
     {
 
+        // TODO do this in a separate function, take the timer as parameter
         // Compute time since last data fetch
         uint32_t currentEpoch = getUNIXTime();
         if (currentEpoch == 0)

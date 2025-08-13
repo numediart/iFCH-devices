@@ -617,3 +617,17 @@ bool sendLog()
 
     return success;
 }
+
+bool retry(std::function<bool()> func, int retries, int delay_ms)
+{
+    for (int i = 0; i < retries; ++i)
+    {
+        if (func())
+        {
+            return true; // Success
+        }
+        ESP_LOGW("retry", "Attempt %d failed", i + 1);
+        vTaskDelay(pdMS_TO_TICKS(delay_ms)); // Wait before retrying
+    }
+    return false; // All retries failed
+}
