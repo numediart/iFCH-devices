@@ -3,7 +3,8 @@
 
 #include "globals.h"
 
-#define POLL_INTERVAL_MS 10 // Polling interval for Movesense data fetching
+#define POLL_INTERVAL_MS 10    // Polling interval for Movesense data fetching
+#define MIN_FREE_SPACE 2000000 // Minimum free space in kiB (~2GB)
 
 // Fetches the last Movesense logging chunk and starts the next one
 bool fetchMovesenseData();
@@ -20,5 +21,8 @@ bool saveCheckpoint(uint32_t &currentEpoch);
 
 // Read the starting timestamp of a Movesense record
 uint32_t readRecordTime(std::string path);
+
+// Remove oldest archives to guarantee minimum free space
+bool pruneArchives();
 
 #endif // LOGGER_H

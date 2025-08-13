@@ -7,6 +7,7 @@
 
 #include <cJSON.h>
 #include <format>
+#include <dirent.h>
 
 static TaskHandle_t stream_dump_task = nullptr;
 static TaskHandle_t stream_dump_control = nullptr;
@@ -760,4 +761,74 @@ bool fetchMovesenseData()
     }
 
     return true;
+}
+
+std::map<uint32_t, std::string> listArchivedLogs()
+{
+    std::map<uint32_t, std::string> archives;
+
+    DIR *root = opendir(MOUNT_POINT);
+    if (root == NULL)
+    {
+        logError("listArchivedLogs", "Failed to open root directory: %s", MOUNT_POINT);
+        errorReset(COLOR_SD);
+        return archives;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(root)) != NULL)
+    {
+        if (entry->d_type == DT_DIR && entry->d_name[0] == '_')
+        {
+            uint32_t dirTime = readRecordTime(std::string(MOUNT_POINT) + "/" + entry->d_name);
+
+            archives[dirTime] = std::string(entry->d_name);
+        }
+    }
+    closedir(root);
+
+    for (const auto &archive : archives)
+    {
+        ESP_LOGI("listArchivedLogs", "Found archive: %s with time: %lu", archive.second.c_str(), archive.first);
+    }
+
+    return archives;
+}
+
+bool pruneArchives()
+{
+    uint32_t availableSpace = getFreeSpace();
+    if (availableSpace >= MIN_FREE_SPACE)
+    {
+        ESP_LOGI("pruneArchives", "Available space is sufficient: %lu kiB", availableSpace);
+        return true; // No need to prune
+    }
+
+    std::map<uint32_t, std::string> archives = listArchivedLogs();
+    while (!archives.empty() && availableSpace < MIN_FREE_SPACE)
+    {
+        // Get the oldest archive
+        auto it = archives.begin();
+        std::string oldestArchive = it->second;
+
+        // Construct the path to the archive
+        std::string archivePath = std::format(MOUNT_POINT "/{}", oldestArchive);
+
+        // Remove the archive directory
+        if (!rremove(archivePath))
+        {
+            logError("pruneArchives", "Failed to remove archive: %s", archivePath.c_str());
+            return false;
+        }
+
+        ESP_LOGI("pruneArchives", "Removed archive: %s", archivePath.c_str());
+
+        // Update available space
+        availableSpace = getFreeSpace();
+
+        // Remove the entry from the map
+        archives.erase(it);
+    }
+
+    return availableSpace >= MIN_FREE_SPACE;
 }

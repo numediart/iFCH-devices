@@ -642,7 +642,10 @@ void loop()
                 logError("loop", "Failed to fetch Movesense data");
                 errorReset(COLOR_RUNTIME_ERROR);
             }
-            // TODO: clean up space if necessary
+            if (!pruneArchives())
+            {
+                logError("loop", "Failed to prune archives, SD card may be full");
+            }
         }
         else
         {
@@ -775,7 +778,10 @@ extern "C" void app_main()
                 logError("app_main", "Failed to fetch Movesense data");
                 errorReset(COLOR_RUNTIME_ERROR);
             }
-            // TODO: clean up space if necessary
+            if (!pruneArchives())
+            {
+                logError("app_main", "Failed to prune archives, SD card may be full");
+            }
         }
         else
         {

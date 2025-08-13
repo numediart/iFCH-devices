@@ -273,7 +273,7 @@ class DeviceService:
             logging.warning("Get free space timed out")
             return None
 
-    async def list_logs(self):
+    async def list_logs(self, show_archived=False):
         self.proto.send_frame(Commands.CMD_LIST_LOG)
 
         log_list = []
@@ -286,9 +286,15 @@ class DeviceService:
                 logging.warning("List logs timed out")
                 return None
             elif result:
-                log_id = result.decode("utf-8")
-                log_list.append(log_id)
-                logging.debug("Listed log: %s", log_id)
+                try:
+                    log_id = result.decode("utf-8")
+                    if not show_archived and log_id[0] == "_":
+                        logging.debug("Skipping archived log: %s", log_id)
+                        continue
+                    log_list.append(log_id)
+                    logging.debug("Listed log: %s", log_id)
+                except UnicodeDecodeError as e:
+                    logging.error("Failed to decode log ID: %s - %s", log_id, e)
             else:
                 return log_list
 
@@ -305,6 +311,18 @@ class DeviceService:
 
         return dir_files
 
+    async def archive_log(self, log_id: str):
+        self.proto.send_frame(Commands.CMD_ARCHIVE_LOG, log_id.encode("utf-8"))
+        result = await self.proto.wait_for_cmd(
+            Commands.CMD_ARCHIVE_LOG, timeout=BLE_TIMEOUT_S
+        )
+        if result is None:
+            logging.warning("Archive log timed out")
+            return False
+        else:
+            logging.debug("Archived log: %s", log_id)
+            return True
+
     async def get_error_log(self):
         self.proto.send_frame(Commands.CMD_GET_ERROR_LOG)
 
@@ -314,7 +332,11 @@ class DeviceService:
             logging.error("Failed to get error log file")
             return None
 
-        return data.decode("utf-8")
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError as e:
+            logging.error("Failed to decode error log file: %s", e)
+            return data
 
     async def delete_error_log(self):
         self.proto.send_frame(Commands.CMD_DELETE_ERROR_LOG)

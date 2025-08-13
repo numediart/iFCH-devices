@@ -4,6 +4,7 @@
 #define VERSION "iFCH-logger v0.1"
 
 #include <vector>
+#include <map>
 #include <string>
 #include <cstring>
 #include <cstdarg>

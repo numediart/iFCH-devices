@@ -55,10 +55,11 @@ async def test_device(port):
     else:
         logging.info("Error log deleted successfully")
 
-    logs = await device.list_logs()
+    logs = await device.list_logs(show_archived=False)
     if logs is None:
         logging.error("Failed to list logs")
     else:
+        logs = sorted(logs)
         logging.info("Logs listed successfully: %s", logs)
 
     if logs is not None and len(logs) > 0:
@@ -67,6 +68,12 @@ async def test_device(port):
             logging.error("Failed to get log %s", logs[0])
         else:
             logging.info("Log %s retrieved successfully: %s", logs[0], list(log.keys()))
+
+            archived = await device.archive_log(log)
+            if not archived:
+                logging.error("Failed to archive log %s", log)
+            else:
+                logging.info("Log %s archived successfully", log)
 
     logging.info("Scanning for devices...")
     devices = await device.scan()
