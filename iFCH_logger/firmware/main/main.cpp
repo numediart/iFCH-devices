@@ -769,17 +769,28 @@ extern "C" void app_main()
     if (!loadJsonRecord())
     {
         logError("app_main", "Failed to load record file, using default values");
-        blink(COLOR_SD, 5, 50);
         if (!saveJsonRecord())
         {
             logError("app_main", "Failed to save default record file");
             errorReset(COLOR_SD);
         }
+        else
+        {
+            blink(COLOR_SD, 2, 50);
+        }
     }
+
     if (!loadJsonConfig())
     {
-        logError("app_main", "Failed to load config file, using default values");
-        blink(COLOR_SD, 5, 50);
+        if (record.logging)
+        {
+            logError("app_main", "Failed to load config file, cannot start logging");
+            errorReset(COLOR_SD);
+        }
+        else
+        {
+            ESP_LOGI("app_main", "Failed to load config file, using default values");
+        }
     }
 
     // If the clock interrupt is active, fetch data
