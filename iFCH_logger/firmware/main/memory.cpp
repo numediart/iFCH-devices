@@ -488,9 +488,18 @@ bool loadJsonRecord()
         return false;
     }
 
+    cJSON *part = cJSON_GetObjectItemCaseSensitive(json, "part");
+    if (part == NULL || !cJSON_IsNumber(part))
+    {
+        logError("loadJsonRecord", "Invalid part in record file");
+        cJSON_Delete(json);
+        return false;
+    }
+
     record.lastFetch = lastFetch->valueint;
     record.logging = cJSON_IsTrue(logging);
     record.id = id->valueint;
+    record.part = part->valueint;
 
     ESP_LOGI("loadJsonRecord", "Record file loaded");
 
@@ -505,6 +514,7 @@ bool saveJsonRecord()
     cJSON_AddNumberToObject(json, "lastFetch", record.lastFetch);
     cJSON_AddBoolToObject(json, "logging", record.logging);
     cJSON_AddNumberToObject(json, "id", record.id);
+    cJSON_AddNumberToObject(json, "part", record.part);
 
     // Open the file for writing
     FILE *f = fopen(RECORD_FILE, "w");
