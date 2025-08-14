@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -26,6 +28,7 @@ from PySide6.QtWidgets import (
 class DeviceState(Enum):
     DISCONNECTED = "disconnected"
     SCANNING = "connected_scanning"
+    DEVICE_SELECTION = "connected_device_selection"
     LOGGING = "connected_logging"
     MONITORING = "connected_available"
 
@@ -110,74 +113,156 @@ class ScanningView(QWidget):
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_label)
 
-        # Device list container (initially hidden)
-        self.device_container = QWidget()
-        device_layout = QVBoxLayout(self.device_container)
 
-        device_title = QLabel("Available Movesense devices:")
-        device_title.setStyleSheet(
+# ----------------------------------------------------------------------
+class DeviceSelectionView(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Header
+        header = QLabel("Select Movesense Device")
+        header.setStyleSheet(
             """
             QLabel {
-                font-size: 16px;
+                font-size: 24px;
                 font-weight: bold;
-                color: #333333;
-                margin-top: 20px;
+                color: #2196F3;
             }
         """
         )
-        device_layout.addWidget(device_title)
+        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addStretch()
+        layout.addWidget(header)
+        layout.addSpacing(30)
 
-        # Container for device buttons
-        self.device_buttons_layout = QVBoxLayout()
-        device_layout.addLayout(self.device_buttons_layout)
-
-        layout.addWidget(self.device_container)
-        self.device_container.hide()
-
-    def show_devices(self, devices):
-        """Show list of available devices for user selection"""
-        # Clear existing buttons
-        for i in reversed(range(self.device_buttons_layout.count())):
-            self.device_buttons_layout.itemAt(i).widget().setParent(None)
-
-        # Add button for each device
-        for device in devices:
-            device_name = device.split(";")[0]
-            device_address = device.split(";")[-1]
-
-            button = QPushButton(f"{device_name} ({device_address})")
-            button.setMinimumHeight(40)
-            button.setStyleSheet(
-                """
-                QPushButton {
-                    font-size: 14px;
-                    background-color: #f0f0f0;
-                    border: 2px solid #cccccc;
-                    border-radius: 5px;
-                    padding: 8px;
-                    text-align: left;
-                }
-                QPushButton:hover {
-                    background-color: #e0e0e0;
-                    border-color: #2196F3;
-                }
-                QPushButton:pressed {
-                    background-color: #d0d0d0;
-                }
+        # Instructions
+        instructions = QLabel("Please select the device you want to connect to:")
+        instructions.setStyleSheet(
             """
-            )
-            # Store the full device string as property
-            button.device_info = device
-            self.device_buttons_layout.addWidget(button)
+            QLabel {
+                font-size: 14px;
+                color: #666666;
+            }
+        """
+        )
+        instructions.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(instructions)
+        layout.addSpacing(30)
 
-        self.device_container.show()
-        self.status_label.setText("Select a device to connect:")
+        # Device list2196F3
+        self.device_list = QListWidget()
+        self.device_list.setStyleSheet(
+            """
+            QListWidget {
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                background-color: white;
+                font-size: 14px;
+                padding: 5px;
+            }
+            QListWidget::item {
+                padding: 10px;
+                border-bottom: 1px solid #eeeeee;
+            }
+            QListWidget::item:selected {
+                background-color: #2196F3;
+                color: white;
+            }
+            QListWidget::item:hover {
+                background-color: #e3f2fd;
+            }
+            QListWidget::item:selected:hover {
+                background-color: #095fa5;
+            }
+        """
+        )
+        self.device_list.setMinimumHeight(200)
+        layout.addWidget(self.device_list)
 
-    def hide_devices(self):
-        """Hide the device selection list"""
-        self.device_container.hide()
+        # Buttons
+        button_layout = QHBoxLayout()
 
-    # TODO handle device selection action
+        self.refresh_button = QPushButton("Refresh")
+        self.refresh_button.setStyleSheet(
+            """
+            QPushButton {
+                font-size: 14px;
+                padding: 10px 20px;
+                background-color: #f5f5f5;
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #e0e0e0;
+            }
+        """
+        )
+        button_layout.addWidget(self.refresh_button)
+
+        button_layout.addStretch()
+
+        self.connect_button = QPushButton("Connect")
+        self.connect_button.setEnabled(False)
+        self.connect_button.setStyleSheet(
+            """
+            QPushButton {
+                font-size: 14px;
+                font-weight: bold;
+                padding: 10px 30px;
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover:enabled {
+                background-color: #45a049;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """
+        )
+        button_layout.addWidget(self.connect_button)
+
+        layout.addLayout(button_layout)
+        layout.addStretch()
+
+        # Connect signals
+        self.device_list.itemSelectionChanged.connect(self._on_selection_changed)
+
+    def _on_selection_changed(self):
+        """Enable connect button when a device is selected"""
+        self.connect_button.setEnabled(len(self.device_list.selectedItems()) > 0)
+
+    def set_devices(self, devices):
+        """Populate the device list"""
+        self.device_list.clear()
+        for device in devices:
+            # Parse device string (format: "name;address")
+            parts = device.split(";")
+            if len(parts) >= 2:
+                name = parts[0]
+                address = parts[-1]
+                item_text = f"{name} ({address})"
+            else:
+                item_text = device
+
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.ItemDataRole.UserRole, device)  # Store full device string
+            self.device_list.addItem(item)
+
+        if self.device_list.count() > 0:
+            self.device_list.setCurrentRow(0)
+
+    def get_selected_device(self):
+        """Get the selected device string"""
+        selected_items = self.device_list.selectedItems()
+        if selected_items:
+            return selected_items[0].data(Qt.ItemDataRole.UserRole)
+        return None
 
 
 # ----------------------------------------------------------------------
@@ -371,6 +456,7 @@ class MainWindow(QWidget):
         self.resize(800, 600)
 
         self.current_state = DeviceState.DISCONNECTED
+        self._shutdown_started = False  # Add shutdown flag
 
         # Create stacked widget to hold different views
         self.stacked_widget = QStackedWidget(self)
@@ -378,14 +464,16 @@ class MainWindow(QWidget):
         # Create all views
         self.disconnected_view = DisconnectedView()
         self.scanning_view = ScanningView()
+        self.device_selection_view = DeviceSelectionView()
         self.logging_view = LoggingView()
         self.monitoring_view = MonitoringView()
 
         # Add views to stack
         self.stacked_widget.addWidget(self.disconnected_view)  # index 0
         self.stacked_widget.addWidget(self.scanning_view)  # index 1
-        self.stacked_widget.addWidget(self.logging_view)  # index 2
-        self.stacked_widget.addWidget(self.monitoring_view)  # index 3
+        self.stacked_widget.addWidget(self.device_selection_view)  # index 2
+        self.stacked_widget.addWidget(self.logging_view)  # index 3
+        self.stacked_widget.addWidget(self.monitoring_view)  # index 4
 
         # Set main layout
         main_layout = QVBoxLayout(self)
@@ -394,6 +482,12 @@ class MainWindow(QWidget):
         # Connect signals
         self.logging_view.stop_button.clicked.connect(self.handle_stop_logging)
         self.monitoring_view.start_button.clicked.connect(self.handle_start_logging)
+        self.device_selection_view.connect_button.clicked.connect(
+            self.handle_device_connect
+        )
+        self.device_selection_view.refresh_button.clicked.connect(
+            self.handle_device_refresh
+        )
 
         # Timer to update the live plot (only active in monitoring view)
         self.plot_timer = QTimer(self)
@@ -418,11 +512,26 @@ class MainWindow(QWidget):
         elif new_state == DeviceState.SCANNING:
             self.stacked_widget.setCurrentIndex(1)  # Show scanning view
 
+        elif new_state == DeviceState.DEVICE_SELECTION:
+            self.stacked_widget.setCurrentIndex(2)  # Show device selection view
+
         elif new_state == DeviceState.LOGGING:
-            self.stacked_widget.setCurrentIndex(2)  # Show logging view
+            self.stacked_widget.setCurrentIndex(3)  # Show logging view
 
         elif new_state == DeviceState.MONITORING:
-            self.stacked_widget.setCurrentIndex(3)  # Show monitoring view
+            self.stacked_widget.setCurrentIndex(4)  # Show monitoring view
+
+    @Slot()
+    def handle_device_connect(self):
+        """Handle device selection and connection"""
+        selected_device = self.device_selection_view.get_selected_device()
+        if selected_device:
+            asyncio.create_task(self.backend.connect_to_device(selected_device))
+
+    @Slot()
+    def handle_device_refresh(self):
+        """Handle refresh devices button"""
+        asyncio.create_task(self.backend.refresh_devices())
 
     @Slot()
     def handle_start_logging(self):
@@ -435,10 +544,33 @@ class MainWindow(QWidget):
         asyncio.create_task(self.backend.stop_logging())
 
     async def cleanup(self):
+        if self._shutdown_started:
+            return
+        self._shutdown_started = True
+
         logging.debug("Cleaning up...")
+
+        # Stop the plot timer first
+        if hasattr(self, "plot_timer") and self.plot_timer.isActive():
+            self.plot_timer.stop()
+
+        # Cleanup the backend service first (this will stop DeviceService tasks)
+        if hasattr(self, "backend"):
+            await self.backend.quit()
+
+        # Cancel remaining tasks
         for task in self._tasks:
-            task.cancel()
-        await self.backend.quit()
+            if not task.done():
+                task.cancel()
+
+        # Wait for tasks to complete cancellation
+        if self._tasks:
+            try:
+                await asyncio.wait(
+                    self._tasks, timeout=2.0, return_when=asyncio.ALL_COMPLETED
+                )
+            except asyncio.TimeoutError:
+                logging.warning("Some tasks did not cancel within timeout")
 
     @Slot()
     def poll_ecg_data(self):
@@ -469,6 +601,10 @@ class MainWindow(QWidget):
         self.update_ui_state(DeviceState.SCANNING)
 
     @Slot()
+    def set_state_device_selection(self):
+        self.update_ui_state(DeviceState.DEVICE_SELECTION)
+
+    @Slot()
     def set_state_logging(self):
         self.update_ui_state(DeviceState.LOGGING)
 
@@ -479,6 +615,11 @@ class MainWindow(QWidget):
     @Slot(str)
     def update_disconnected_status(self, status):
         self.disconnected_view.status_label.setText(status)
+
+    @Slot(list)
+    def show_device_selection(self, devices):
+        self.device_selection_view.set_devices(devices)
+        self.set_state_device_selection()
 
     @Slot(str)
     def update_scanning_status(self, status):
@@ -495,23 +636,36 @@ class MainWindow(QWidget):
                 self.monitoring_view.fields[key].setText(state[key])
 
     def closeEvent(self, event):
+        if self._shutdown_started:
+            event.accept()
+            return
+
+        # Ignore the event initially to prevent Qt from destroying objects
         event.ignore()
-        self.hide()
+
+        # Start cleanup asynchronously
         asyncio.create_task(self._finish_shutdown())
 
     async def _finish_shutdown(self):
-        await self.cleanup()
-        QApplication.instance().quit()
+        try:
+            await self.cleanup()
+        except Exception as e:
+            logging.error("Error during cleanup: %s", e)
+        finally:
+            # Now actually close the window
+            self.close()
+            QApplication.instance().quit()
 
 
 # ----------------------------------------------------------------------
 class Backend:
-    SCAN_PERIOD_S = 1.0  # how often to probe USB when nothing is attached
+    SCAN_PERIOD_S = 1  # how often to probe USB when nothing is attached
     REFRESH_PERIOD_S = 10.0  # how often to poll battery when online
 
     def __init__(self, ui: MainWindow):
         self.ui = ui
         self.svc: DeviceService | None = None
+        self.available_devices = []
 
     async def run(self):
         logging.debug("Starting backend")
@@ -522,6 +676,7 @@ class Backend:
         logging.debug("Quitting backend")
         if self.svc is not None:
             await self.svc.stop()
+            self.svc = None
 
     async def start_logging(self):
         """Start logging on the device"""
@@ -544,7 +699,6 @@ class Backend:
 
         while True:
             try:
-                # TODO: is it necessary to reset ports?
                 found = await detect_device(reset_ports=False)
                 if found:
                     port, *_ = found[0]
@@ -563,8 +717,23 @@ class Backend:
                         return_when=asyncio.FIRST_COMPLETED,
                     )
 
+                    # Cancel pending tasks first
                     for task in pending:
                         task.cancel()
+
+                    # Wait for tasks to complete cancellation
+                    if pending:
+                        try:
+                            await asyncio.wait(
+                                pending, timeout=1.0, return_when=asyncio.ALL_COMPLETED
+                            )
+                        except asyncio.TimeoutError:
+                            logging.warning("Some tasks did not cancel within timeout")
+
+                    # Then stop the service
+                    if self.svc:
+                        await self.svc.stop()
+                        self.svc = None
 
                     self.ui.set_state_disconnected()
                     self.ui.update_disconnected_status("Disconnected, scanning USB...")
@@ -574,8 +743,49 @@ class Backend:
                 logging.warning("Error in scan loop: %s", e)
                 await asyncio.sleep(self.SCAN_PERIOD_S)
 
+    async def connect_to_device(self, device_string):
+        """Connect to a specific device"""
+        if not self.svc:
+            return
+
+        self.ui.set_state_scanning()
+        self.ui.update_scanning_status(
+            f"Connecting to {device_string.split(';')[0]}..."
+        )
+
+        movesense_address = device_string.split(";")[-1]
+        self.svc.set_address(movesense_address)
+
+        result = await self.svc.put_config()
+        if result:
+            connect = await self.svc.connect()
+            if connect:
+                logging.info("Connected to Movesense %s", movesense_address)
+
+                # Subscribe to data stream
+                result = await self.svc.sub_stream()
+                if result:
+                    logging.info("Subscribed to Movesense %s", device_string)
+                    return True
+                else:
+                    logging.warning(
+                        "Failed to subscribe to stream for %s", device_string
+                    )
+            else:
+                logging.warning("Failed to connect to %s", device_string)
+        else:
+            logging.warning("Failed to configure device for %s", device_string)
+
+        return False
+
+    async def refresh_devices(self):
+        """Refresh the list of available devices"""
+        self.ui.set_state_scanning()
+        self.ui.update_scanning_status("Refreshing device list...")
+        self.available_devices = []
+
     async def _online_loop(self) -> bool:
-        logging.info("Starting online loop")
+        logging.debug("Starting online loop")
         state = {}
         try:
             while True:
@@ -603,6 +813,9 @@ class Backend:
                     self.ui.update_device_info(state)
                     self.ui.set_state_monitoring()
 
+                elif self.available_devices:
+                    # Selection view
+                    pass
                 else:
                     # Not connected to sensor, show scanning view
                     self.ui.set_state_scanning()
@@ -614,37 +827,37 @@ class Backend:
                         raise ConnectionError
 
                     if len(devices) > 0:
-                        self.ui.update_scanning_status("Movesense found, connecting...")
+                        self.available_devices = devices
+                        self.ui.show_device_selection(devices)
 
-                        # TODO: investigate why the logger remembers streaming when the GUI is restarted
-                        # Even though the Movesense is disconnected in the meantime
-                        # We should definitely reset the streaming state when disconnecting and connecting
+                        # self.ui.update_scanning_status("Movesense found, connecting...")
 
-                        # TODO: handle multiple devices
-                        for dev in devices:
-                            movesense_address = dev.split(";")[-1]
-                            self.svc.set_address(movesense_address)
-                            result = await self.svc.put_config()
-                            if result:
-                                connect = await self.svc.connect()
-                                if connect:
-                                    self.ui.update_scanning_status(
-                                        "Connected to Movesense, getting status..."
-                                    )
-                                    logging.info(
-                                        "Connected to Movesense %s", movesense_address
-                                    )
-                                    state["mov"] = dev.split(";")[0]
+                        # # TODO: handle multiple devices
+                        # for dev in devices:
+                        #     movesense_address = dev.split(";")[-1]
+                        #     self.svc.set_address(movesense_address)
+                        #     result = await self.svc.put_config()
+                        #     if result:
+                        #         connect = await self.svc.connect()
+                        #         if connect:
+                        #             self.ui.update_scanning_status(
+                        #                 "Connected to Movesense, getting status..."
+                        #             )
+                        #             logging.info(
+                        #                 "Connected to Movesense %s", movesense_address
+                        #             )
+                        #             state["mov"] = dev.split(";")[0]
 
-                                    # TODO get movesense status and check for inconsistencies
+                        #             # TODO get movesense status and check for inconsistencies
 
-                                    # Subscribe to data stream
-                                    result = await self.svc.sub_stream()
-                                    # TODO investigate why this sometimes times out due to bad CRC
-                                    if result:
-                                        logging.info("Subscribed to Movesense %s", dev)
-                                        break
+                        #             # Subscribe to data stream
+                        #             result = await self.svc.sub_stream()
+                        #             # TODO investigate why this sometimes times out due to bad CRC
+                        #             if result:
+                        #                 logging.info("Subscribed to Movesense %s", dev)
+                        #                 break
 
+                # TODO this probably needs to be more dynamic if the movesense disconnects
                 if not device_state["connected"]:
                     await asyncio.sleep(self.SCAN_PERIOD_S)
                 else:
