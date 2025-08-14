@@ -23,4 +23,7 @@ uint32_t getUNIXTime();
 // Set the current time on the RTC chip in UNIX format
 bool setUNIXTime(uint32_t newTime);
 
+// Get the delay in minutes until the next fetch
+uint16_t getFetchDelayMin();
+
 #endif // RTC_TIME_H

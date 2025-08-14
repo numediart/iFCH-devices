@@ -37,7 +37,8 @@ bool isVUSBConnected();
 // Get the battery level from the MAX17048 fuel gauge
 float getBattery();
 
-// Put the device into deep sleep mode
-void enterHibernation(bool waketimer);
+// Put the device into deep sleep mode, waking up after a specified delay in minutes
+// If the wake delay is 0, the device will enter hibernation indefinitely
+void enterHibernation(uint16_t wakeDelayMin);
 
 #endif // POWER_H

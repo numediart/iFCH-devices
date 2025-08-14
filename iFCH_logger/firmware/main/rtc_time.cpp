@@ -261,3 +261,23 @@ bool timerIsOver()
     // Check if the countdown flag is set (bit 4)
     return flag_val & (1 << 4);
 }
+
+uint16_t getFetchDelayMin()
+{
+    uint32_t currentEpoch = getUNIXTime();
+    if (currentEpoch == 0)
+    {
+        logError("getFetchDelayMin", "Failed to get current time");
+        errorReset(COLOR_RTC);
+        return 1;
+    }
+    uint32_t lastFetchDelayMin = (currentEpoch - record.lastFetch) / 60;
+    if (lastFetchDelayMin > config.fetchIntervalMin)
+    {
+        lastFetchDelayMin = config.fetchIntervalMin - 1;
+    }
+
+    uint16_t fetchDelayMin = config.fetchIntervalMin - lastFetchDelayMin;
+
+    return fetchDelayMin;
+}

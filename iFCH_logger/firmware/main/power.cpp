@@ -97,7 +97,7 @@ float getBattery()
     return batteryLevel;
 }
 
-void enterHibernation(bool waketimer)
+void enterHibernation(uint16_t wakeDelayMin)
 {
     ESP_LOGI("enterHibernation", "Preparing to enter hibernation");
 
@@ -109,26 +109,9 @@ void enterHibernation(bool waketimer)
 
     esp_err_t result;
 
-    if (waketimer)
+    if (wakeDelayMin)
     {
-
-        // TODO do this in a separate function, take the timer as parameter
-        // Compute time since last data fetch
-        uint32_t currentEpoch = getUNIXTime();
-        if (currentEpoch == 0)
-        {
-            logError("enterHibernation", "Failed to get current time");
-            errorReset(COLOR_RTC);
-            return;
-        }
-        uint32_t lastFetchDelayMin = (currentEpoch - record.lastFetch) / 60;
-        if (lastFetchDelayMin > config.fetchIntervalMin)
-        {
-            lastFetchDelayMin = config.fetchIntervalMin - 1;
-        }
-        uint16_t waketimer_minutes = config.fetchIntervalMin - lastFetchDelayMin;
-
-        result = esp_sleep_enable_timer_wakeup((uint64_t)60000000 * waketimer_minutes);
+        result = esp_sleep_enable_timer_wakeup((uint64_t)60000000 * wakeDelayMin);
         if (result != ESP_OK)
         {
             logError("enterHibernation", "Failed to set waketimer");

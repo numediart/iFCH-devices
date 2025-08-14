@@ -75,6 +75,34 @@ bool resetMovesense()
     return success;
 }
 
+void fetchLogic()
+{
+    if (record.logging)
+    {
+        if (!isMovesenseConnected && !retry(connectMovesense, N_RETRIES, RETRY_DELAY_MS))
+        {
+            logError("fetchStep", "Failed to connect to Movesense");
+            blink(COLOR_BLE, 5, 50);
+            // If we failed to connect, enter hibernation for some time and retry later
+            enterHibernation(FAILURE_DELAY_MIN);
+        }
+        else if (!fetchMovesenseData())
+        {
+            logError("fetchStep", "Failed to fetch Movesense data");
+            errorReset(COLOR_RUNTIME_ERROR);
+        }
+        if (!pruneArchives())
+        {
+            logError("fetchStep", "Failed to prune archives, SD card may be full");
+        }
+    }
+    else
+    {
+        logError("fetchStep", "Clock interrupt active but not logging");
+        stopRTCTimer();
+    }
+}
+
 void handleSerialCommand(CmdType cmd)
 {
     // Visual indicator that a command was received
@@ -628,31 +656,8 @@ void loop()
     // The clock interrupt is active, fetch data
     if (timerIsOver())
     {
-        ESP_LOGI("loop", "Clock interrupt active");
-        if (record.logging)
-        {
-            // TODO move duplicated code to a function
-            if (!isMovesenseConnected && !connectMovesense())
-            {
-                logError("loop", "Failed to connect to Movesense");
-                // TODO: handle this error properly using retry and a wake timer
-                // errorReset(COLOR_RUNTIME_ERROR);
-            }
-            else if (!fetchMovesenseData())
-            {
-                logError("loop", "Failed to fetch Movesense data");
-                errorReset(COLOR_RUNTIME_ERROR);
-            }
-            if (!pruneArchives())
-            {
-                logError("loop", "Failed to prune archives, SD card may be full");
-            }
-        }
-        else
-        {
-            logError("loop", "Clock interrupt active but not logging");
-            stopRTCTimer();
-        }
+        ESP_LOGI("loop", "Clock interrupt active, fetching");
+        fetchLogic();
     }
 
     uint8_t queueNotif[NOTIF_LEN]; // +1 for the length byte
@@ -715,7 +720,14 @@ void loop()
             disconnectMovesense();
         }
 
-        enterHibernation(record.logging);
+        // If we are not logging, enter hibernation indefinitely
+        uint16_t fetchDelayMin = 0;
+        if (record.logging)
+        {
+            fetchDelayMin = getFetchDelayMin();
+        }
+
+        enterHibernation(fetchDelayMin);
     }
 }
 
@@ -765,30 +777,8 @@ extern "C" void app_main()
     // If the clock interrupt is active, fetch data
     if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER || timerIsOver())
     {
-        ESP_LOGI("app_main", "Clock interrupt active");
-        if (record.logging)
-        {
-            if (!connectMovesense())
-            {
-                logError("app_main", "Failed to connect to Movesense");
-                // TODO: handle this error properly
-                // errorReset(COLOR_RUNTIME_ERROR);
-            }
-            else if (!fetchMovesenseData())
-            {
-                logError("app_main", "Failed to fetch Movesense data");
-                errorReset(COLOR_RUNTIME_ERROR);
-            }
-            if (!pruneArchives())
-            {
-                logError("app_main", "Failed to prune archives, SD card may be full");
-            }
-        }
-        else
-        {
-            logError("app_main", "Clock interrupt active but not logging");
-            stopRTCTimer();
-        }
+        ESP_LOGI("app_main", "Clock interrupt active, fetching");
+        fetchLogic();
     }
 
     // If USB is connected, start the Serial interface
@@ -804,7 +794,14 @@ extern "C" void app_main()
             disconnectMovesense();
         }
 
-        enterHibernation(record.logging);
+        // If we are not logging, enter hibernation indefinitely
+        uint16_t fetchDelayMin = 0;
+        if (record.logging)
+        {
+            fetchDelayMin = getFetchDelayMin();
+        }
+
+        enterHibernation(fetchDelayMin);
     }
 
     // Prevent watchdog timeout
