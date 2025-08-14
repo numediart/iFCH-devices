@@ -1017,21 +1017,32 @@ bool connectMovesense()
     return isMovesenseConnected;
 }
 
-void disconnectMovesense()
+bool disconnectMovesense()
 {
-    if (!isMovesenseConnected)
-    {
-        ESP_LOGW("disconnectMovesense", "Not connected to Movesense, nothing to disconnect (should print error)");
-    }
-
     int rc = ble_gap_terminate(movesense_handle, BLE_ERR_REM_USER_CONN_TERM);
-    if (rc != 0)
+    if (rc == 7)
+    {
+        // BLE_ERR_REM_USER_CONN_TERM is 7, which means the Movesense device is already disconnected
+        if (isMovesenseConnected)
+        {
+            logError("disconnectMovesense", "Warning: Movesense was already disconnected but isMovesenseConnected was true");
+            isMovesenseConnected = false;
+        }
+        else
+        {
+            ESP_LOGI("disconnectMovesense", "Movesense already disconnected");
+        }
+        return true;
+    }
+    else if (rc != 0)
     {
         logError("disconnectMovesense", "Error: Failed to disconnect; rc=%d\n", rc);
+        return false;
     }
     else
     {
         ESP_LOGI("disconnectMovesense", "Disconnected from Movesense");
+        return true;
     }
 }
 

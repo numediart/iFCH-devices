@@ -29,7 +29,7 @@ bool scanBLEDevices();
 bool connectMovesense();
 
 // Disconnect from the Movesense device
-void disconnectMovesense();
+bool disconnectMovesense();
 
 // Get the Movesense battery level
 bool getMovesenseBattery(uint8_t &batteryLevel);

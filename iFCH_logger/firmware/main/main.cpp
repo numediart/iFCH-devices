@@ -447,9 +447,15 @@ void handleSerialCommand(CmdType cmd)
     // Disconnect from the Movesense
     case CmdType::CMD_DISCONNECT:
     {
-        disconnectMovesense();
-        isStreaming = false;
-        sendFrame(CmdType::CMD_DISCONNECT, (uint8_t *)config.address.c_str(), config.address.length());
+        if (disconnectMovesense())
+        {
+            isStreaming = false;
+            sendFrame(CmdType::CMD_DISCONNECT, (uint8_t *)config.address.c_str(), config.address.length());
+        }
+        else
+        {
+            logError("CMD_DISCONNECT", "Failed to disconnect from Movesense");
+        }
         break;
     }
 
@@ -716,10 +722,7 @@ void loop()
     // If the USB is disconnected, enter hibernation
     if (isVUSBConnected() == false)
     {
-        if (isMovesenseConnected)
-        {
-            disconnectMovesense();
-        }
+        disconnectMovesense();
 
         // If we are not logging, enter hibernation indefinitely
         uint16_t fetchDelayMin = 0;
@@ -792,10 +795,7 @@ extern "C" void app_main()
     // If the USB is not connected, enter hibernation
     else
     {
-        if (isMovesenseConnected)
-        {
-            disconnectMovesense();
-        }
+        disconnectMovesense();
 
         // If we are not logging, enter hibernation indefinitely
         uint16_t fetchDelayMin = 0;
