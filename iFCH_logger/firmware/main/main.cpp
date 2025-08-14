@@ -770,6 +770,11 @@ extern "C" void app_main()
     {
         logError("app_main", "Failed to load record file, using default values");
         blink(COLOR_SD, 5, 50);
+        if (!saveJsonRecord())
+        {
+            logError("app_main", "Failed to save default record file");
+            errorReset(COLOR_SD);
+        }
     }
     if (!loadJsonConfig())
     {

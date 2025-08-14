@@ -14,9 +14,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
-// Define for sending error logs to the serial port
-#define ERR_LOG_SERIAL
-
 #define RETRY_DELAY_MS 1000
 #define N_RETRIES 3
 #define FAILURE_DELAY_MIN 2

@@ -544,16 +544,6 @@ void logError(const char *tag, const char *fmt, ...)
             ESP_LOGW("logError", "Log queue is full, entry discarded");
         }
     }
-
-#ifdef ERR_LOG_SERIAL
-    // If USB serial is available, send error frame
-    if (isSerialConnected())
-    {
-        sendFrame(CmdType::CMD_ERROR,
-                  reinterpret_cast<uint8_t *>(buf),
-                  static_cast<uint16_t>(len));
-    }
-#endif // ERR_LOG_SERIAL
 }
 
 void logMessage(const char *message)
