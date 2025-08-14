@@ -100,12 +100,14 @@ class FrameProtocol(asyncio.Protocol):
 
         self.connected = asyncio.Event()
         self.disconnected = asyncio.Event()
+        self.is_connected = False
 
         self.other_rx = []
 
     # --- low‑level serial callbacks ----------------------------------
     def connection_made(self, transport):
         self.transport = transport
+        self.is_connected = True
         self.connected.set()
         # Optional: log or signal GUI the port opened
 
@@ -117,6 +119,7 @@ class FrameProtocol(asyncio.Protocol):
         # Optional: push a sentinel onto the queue or emit a signal
         if exc:
             logging.warning(f"Serial connection lost: {exc}")
+        self.is_connected = False
         self.disconnected.set()
 
     def send_frame(self, cmd: Commands, payload: bytes = b""):

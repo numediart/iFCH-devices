@@ -53,11 +53,10 @@ class DeviceService:
         for t in self._tasks:
             t.cancel()
 
-        # TODO replace this with a proper cleanup on the device itself
-        await self.unsub_stream()
-        await self.disconnect()
-
         if self.proto:
+            if self.proto.is_connected:
+                res = await self.disconnect()
+
             self.proto.transport.close()
 
         logging.debug("Device service stopped")
@@ -379,7 +378,7 @@ class DeviceService:
     async def disconnect(self):
         self.proto.send_frame(Commands.CMD_DISCONNECT)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_DISCONNECT, timeout=2 * BLE_TIMEOUT_S
+            Commands.CMD_DISCONNECT, timeout=BLE_TIMEOUT_S
         )
         if result is None:
             logging.error("Disconnect timed out")
