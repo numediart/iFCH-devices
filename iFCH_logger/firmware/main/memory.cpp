@@ -469,7 +469,6 @@ bool loadJsonRecord()
     {
         logError("loadJsonRecord", "Invalid lastFetch in record file");
         cJSON_Delete(json);
-        blink(COLOR_RUNTIME_ERROR, 5, 50);
         return false;
     }
 
@@ -478,7 +477,6 @@ bool loadJsonRecord()
     {
         logError("loadJsonRecord", "Invalid logging in record file");
         cJSON_Delete(json);
-        blink(COLOR_RUNTIME_ERROR, 5, 50);
         return false;
     }
 
@@ -487,7 +485,6 @@ bool loadJsonRecord()
     {
         logError("loadJsonRecord", "Invalid id in record file");
         cJSON_Delete(json);
-        blink(COLOR_RUNTIME_ERROR, 5, 50);
         return false;
     }
 
@@ -537,8 +534,6 @@ bool saveJsonRecord()
     fclose(f);
     cJSON_free(json_str);
     cJSON_Delete(json);
-
-    blink(COLOR_SD, 1, 150);
 
     ESP_LOGI("saveJsonRecord", "Record file saved");
 

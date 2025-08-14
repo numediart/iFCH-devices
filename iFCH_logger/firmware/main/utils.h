@@ -49,7 +49,6 @@ void ledWrite(bool enable);
 
 // Blink the LED a specified number of times with given RGB values and duration
 void blink(uint8_t r_val, uint8_t g_val, uint8_t b_val, uint8_t times, uint32_t duration);
-// TODO: reduce the usage of blink to avoid saturating the queue
 
 // Reset the board after an error, blinking the LED with specified RGB values
 void errorReset(uint8_t r_val, uint8_t g_val, uint8_t b_val);

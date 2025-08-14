@@ -602,9 +602,6 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             return BLE_HS_EBADDATA;
         }
 
-        // TODO This saturates the blink queue
-        // blink(COLOR_BLE, 1, 1);
-
         uint8_t rxNotify[NOTIF_LEN];
         rxNotify[0] = len; // First byte is the length of the notification
         os_mbuf_copydata(event->notify_rx.om, 0, len, rxNotify + 1);
@@ -616,7 +613,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             if (result == pdFALSE)
             {
                 logError("BLE_GAP_EVENT_NOTIFY_RX", "Queue send failed for responseQueue, data lost (queue full?)");
-                blink(COLOR_RUNTIME_ERROR, 2, 1);
+                blink(COLOR_RUNTIME_ERROR, 1, 1);
             }
         }
         else if (event->notify_rx.attr_handle == data_char_handle)
@@ -626,7 +623,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             if (result == pdFALSE)
             {
                 logError("BLE_GAP_EVENT_NOTIFY_RX", "Queue send failed for dataQueue, data lost (queue full?)");
-                blink(COLOR_RUNTIME_ERROR, 2, 1);
+                blink(COLOR_RUNTIME_ERROR, 1, 1);
             }
         }
         else if (event->notify_rx.attr_handle == log_char_handle)
@@ -636,7 +633,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             if (result == pdFALSE)
             {
                 logError("BLE_GAP_EVENT_NOTIFY_RX", "Queue send failed for logQueue, data lost (queue full?)");
-                blink(COLOR_RUNTIME_ERROR, 2, 1);
+                blink(COLOR_RUNTIME_ERROR, 1, 1);
             }
         }
         else
@@ -1437,11 +1434,7 @@ bool movFetchLog(std::string filename, uint32_t logId)
         return false;
     }
 
-    ledWrite(COLOR_BLE);
-
     bool success = _movFetchLog(f, logId);
-
-    ledWrite(false);
 
     // Close the file
     if (f != NULL)

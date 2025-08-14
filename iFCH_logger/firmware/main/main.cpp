@@ -750,28 +750,27 @@ extern "C" void app_main()
 
     isStreaming = false;
 
-    // Blink signal to indicate the board is starting
+    // Set up all components
     setupBoard();
-    blink(RGB_MAX, RGB_MAX, RGB_MAX, 2, 150);
-
-    // Set up all peripherals
     setupSDCard();
-
-    logMessage("Booting");
-
     setupRTC();
 
     uint32_t currentEpoch = getUNIXTime();
-    logMessage(("Current time: " + std::to_string(currentEpoch)).c_str());
+    logMessage(("Boot time: " + std::to_string(currentEpoch)).c_str());
 
     setupVUSB();
     setupGauge();
     setupBLE();
 
     // Load the saved record and config files
-    loadJsonRecord();
+    if (!loadJsonRecord())
+    {
+        logError("app_main", "Failed to load record file, using default values");
+        blink(COLOR_SD, 5, 50);
+    }
     if (!loadJsonConfig())
     {
+        logError("app_main", "Failed to load config file, using default values");
         blink(COLOR_SD, 5, 50);
     }
 
@@ -785,6 +784,9 @@ extern "C" void app_main()
     // If USB is connected, start the Serial interface
     if (isVUSBConnected())
     {
+        // Blink signal to indicate the board is starting
+        blink(RGB_MAX, RGB_MAX, RGB_MAX, 2, 150);
+
         setupSerial();
     }
     // If the USB is not connected, enter hibernation
