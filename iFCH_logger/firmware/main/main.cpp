@@ -16,7 +16,7 @@ QueueHandle_t dataQueue;
 QueueHandle_t responseQueue;
 QueueHandle_t logQueue;
 
-bool isStreaming = false;
+bool isStreaming;
 
 bool resetState()
 {
@@ -448,6 +448,7 @@ void handleSerialCommand(CmdType cmd)
     case CmdType::CMD_DISCONNECT:
     {
         disconnectMovesense();
+        isStreaming = false;
         sendFrame(CmdType::CMD_DISCONNECT, (uint8_t *)config.address.c_str(), config.address.length());
         break;
     }
