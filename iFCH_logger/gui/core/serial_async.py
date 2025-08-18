@@ -289,7 +289,11 @@ class FrameProtocol(asyncio.Protocol):
                 if cmd == wanted:
                     return payload
                 elif not cmd == Commands.CMD_ERROR:
-                    logging.warning("Unexpected command: %s", cmd.name)
+                    logging.warning(
+                        "Unexpected command: %s while waiting for %s",
+                        cmd.name,
+                        wanted.name,
+                    )
 
         except asyncio.TimeoutError:
             logging.debug("Timeout waiting for command: %s", wanted.name)

@@ -55,11 +55,14 @@ class DeviceService:
 
         if self.proto:
             if self.proto.is_connected:
-                res = await self.disconnect()
+                await self.disconnect()
 
             self.proto.transport.close()
 
-        logging.debug("Device service stopped")
+        self.plot_x.clear()
+        self.plot_y.clear()
+
+        logging.info("Device service stopped")
 
     async def process_notifications(self):
         while True:
