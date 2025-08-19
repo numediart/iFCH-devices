@@ -36,6 +36,23 @@ class GUIState(Enum):
     MONITORING = "connected_available"
 
 
+GREEN_L = "#4caf50"
+GREEN_M = "#45a148"
+GREEN_D = "#3f9141"
+
+RED_L = "#af4c4c"
+RED_M = "#a14545"
+RED_D = "#913f3f"
+
+BLUE_L = "#4c82af"
+BLUE_M = "#4577a1"
+BLUE_D = "#3f6c91"
+
+GREY_L = "#b0b0b0"
+GREY_M = "#a1a1a1"
+GREY_D = "#919191"
+
+
 # ----------------------------------------------------------------------
 class DisconnectedView(QWidget):
     def __init__(self):
@@ -48,12 +65,12 @@ class DisconnectedView(QWidget):
         # Main message
         message = QLabel("Please connect your iFCH device via USB")
         message.setStyleSheet(
-            """
-            QLabel {
+            f"""
+            QLabel {{
                 font-size: 24px;
                 font-weight: bold;
-                color: #666666;
-            }
+                color: {GREY_D};
+            }}
         """
         )
         message.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -63,11 +80,11 @@ class DisconnectedView(QWidget):
         # Status label
         self.status_label = QLabel("Waiting for device...")
         self.status_label.setStyleSheet(
-            """
-            QLabel {
-                font-size: 14px;
-                color: #999999;
-            }
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
         """
         )
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -84,12 +101,12 @@ class ScanningView(QWidget):
         # Main message
         message = QLabel("Scanning for sensors...")
         message.setStyleSheet(
-            """
-            QLabel {
+            f"""
+            QLabel {{
                 font-size: 24px;
                 font-weight: bold;
-                color: #2196F3;
-            }
+                color: {BLUE_L};
+            }}
         """
         )
         message.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -101,11 +118,11 @@ class ScanningView(QWidget):
             "Make sure your Movesense device is powered on and in range"
         )
         self.status_label.setStyleSheet(
-            """
-            QLabel {
-                font-size: 14px;
-                color: #666666;
-            }
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
         """
         )
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -122,12 +139,12 @@ class DeviceSelectionView(QWidget):
         # Header
         header = QLabel("Select Movesense Device")
         header.setStyleSheet(
-            """
-            QLabel {
+            f"""
+            QLabel {{
                 font-size: 24px;
                 font-weight: bold;
-                color: #2196F3;
-            }
+                color: {BLUE_L};
+            }}
         """
         )
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -138,42 +155,42 @@ class DeviceSelectionView(QWidget):
         # Instructions
         instructions = QLabel("Please select the device you want to connect to:")
         instructions.setStyleSheet(
-            """
-            QLabel {
-                font-size: 14px;
-                color: #666666;
-            }
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
         """
         )
         instructions.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(instructions)
         layout.addSpacing(30)
 
-        # Device list2196F3
+        # Device list
         self.device_list = QListWidget()
         self.device_list.setStyleSheet(
-            """
-            QListWidget {
-                border: 1px solid #cccccc;
+            f"""
+            QListWidget {{
+                border: 1px solid {GREY_L};
                 border-radius: 4px;
                 background-color: white;
-                font-size: 14px;
+                font-size: 16px;
                 padding: 5px;
-            }
-            QListWidget::item {
+            }}
+            QListWidget::item {{
                 padding: 10px;
-                border-bottom: 1px solid #eeeeee;
-            }
-            QListWidget::item:selected {
-                background-color: #2196F3;
+                border-bottom: 1px solid {GREY_L};
+            }}
+            QListWidget::item:selected {{
+                background-color: {BLUE_L};
                 color: white;
-            }
-            QListWidget::item:hover {
-                background-color: #e3f2fd;
-            }
-            QListWidget::item:selected:hover {
-                background-color: #095fa5;
-            }
+            }}
+            QListWidget::item:hover {{
+                background-color: {BLUE_M};
+            }}
+            QListWidget::item:selected:hover {{
+                background-color: {BLUE_D};
+            }}
         """
         )
         self.device_list.setMinimumHeight(200)
@@ -184,17 +201,25 @@ class DeviceSelectionView(QWidget):
 
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.setStyleSheet(
-            """
-            QPushButton {
-                font-size: 14px;
-                padding: 10px 20px;
-                background-color: #f5f5f5;
-                border: 1px solid #cccccc;
+            f"""
+            QPushButton {{
+                font-size: 16px;
+                padding: 10px 30px;
+                background-color: {GREY_L};
+                border: none;
                 border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {GREY_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {GREY_D};
+            }}
+            QPushButton:disabled {{
+                background-color: {GREY_L};
+                color: {GREY_D};
+            }}
         """
         )
         button_layout.addWidget(self.refresh_button)
@@ -204,23 +229,25 @@ class DeviceSelectionView(QWidget):
         self.connect_button = QPushButton("Connect")
         self.connect_button.setEnabled(False)
         self.connect_button.setStyleSheet(
-            """
-            QPushButton {
-                font-size: 14px;
-                font-weight: bold;
+            f"""
+            QPushButton {{
+                font-size: 16px;
                 padding: 10px 30px;
-                background-color: #4CAF50;
+                background-color: {GREEN_L};
                 color: white;
                 border: none;
                 border-radius: 4px;
-            }
-            QPushButton:hover:enabled {
-                background-color: #45a049;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #666666;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {GREEN_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {GREEN_D};
+            }}
+            QPushButton:disabled {{
+                background-color: {GREY_L};
+                color: {GREY_D};
+            }}
         """
         )
         button_layout.addWidget(self.connect_button)
@@ -273,12 +300,12 @@ class LoggingView(QWidget):
         # Main message
         message = QLabel("Recording in Progress")
         message.setStyleSheet(
-            """
-            QLabel {
+            f"""
+            QLabel {{
                 font-size: 28px;
                 font-weight: bold;
-                color: #f44336;
-            }
+                color: {RED_L};
+            }}
         """
         )
         message.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -288,11 +315,11 @@ class LoggingView(QWidget):
         # Warning message
         warning = QLabel("Do not disconnect the device during recording")
         warning.setStyleSheet(
-            """
-            QLabel {
-                font-size: 14px;
-                color: #666666;
-            }
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
         """
         )
         warning.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -303,22 +330,26 @@ class LoggingView(QWidget):
         self.stop_button = QPushButton("STOP RECORDING")
         self.stop_button.setMinimumHeight(60)
         self.stop_button.setStyleSheet(
-            """
-            QPushButton {
+            f"""
+            QPushButton {{
                 font-size: 18px;
                 font-weight: bold;
-                background-color: #f44336;
+                background-color: {RED_L};
                 color: white;
                 border: none;
                 border-radius: 8px;
                 padding: 0 40px;
-            }
-            QPushButton:hover {
-                background-color: #da190b;
-            }
-            QPushButton:pressed {
-                background-color: #c62828;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {RED_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {RED_D};
+            }}
+            QPushButton:disabled {{
+                background-color: {GREY_L};
+                color: {GREY_D};
+            }}
         """
         )
         layout.addWidget(self.stop_button)
@@ -391,12 +422,12 @@ class MonitoringView(QWidget):
         # Main message
         message = QLabel("Device ready")
         message.setStyleSheet(
-            """
-            QLabel {
+            f"""
+            QLabel {{
                 font-size: 24px;
                 font-weight: bold;
-                color: #4CAF50;
-            }
+                color: {GREEN_L};
+            }}
         """
         )
         message.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -423,30 +454,56 @@ class MonitoringView(QWidget):
         self.start_button = QPushButton("START RECORDING")
         self.start_button.setMinimumHeight(60)
         self.start_button.setStyleSheet(
-            """
-            QPushButton {
+            f"""
+            QPushButton {{
                 font-size: 18px;
                 font-weight: bold;
-                background-color: #4CAF50;
+                background-color: {GREEN_L};
                 color: white;
                 border: none;
                 border-radius: 8px;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:pressed {
-                background-color: #3d8b40;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #666666;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {GREEN_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {GREEN_D};
+            }}
+            QPushButton:disabled {{
+                background-color: {GREY_L};
+                color: {GREY_D};
+            }}
         """
         )
         info_layout.addWidget(self.start_button)
 
         info_layout.addStretch(1)
+
+        self.switch_button = QPushButton("Switch device")
+        self.switch_button.setMinimumHeight(60)
+        self.switch_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                font-size: 18px;
+                font-weight: bold;
+                background-color: {BLUE_L};
+                color: white;
+                border: none;
+                border-radius: 8px;
+            }}
+            QPushButton:hover {{
+                background-color: {BLUE_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {BLUE_D};
+            }}
+            QPushButton:disabled {{
+                background-color: {GREY_L};
+                color: {GREY_D};
+            }}
+        """
+        )
+        info_layout.addWidget(self.switch_button)
 
         main_layout.addWidget(self.plot_frame, 2.5)
         main_layout.addWidget(self.info_widget, 1)
@@ -490,6 +547,7 @@ class MainWindow(QWidget):
         # Connect signals
         self.logging_view.stop_button.clicked.connect(self.handle_stop_logging)
         self.monitoring_view.start_button.clicked.connect(self.handle_start_logging)
+        self.monitoring_view.switch_button.clicked.connect(self.handle_device_switch)
         self.device_selection_view.connect_button.clicked.connect(
             self.handle_device_connect
         )
@@ -522,12 +580,18 @@ class MainWindow(QWidget):
             self.stacked_widget.setCurrentIndex(1)  # Show scanning view
 
         elif new_state == GUIState.DEVICE_SELECTION:
+            self.device_selection_view.connect_button.setEnabled(True)
+            self.device_selection_view.refresh_button.setEnabled(True)
             self.stacked_widget.setCurrentIndex(2)  # Show device selection view
 
         elif new_state == GUIState.LOGGING:
+            # TODO enable/disable buttons based on logging state
             self.stacked_widget.setCurrentIndex(3)  # Show logging view
 
         elif new_state == GUIState.MONITORING:
+            self.reset_graph()
+            self.monitoring_view.start_button.setEnabled(True)
+            self.monitoring_view.switch_button.setEnabled(True)
             self.stacked_widget.setCurrentIndex(4)  # Show monitoring view
 
     @Slot()
@@ -535,16 +599,29 @@ class MainWindow(QWidget):
         """Handle device selection and connection"""
         selected_device = self.device_selection_view.get_selected_device()
         if selected_device:
+            self.device_selection_view.connect_button.setEnabled(False)
+            self.device_selection_view.refresh_button.setEnabled(False)
             asyncio.create_task(self.backend.connect_to_device(selected_device))
 
     @Slot()
     def handle_device_refresh(self):
         """Handle refresh devices button"""
+        self.device_selection_view.connect_button.setEnabled(False)
+        self.device_selection_view.refresh_button.setEnabled(False)
         asyncio.create_task(self.backend.refresh_devices())
+
+    @Slot()
+    def handle_device_switch(self):
+        """Handle refresh devices button"""
+        self.monitoring_view.switch_button.setEnabled(False)
+        self.monitoring_view.start_button.setEnabled(False)
+        asyncio.create_task(self.backend.disconnect())
 
     @Slot()
     def handle_start_logging(self):
         """Handle start logging button"""
+        self.monitoring_view.switch_button.setEnabled(False)
+        self.monitoring_view.start_button.setEnabled(False)
         asyncio.create_task(self.backend.start_logging())
 
     @Slot()
@@ -596,7 +673,6 @@ class MainWindow(QWidget):
         self.monitoring_view.axis_y.setRange(-maxY, maxY)
         self.monitoring_view.axis_x.setRange(-10, 0)
 
-    @Slot(str)
     def reset_graph(self):
         self.monitoring_view.series.clear()
 
@@ -929,6 +1005,11 @@ class CmdBLEScan:
             await back.disconnect()
             return
 
+        if devices is None:
+            logging.error("Scan timed out, disconnecting")
+            await back.disconnect()
+            return
+
         if not devices:
             back.available_devices = []
             back.schedule_after(self.SCAN_DELAY_S, CmdBLEScan())
@@ -971,7 +1052,6 @@ class CmdConnectToDevice:
                 await back.disconnect()
                 return
 
-            back.ui.reset_graph()
             back.ui.update_ui_state(GUIState.MONITORING)
 
             back._connected = True
