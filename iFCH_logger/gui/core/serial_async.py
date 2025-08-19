@@ -102,7 +102,8 @@ class FrameProtocol(asyncio.Protocol):
         self.disconnected = asyncio.Event()
         self.is_connected = False
 
-        self.other_rx = []
+        self.other_rx: list[str] = []
+        self._current_waiter: typing.Optional[asyncio.Task] = None
 
     # --- low‑level serial callbacks ----------------------------------
     def connection_made(self, transport):
@@ -274,6 +275,21 @@ class FrameProtocol(asyncio.Protocol):
     async def wait_for_cmd(
         self, wanted: Commands, timeout=SERIAL_TIMEOUT_S
     ) -> typing.Optional[bytes]:
+
+        # Enforce a single active waiter. Cancel the previous one if present.
+        this_task = asyncio.current_task()
+        if this_task is None:
+            raise RuntimeError(
+                "wait_for_cmd must be called from within an asyncio Task"
+            )
+
+        prev = self._current_waiter
+        if prev is not None and prev is not this_task and not prev.done():
+            prev.cancel()
+            logging.debug("Cancelled previous wait_for_cmd in favor of %s", wanted.name)
+
+        self._current_waiter = this_task
+
         try:
             deadline = self.loop.time() + timeout
 
@@ -289,7 +305,7 @@ class FrameProtocol(asyncio.Protocol):
                 if cmd == wanted:
                     return payload
                 elif not cmd == Commands.CMD_ERROR:
-                    logging.warning(
+                    logging.debug(
                         "Unexpected command: %s while waiting for %s",
                         cmd.name,
                         wanted.name,
@@ -298,6 +314,13 @@ class FrameProtocol(asyncio.Protocol):
         except asyncio.TimeoutError:
             logging.debug("Timeout waiting for command: %s", wanted.name)
             return None
+        except asyncio.CancelledError:
+            logging.debug("wait_for_cmd(%s) cancelled", wanted.name)
+            raise
+        finally:
+            # Only clear if we are still the registered waiter
+            if self._current_waiter is this_task:
+                self._current_waiter = None
 
     async def _wait_for_ack(self, seq: int, timeout: float = SERIAL_TIMEOUT_S) -> bool:
         time = self.loop.time()
