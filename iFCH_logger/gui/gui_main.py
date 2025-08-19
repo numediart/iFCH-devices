@@ -358,9 +358,9 @@ class LoggingView(QWidget):
 # ----------------------------------------------------------------------
 class MonitoringView(QWidget):
     STATE_FIELDS = [
-        ("bat", "controller battery"),
-        ("mov", "movesense id"),
-        ("mov_bat", "movesense battery"),
+        ("bat", "Controller battery"),
+        ("mov", "Movesense id"),
+        ("mov_bat", "Movesense battery"),
     ]
 
     def __init__(self):
@@ -410,6 +410,7 @@ class MonitoringView(QWidget):
         # Create chart view and set as central widget
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.chart_view.setMinimumWidth(500)
 
         plot_layout.addWidget(self.chart_view)
 
@@ -517,7 +518,7 @@ class MainWindow(QWidget):
     def __init__(self, loop):
         super().__init__()
         self.setWindowTitle("iFCH Holter Control")
-        self.resize(800, 600)
+        self.resize(1200, 675)
 
         self.current_state = GUIState.DISCONNECTED
         self._shutdown_attempts = 0
@@ -752,12 +753,6 @@ class Backend:
         self._timers: set[asyncio.Task] = set()
         self._disconnect_watch: Optional[asyncio.Task] = None
 
-        # Internal connection state
-        # TODO probably remove
-        self._connected = False
-        self._streaming = False
-        self._logging = False
-
     async def run(self):
         """Start the actor and bootstrap probing."""
         if self._actor_task is None:
@@ -788,7 +783,6 @@ class Backend:
 
         # Stop service
         if self.svc:
-            # with contextlib.suppress(Exception):
             await self.svc.stop()
             self.svc = None
 
@@ -913,7 +907,6 @@ class Backend:
             with contextlib.suppress(Exception):
                 await self.svc.stop()
         self.svc = None
-        self._connected = self._streaming = self._logging = False
 
     def schedule_after(self, delay: float, cmd: Any):
         """Schedule a one-shot task that enqueues cmd after delay."""
@@ -995,7 +988,9 @@ class CmdBLEScan:
             return
 
         back.ui.update_ui_state(GUIState.SCANNING)
-        back.ui.update_scanning_status("Refreshing device list...")
+        back.ui.update_scanning_status(
+            "Make sure your Movesense device is powered on and in range."
+        )
 
         try:
             devices = await back.svc.scan()
@@ -1045,17 +1040,15 @@ class CmdConnectToDevice:
                 await back.disconnect()
                 return
 
-            # TODO check Movesense state
+            # TODO check Movesense state: should not be logging!
 
             if not await back.svc.sub_stream():
                 logging.warning("Stream subscribe failed")
                 await back.disconnect()
                 return
 
+            back.ui.update_device_info({"mov": self.device.split(";")[0]})
             back.ui.update_ui_state(GUIState.MONITORING)
-
-            back._connected = True
-            back._streaming = True
 
             # Kick battery/info updates
             await back.queue_command(CmdBatteryTick())
@@ -1080,18 +1073,14 @@ class CmdBatteryTick:
             await back.disconnect()
             return
 
-        st = await back.svc.get_status()
-        if not st:
-            raise ConnectionError
-        back._logging = bool(st.get("logging"))
-        back._connected = bool(st.get("connected"))
-        back._streaming = bool(st.get("streaming"))
+        status = await back.svc.get_status()
+        if not status:
+            logging.error("Status check failed")
+            await back.disconnect()
 
-        # TODO handle Movesense not being connected
+        # TODO handle Movesense states
 
-        if back._logging:
-            back.ui.update_ui_state(GUIState.LOGGING)
-        elif back._connected and back._streaming:
+        if status["connected"]:
             # Update device info
             state = {}
 
@@ -1103,24 +1092,13 @@ class CmdBatteryTick:
             if mov_bat is not None:
                 state["mov_bat"] = f"{mov_bat}%"
 
-            if state:
-                back.ui.update_device_info(state)
+            back.ui.update_device_info(state)
 
-            back.ui.update_ui_state(GUIState.MONITORING)
+            back.schedule_after(self.REFRESH_PERIOD_S, CmdBatteryTick())
+
         else:
-            # Not streaming, show scanning/selection
-            if back.available_devices:
-                back.ui.update_ui_state(GUIState.DEVICE_SELECTION)
-            else:
-                back.ui.update_ui_state(GUIState.SCANNING)
-                back.ui.update_scanning_status("Scanning for Movesense devices...")
-
-        # Reschedule next tick if still connected
-        if back._connected:
-            back.schedule_after(
-                self.REFRESH_PERIOD_S if back._streaming else 1.0,
-                CmdBatteryTick(),
-            )
+            # Lost connection
+            await back.disconnect()
 
 
 @dataclass
