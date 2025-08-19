@@ -62,7 +62,7 @@ class DeviceService:
         self.plot_x.clear()
         self.plot_y.clear()
 
-        logging.info("Device service stopped")
+        logging.debug("Device service stopped")
 
     async def process_notifications(self):
         while True:

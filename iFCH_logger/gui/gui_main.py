@@ -61,7 +61,7 @@ class DisconnectedView(QWidget):
         layout.addSpacing(30)
 
         # Status label
-        self.status_label = QLabel("Scanning for devices...")
+        self.status_label = QLabel("Waiting for device...")
         self.status_label.setStyleSheet(
             """
             QLabel {
@@ -97,7 +97,9 @@ class ScanningView(QWidget):
         layout.addSpacing(30)
 
         # Status label
-        self.status_label = QLabel("Looking for Movesense devices...")
+        self.status_label = QLabel(
+            "Make sure your Movesense device is powered on and in range"
+        )
         self.status_label.setStyleSheet(
             """
             QLabel {
@@ -360,7 +362,7 @@ class MonitoringView(QWidget):
         self.axis_x.setVisible(False)
 
         self.axis_y = QValueAxis()
-        self.axis_y.setTitleText("ECG (mV)")  # TODO check if mV or V
+        self.axis_y.setTitleText("ECG (V)")
         self.axis_y.setRange(0, 10)  # Match your random data range
         self.axis_y.setGridLineVisible(False)  # Hide Y-axis grid lines
 
@@ -595,6 +597,10 @@ class MainWindow(QWidget):
         self.monitoring_view.axis_x.setRange(-10, 0)
 
     @Slot(str)
+    def reset_graph(self):
+        self.monitoring_view.series.clear()
+
+    @Slot(str)
     def update_disconnected_status(self, status):
         self.disconnected_view.status_label.setText(status)
 
@@ -656,8 +662,6 @@ class MainWindow(QWidget):
 
 # ----------------------------------------------------------------------
 class Backend:
-    SCAN_PERIOD_S = 1.0  # light, cancelable probe cadence when USB not attached
-    REFRESH_PERIOD_S = 10.0  # battery/info refresh when streaming
 
     def __init__(self, ui: "MainWindow"):
         self.ui = ui
@@ -684,7 +688,7 @@ class Backend:
             self._actor_task = asyncio.create_task(self._actor_loop())
 
         # Kick off initial probe
-        await self._cmd_q.put(_CmdProbeUSB())
+        await self.queue_command(CmdProbeUSB())
 
         # Keep this task alive until actor exits
         await self._actor_task
@@ -715,38 +719,25 @@ class Backend:
     # ---- Public API (GUI calls) -> commands enqueued -------------------
 
     async def start_logging(self):
-        fut = asyncio.get_running_loop().create_future()
-        await self._cmd_q.put(_CmdStartLogging(reply=fut))
-        with contextlib.suppress(Exception):
-            await fut
+        await self.queue_command(CmdStartLogging())
 
     async def stop_logging(self):
-        fut = asyncio.get_running_loop().create_future()
-        await self._cmd_q.put(_CmdStopLogging(reply=fut))
-        with contextlib.suppress(Exception):
-            await fut
+        await self.queue_command(CmdStopLogging())
 
     async def connect_to_device(self, device_string: str):
         """GUI calls this when the user clicks Connect."""
-        fut = asyncio.get_running_loop().create_future()
-        await self._cmd_q.put(_CmdConnectToDevice(device=device_string, reply=fut))
-        with contextlib.suppress(Exception):
-            return await fut
-        return False
+        await self.queue_command(CmdConnectToDevice(device=device_string))
 
     async def refresh_devices(self):
         """GUI calls this when the user clicks Refresh."""
-        fut = asyncio.get_running_loop().create_future()
-        await self._cmd_q.put(_CmdRefreshDevices(reply=fut))
-        with contextlib.suppress(Exception):
-            await fut
+        await self.queue_command(CmdBLEScan())
 
     # ---- Actor internals ------------------------------------------------
 
     async def _actor_loop(self):
         # Initial UI
         self.ui.update_ui_state(GUIState.DISCONNECTED)
-        self.ui.update_disconnected_status("Waiting for iFCH over USB...")
+        self.ui.update_disconnected_status("Waiting for device...")
 
         while True:
             cmd = await self._cmd_q.get()
@@ -792,7 +783,7 @@ class Backend:
                     if fut and not fut.done():
                         fut.set_exception(e)
 
-    async def _start_service(self, port: str):
+    async def start_service(self, port: str):
         """Open serial, start notification processing, start disconnect watcher."""
         try:
             self.svc = DeviceService(port)
@@ -801,7 +792,7 @@ class Backend:
             logging.warning("Failed to start service on %s: %s", port, e)
             self.svc = None
             # Retry probing later
-            self._schedule_after(self.SCAN_PERIOD_S, _CmdProbeUSB())
+            self.schedule_after(0, CmdProbeUSB())
             return
 
         # Watch for physical disconnect; only enqueues CmdOnDisconnected
@@ -814,24 +805,47 @@ class Backend:
             except Exception:
                 pass
 
-            # Clear any pending commands
-            while not self._cmd_q.empty():
-                self._cmd_q.get_nowait()
-
-            await self._cmd_q.put(_CmdOnDisconnected())
+            await self.disconnect()
 
         self._disconnect_watch = asyncio.create_task(_watch_disconnect())
 
-        self.ui.update_ui_state(GUIState.DISCONNECTED)
-        self.ui.update_disconnected_status("USB connected. Ready.")
+    async def disconnect(self):
+        """Disconnect from the device and reset state."""
 
-    def _schedule_after(self, delay: float, cmd: Any):
+        self.clear_commands()
+        await self.queue_command(CmdOnDisconnected())
+
+    async def queue_command(self, cmd: Any):
+        """Enqueue a command to be processed by the actor."""
+        await self._cmd_q.put(cmd)
+
+    def clear_commands(self):
+        # Clear any pending commands
+        while not self._cmd_q.empty():
+            self._cmd_q.get_nowait()
+
+    async def clear_state(self):
+        if self._disconnect_watch:
+            self._disconnect_watch.cancel()
+            self._disconnect_watch = None
+
+        for t in list(self._timers):
+            t.cancel()
+        self._timers.clear()
+
+        if self.svc:
+            with contextlib.suppress(Exception):
+                await self.svc.stop()
+        self.svc = None
+        self._connected = self._streaming = self._logging = False
+
+    def schedule_after(self, delay: float, cmd: Any):
         """Schedule a one-shot task that enqueues cmd after delay."""
 
         async def _delayed():
             try:
                 await asyncio.sleep(delay)
-                await self._cmd_q.put(cmd)
+                await self.queue_command(cmd)
             except asyncio.CancelledError:
                 pass
 
@@ -848,9 +862,13 @@ class Backend:
 
 
 @dataclass
-class _CmdProbeUSB:
+class CmdProbeUSB:
+    SCAN_PERIOD_S = 1.0  # light, cancelable probe cadence when USB not attached
+
     async def handle(self, back: Backend):
         """One-shot USB probe; schedule next probe only if still disconnected."""
+        back.ui.update_ui_state(GUIState.DISCONNECTED)
+
         if back.svc is None:
             try:
                 found = await detect_device(reset_ports=False)
@@ -860,89 +878,73 @@ class _CmdProbeUSB:
 
             if found:
                 port, *_ = found[0]
-                logging.info("Found iFCH-logger on %s", port)
-                await back._start_service(port)
+                logging.debug("Found iFCH-logger on %s", port)
+                await back.start_service(port)
 
-                # After service starts, let UI know and move to scanning
-                back.ui.update_ui_state(GUIState.SCANNING)
-                back.ui.update_scanning_status("Refreshing device list...")
-                # Optionally auto-refresh once
-                fut = asyncio.get_running_loop().create_future()
-                await back._cmd_q.put(_CmdRefreshDevices(reply=fut))
+                # After service starts, move to scanning
+                await back.queue_command(CmdBLEScan())
             else:
                 # Schedule another probe later (no busy loop)
-                back._schedule_after(back.SCAN_PERIOD_S, _CmdProbeUSB())
+                back.schedule_after(self.SCAN_PERIOD_S, CmdProbeUSB())
+        else:
+            # We should not be here
+            logging.error("USB probe called while service already running")
+            await back.disconnect()
+            return
 
 
 @dataclass
-class _CmdOnDisconnected:
+class CmdOnDisconnected:
     async def handle(self, back: Backend):
         """Serial disconnected; stop service and schedule next probe."""
-        if back._disconnect_watch:
-            back._disconnect_watch.cancel()
-            back._disconnect_watch = None
-
-        for t in list(back._timers):
-            t.cancel()
-        back._timers.clear()
-
-        if back.svc:
-            with contextlib.suppress(Exception):
-                await back.svc.stop()
-        back.svc = None
-        back._connected = back._streaming = back._logging = False
-
         back.ui.update_ui_state(GUIState.DISCONNECTED)
-        back.ui.update_disconnected_status("Disconnected, waiting for iFCH over USB...")
+        back.ui.update_disconnected_status("Disconnected, waiting for device...")
 
-        # Clear any pending commands
-        while not back._cmd_q.empty():
-            back._cmd_q.get_nowait()
+        await back.clear_state()
+        back.clear_commands()
 
-        back._schedule_after(back.SCAN_PERIOD_S, _CmdProbeUSB())
+        await back.queue_command(CmdProbeUSB())
 
 
 @dataclass
-class _CmdRefreshDevices:
-    reply: asyncio.Future
+class CmdBLEScan:
+    SCAN_DELAY_S = 1.0  # Delay before next scan if no devices found
 
     async def handle(self, back: Backend):
         if not back.svc:
-            # No USB yet; UI stays disconnected
-            if not self.reply.done():
-                self.reply.set_result(None)
+            logging.error("BLE scan called without USB service")
+            back.ui.update_ui_state(GUIState.DISCONNECTED)
+
+            await back.disconnect()
             return
 
         back.ui.update_ui_state(GUIState.SCANNING)
         back.ui.update_scanning_status("Refreshing device list...")
+
         try:
             devices = await back.svc.scan()
         except Exception as e:
-            logging.warning("Scan failed: %s", e)
+            logging.error("Scan failed: %s", e)
             devices = None
+            await back.disconnect()
+            return
 
         if not devices:
             back.available_devices = []
-            back.ui.update_scanning_status("No Movesense devices found.")
+            back.schedule_after(self.SCAN_DELAY_S, CmdBLEScan())
         else:
             back.available_devices = devices
             back.ui.show_device_selection(devices)
 
-        if not self.reply.done():
-            self.reply.set_result(devices)
-
-        # TODO schedule next scan
-
 
 @dataclass
-class _CmdConnectToDevice:
+class CmdConnectToDevice:
     device: str
-    reply: asyncio.Future
 
     async def handle(self, back: Backend):
         if not back.svc:
-            if not self.reply.done():
-                self.reply.set_result(False)
+            logging.error("Connect called without USB service")
+            await back.disconnect()
             return
 
         back.ui.update_ui_state(GUIState.SCANNING)
@@ -954,148 +956,134 @@ class _CmdConnectToDevice:
 
             if not await back.svc.put_config():
                 logging.warning("Config PUT failed")
-                if not self.reply.done():
-                    self.reply.set_result(False)
+                await back.disconnect()
                 return
 
             if not await back.svc.connect():
                 logging.warning("BLE connect failed")
-                if not self.reply.done():
-                    self.reply.set_result(False)
+                await back.disconnect()
                 return
+
+            # TODO check Movesense state
 
             if not await back.svc.sub_stream():
                 logging.warning("Stream subscribe failed")
-                if not self.reply.done():
-                    self.reply.set_result(False)
+                await back.disconnect()
                 return
+
+            back.ui.reset_graph()
+            back.ui.update_ui_state(GUIState.MONITORING)
 
             back._connected = True
             back._streaming = True
 
             # Kick battery/info updates
-            back._schedule_after(0.0, _CmdBatteryTick())
+            await back.queue_command(CmdBatteryTick())
 
-            # TODO reset graph on connect
-
-            if not self.reply.done():
-                self.reply.set_result(True)
             return
 
         except Exception as e:
             logging.warning("Connect to Movesense failed: %s", e)
 
-            if not self.reply.done():
-                self.reply.set_result(False)
+            await back.disconnect()
             return
 
 
 @dataclass
-class _CmdBatteryTick:
+class CmdBatteryTick:
+    REFRESH_PERIOD_S = 2.0  # battery/info refresh when streaming
+
     async def handle(self, back: Backend):
         """Only runs when connected/streaming. Schedules itback again."""
         if not back.svc:
+            logging.error("Battery tick called without USB service")
+            await back.disconnect()
             return
-        try:
-            st = await back.svc.get_status()
-            if not st:
-                raise ConnectionError
-            back._logging = bool(st.get("logging"))
-            back._connected = bool(st.get("connected"))
-            back._streaming = bool(st.get("streaming"))
 
-            if back._logging:
-                back.ui.update_ui_state(GUIState.LOGGING)
-            elif back._connected and back._streaming:
-                # Update device info
-                state = {}
+        st = await back.svc.get_status()
+        if not st:
+            raise ConnectionError
+        back._logging = bool(st.get("logging"))
+        back._connected = bool(st.get("connected"))
+        back._streaming = bool(st.get("streaming"))
 
-                bat = await back.svc.get_battery()
-                if bat is not None:
-                    state["bat"] = f"{min(int(bat), 100)}%"
+        # TODO handle Movesense not being connected
 
-                mov_bat = await back.svc.get_mov_battery()
-                if mov_bat is not None:
-                    state["mov_bat"] = f"{mov_bat}%"
+        if back._logging:
+            back.ui.update_ui_state(GUIState.LOGGING)
+        elif back._connected and back._streaming:
+            # Update device info
+            state = {}
 
-                if state:
-                    back.ui.update_device_info(state)
-                back.ui.update_ui_state(GUIState.MONITORING)
+            bat = await back.svc.get_battery()
+            if bat is not None:
+                state["bat"] = f"{min(int(bat), 100)}%"
+
+            mov_bat = await back.svc.get_mov_battery()
+            if mov_bat is not None:
+                state["mov_bat"] = f"{mov_bat}%"
+
+            if state:
+                back.ui.update_device_info(state)
+
+            back.ui.update_ui_state(GUIState.MONITORING)
+        else:
+            # Not streaming, show scanning/selection
+            if back.available_devices:
+                back.ui.update_ui_state(GUIState.DEVICE_SELECTION)
             else:
-                # Not streaming, show scanning/selection
-                if back.available_devices:
-                    back.ui.update_ui_state(GUIState.DEVICE_SELECTION)
-                else:
-                    back.ui.update_ui_state(GUIState.SCANNING)
-                    back.ui.update_scanning_status("Scanning for Movesense devices...")
+                back.ui.update_ui_state(GUIState.SCANNING)
+                back.ui.update_scanning_status("Scanning for Movesense devices...")
 
-            # Reschedule next tick if still connected
-            if back._connected:
-                back._schedule_after(
-                    back.REFRESH_PERIOD_S if back._streaming else 1.0,
-                    _CmdBatteryTick(),
-                )
-
-        except (ConnectionError, asyncio.IncompleteReadError, OSError) as e:
-            raise e
-            # TODO handle this?
+        # Reschedule next tick if still connected
+        if back._connected:
+            back.schedule_after(
+                self.REFRESH_PERIOD_S if back._streaming else 1.0,
+                CmdBatteryTick(),
+            )
 
 
 @dataclass
-class _CmdStartLogging:
-    reply: asyncio.Future
+class CmdStartLogging:
 
     async def handle(self, back: Backend):
         if not back.svc:
-            if not self.reply.done():
-                self.reply.set_result(False)
+            logging.error("Start logging called without USB service")
+            await back.disconnect()
             return
         try:
-            if hasattr(back.svc, "start_logging"):
-                ok = await back.svc.start_logging()
-            else:
-                ok = False
-            if ok:
-                back._logging = True
-                back.ui.update_ui_state(GUIState.LOGGING)
+            # TODO
+            back.svc.start_logging()
 
-            if not self.reply.done():
-                self.reply.set_result(bool(ok))
             return
-        except Exception as e:
-            logging.warning("Start logging failed: %s", e)
 
-            if not self.reply.done():
-                self.reply.set_result(False)
+        except Exception as e:
+            logging.error("Start logging failed: %s", e)
+            # TODO check this
+
+            await back.disconnect()
             return
 
 
 @dataclass
-class _CmdStopLogging:
-    reply: asyncio.Future
+class CmdStopLogging:
 
     async def handle(self, back: Backend):
         if not back.svc:
-            if not self.reply.done():
-                self.reply.set_result(False)
+            logging.error("Stop logging called without USB service")
+            await back.disconnect()
             return
         try:
-            if hasattr(back.svc, "stop_logging"):
-                ok = await back.svc.stop_logging()
-            else:
-                ok = False
-            if ok:
-                back._logging = False
-                # Force a status refresh soon
-                back._schedule_after(0.0, _CmdBatteryTick())
+            # TODO
+            await back.svc.stop_logging()
 
-            if not self.reply.done():
-                self.reply.set_result(bool(ok))
             return
+
         except Exception as e:
-            logging.warning("Stop logging failed: %s", e)
-            if not self.reply.done():
-                self.reply.set_result(False)
+            logging.error("Stop logging failed: %s", e)
+            # TODO check this
+
+            await back.disconnect()
             return
 
 
