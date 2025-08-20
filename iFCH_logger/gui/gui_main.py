@@ -204,7 +204,13 @@ class ScanningView(QWidget):
 class DeviceSelectionView(QWidget):
     def __init__(self):
         super().__init__()
-        layout = QVBoxLayout(self)
+        over_layout = QVBoxLayout(self)
+        over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main = QWidget()
+        over_layout.addWidget(main)
+        main.setMaximumWidth(700)
+
+        layout = QVBoxLayout(main)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Header
@@ -487,6 +493,7 @@ class MonitoringView(QWidget):
 
         # Right zone: form with fixed labels and value fields
         self.info_widget = QWidget()
+        self.info_widget.setMaximumWidth(500)
         info_layout = QVBoxLayout(self.info_widget)
 
         info_layout.addStretch(1)
