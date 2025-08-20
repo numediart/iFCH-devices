@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 
 class GUIState(Enum):
+    ERROR = "error"
     DISCONNECTED = "disconnected"
     SCANNING = "connected_scanning"
     DEVICE_SELECTION = "connected_device_selection"
@@ -89,6 +90,76 @@ class DisconnectedView(QWidget):
         )
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_label)
+
+
+class ErrorView(QWidget):
+    def __init__(self):
+        super().__init__()
+        over_layout = QVBoxLayout(self)
+        over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main = QWidget()
+        over_layout.addWidget(main)
+        main.setMaximumWidth(700)
+        layout = QVBoxLayout(main)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Large icon or image placeholder
+
+        # Main message
+        self.message = QLabel("ERROR")
+        self.message.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 24px;
+                font-weight: bold;
+                color: {RED_D};
+            }}
+        """
+        )
+        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.message)
+        layout.addSpacing(30)
+
+        # Status label
+        self.status_label = QLabel("Click OK to reset")
+        self.status_label.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+        """
+        )
+        self.status_label.setWordWrap(True)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self.status_label)
+
+        ok_layout = QHBoxLayout()
+        self.ok_button = QPushButton("OK")
+        self.ok_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                font-size: 16px;
+                padding: 10px 30px;
+                background-color: {GREY_L};
+                border: none;
+                border-radius: 4px;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {GREY_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {GREY_D};
+            }}
+        """
+        )
+        self.ok_button.setFixedWidth(150)
+        ok_layout.addStretch()
+        ok_layout.addWidget(self.ok_button)
+
+        layout.addSpacing(20)
+        layout.addLayout(ok_layout)
 
 
 # ----------------------------------------------------------------------
@@ -528,6 +599,7 @@ class MainWindow(QWidget):
         self.stacked_widget = QStackedWidget(self)
 
         # Create all views
+        self.error_view = ErrorView()
         self.disconnected_view = DisconnectedView()
         self.scanning_view = ScanningView()
         self.device_selection_view = DeviceSelectionView()
@@ -535,11 +607,12 @@ class MainWindow(QWidget):
         self.monitoring_view = MonitoringView()
 
         # Add views to stack
-        self.stacked_widget.addWidget(self.disconnected_view)  # index 0
-        self.stacked_widget.addWidget(self.scanning_view)  # index 1
-        self.stacked_widget.addWidget(self.device_selection_view)  # index 2
-        self.stacked_widget.addWidget(self.logging_view)  # index 3
-        self.stacked_widget.addWidget(self.monitoring_view)  # index 4
+        self.stacked_widget.addWidget(self.error_view)
+        self.stacked_widget.addWidget(self.disconnected_view)
+        self.stacked_widget.addWidget(self.scanning_view)
+        self.stacked_widget.addWidget(self.device_selection_view)
+        self.stacked_widget.addWidget(self.logging_view)
+        self.stacked_widget.addWidget(self.monitoring_view)
 
         # Set main layout
         main_layout = QVBoxLayout(self)
@@ -555,11 +628,12 @@ class MainWindow(QWidget):
         self.device_selection_view.refresh_button.clicked.connect(
             self.handle_device_refresh
         )
+        self.error_view.ok_button.clicked.connect(self.handle_error_ok)
 
         # Timer to update the live plot (only active in monitoring view)
         self.plot_timer = QTimer(self)
         self.plot_timer.timeout.connect(self.poll_ecg_data)
-        self.plot_timer.start(20)
+        self.plot_timer.start(30)
 
         # Non UI related stuff
         self._tasks = []
@@ -574,26 +648,35 @@ class MainWindow(QWidget):
         """Update the entire UI based on the current device state"""
         self.current_state = new_state
 
-        if new_state == GUIState.DISCONNECTED:
+        if new_state == GUIState.ERROR:
             self.stacked_widget.setCurrentIndex(0)  # Show disconnected view
 
+        elif new_state == GUIState.DISCONNECTED:
+            self.stacked_widget.setCurrentIndex(1)  # Show disconnected view
+
         elif new_state == GUIState.SCANNING:
-            self.stacked_widget.setCurrentIndex(1)  # Show scanning view
+            self.stacked_widget.setCurrentIndex(2)  # Show scanning view
 
         elif new_state == GUIState.DEVICE_SELECTION:
             self.device_selection_view.connect_button.setEnabled(True)
             self.device_selection_view.refresh_button.setEnabled(True)
-            self.stacked_widget.setCurrentIndex(2)  # Show device selection view
+            self.stacked_widget.setCurrentIndex(3)  # Show device selection view
 
         elif new_state == GUIState.LOGGING:
             # TODO enable/disable buttons based on logging state
-            self.stacked_widget.setCurrentIndex(3)  # Show logging view
+            self.stacked_widget.setCurrentIndex(4)  # Show logging view
 
         elif new_state == GUIState.MONITORING:
             self.reset_graph()
             self.monitoring_view.start_button.setEnabled(True)
             self.monitoring_view.switch_button.setEnabled(True)
-            self.stacked_widget.setCurrentIndex(4)  # Show monitoring view
+            self.stacked_widget.setCurrentIndex(5)  # Show monitoring view
+
+    @Slot()
+    def handle_error_ok(self):
+        """Handle OK button in error view"""
+        self.update_ui_state(GUIState.DISCONNECTED)
+        asyncio.create_task(self.backend.disconnect())
 
     @Slot()
     def handle_device_connect(self):
@@ -680,6 +763,12 @@ class MainWindow(QWidget):
     @Slot(str)
     def update_disconnected_status(self, status):
         self.disconnected_view.status_label.setText(status)
+
+    @Slot(str, str)
+    def update_error_status(self, title, message):
+        """Update the error view with a title and message"""
+        self.error_view.message.setText(title)
+        self.error_view.status_label.setText(message)
 
     @Slot(list)
     def show_device_selection(self, devices):
@@ -796,7 +885,7 @@ class Backend:
 
     async def connect_to_device(self, device_string: str):
         """GUI calls this when the user clicks Connect."""
-        await self.queue_command(CmdConnectToDevice(device=device_string))
+        await self.queue_command(CmdStreamDevice(device=device_string))
 
     async def refresh_devices(self):
         """GUI calls this when the user clicks Refresh."""
@@ -1014,7 +1103,7 @@ class CmdBLEScan:
 
 
 @dataclass
-class CmdConnectToDevice:
+class CmdStreamDevice:
     device: str
 
     async def handle(self, back: Backend):
@@ -1040,7 +1129,23 @@ class CmdConnectToDevice:
                 await back.disconnect()
                 return
 
-            # TODO check Movesense state: should not be logging!
+            is_logging = await back.svc.get_mov_islogging()
+
+            if is_logging is None:
+                logging.warning("Failed to get Movesense logging status")
+                await back.disconnect()
+                return
+            elif is_logging:
+                # Show error pop-up when device is already logging
+                back.ui.update_error_status(
+                    "Movesense currently recording",
+                    "The Movesense you selected is recording data. It may be paired to a different device.\nTo force-reset it, remove its battery (any ongoing recording will be lost).",
+                )
+                back.ui.update_ui_state(GUIState.ERROR)
+
+                await back.clear_state()
+                back.clear_commands()
+                return
 
             if not await back.svc.sub_stream():
                 logging.warning("Stream subscribe failed")
@@ -1078,15 +1183,9 @@ class CmdBatteryTick:
             logging.error("Status check failed")
             await back.disconnect()
 
-        # TODO handle Movesense states
-
         if status["connected"]:
             # Update device info
             state = {}
-
-            bat = await back.svc.get_battery()
-            if bat is not None:
-                state["bat"] = f"{min(int(bat), 100)}%"
 
             mov_bat = await back.svc.get_mov_battery()
             if mov_bat is not None:

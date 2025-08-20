@@ -421,6 +421,25 @@ class DeviceService:
             logging.error("Invalid Movesense battery response: %s", result)
             return -1
 
+    async def get_mov_islogging(self):
+        self.proto.send_frame(Commands.CMD_MOV_GET_LOGGING_STATUS)
+        result = await self.proto.wait_for_cmd(
+            Commands.CMD_MOV_GET_LOGGING_STATUS, timeout=BLE_TIMEOUT_S
+        )
+        if result is not None:
+            if len(result) == 1:
+                logging.debug("Received Movesense logging status: %d", result[0])
+                # 3: logging
+                # 2: ready
+                # 1: invalid (at startup usually)
+                return result[0] == 3
+            else:
+                logging.error("Invalid Movesense logging status response: %s", result)
+                return None
+        else:
+            logging.warning("Hello Movesense timed out")
+            return None
+
     async def sub_stream(self):
         self.proto.send_frame(Commands.CMD_MOV_STREAM)
         result = await self.proto.wait_for_cmd(

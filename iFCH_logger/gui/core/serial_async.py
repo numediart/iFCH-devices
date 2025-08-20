@@ -211,7 +211,7 @@ class FrameProtocol(asyncio.Protocol):
                     if char == "\n" or len(self.other_rx) > 512:
                         while len(self.other_rx) and self.other_rx[-1] == "\n":
                             self.other_rx.pop(-1)
-                        logging.debug("ESP RX: %s", "".join(self.other_rx))
+                        logging.warning("ESP RX: %s", "".join(self.other_rx))
                         self.other_rx = []
                 except UnicodeDecodeError:
                     pass
