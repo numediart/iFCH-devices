@@ -464,6 +464,33 @@ class DeviceService:
             logging.warning("Unsubscribe timed out")
             return False
 
+    async def start_movesense_logging(self):
+        self.proto.send_frame(Commands.CMD_MOV_LOG_START)
+        result = await self.proto.wait_for_cmd(
+            Commands.CMD_MOV_LOG_START, timeout=2 * BLE_TIMEOUT_S
+        )
+        if result is None:
+            logging.error("Start Movesense logging timed out")
+            return False
+        else:
+            logging.debug("Started Movesense logging")
+            return True
+
+    async def stop_movesense_logging(self):
+        self.proto.send_frame(Commands.CMD_MOV_LOG_END)
+        result = await self.proto.wait_for_cmd(
+            Commands.CMD_MOV_LOG_END, timeout=2 * BLE_TIMEOUT_S
+        )
+        if result is None:
+            logging.error("Stop Movesense logging timed out")
+            return False
+        elif len(result) == 1:
+            logging.debug("Stopped Movesense logging, log ID: %d", result[0])
+            return int(result[0])
+        else:
+            logging.error("Invalid Movesense logging stop response: %s", result)
+            return -1
+
     async def notify_stream(self):
         while True:
             if len(self.proto.notif_buffer) > 0:
