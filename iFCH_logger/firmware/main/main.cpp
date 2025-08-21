@@ -432,7 +432,7 @@ void handleSerialCommand(CmdType cmd)
         }
         else
         {
-            if (connectMovesense())
+            if (retry(connectMovesense, 2, 500))
             {
                 sendFrame(CmdType::CMD_CONNECT, (uint8_t *)config.address.c_str(), config.address.length());
             }
@@ -605,7 +605,7 @@ void handleSerialCommand(CmdType cmd)
         }
         else if (endMovesenseLogging())
         {
-            sendCMD(CmdType::CMD_MOV_LOG_END);
+            sendFrame(CmdType::CMD_MOV_LOG_END, (uint8_t *)&record.id, sizeof(record.id));
         }
         else
         {
