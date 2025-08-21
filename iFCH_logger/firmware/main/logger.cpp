@@ -409,11 +409,19 @@ bool startMovesenseLogging()
 
     // Increment the record ID until a free one is found
     std::string recordDir;
-    do
+    for (uint8_t i = 0; i < 255; i++)
     {
-        record.id = (record.id + 1) % 1000; // Keep the record ID in the range [0, 999]
+        record.id = (record.id + i) % 256; // Keep the record ID in the range [0, 255]
         recordDir = std::format(MOUNT_POINT "/{:03}", record.id);
-    } while (exists(recordDir));
+        if (!exists(recordDir))
+            break;
+    }
+
+    if (exists(recordDir))
+    {
+        logError("startMovesenseLogging", "No free record ID found, all IDs are taken");
+        return false;
+    }
 
     record.part = 0;
     record.logging = true;
@@ -439,6 +447,7 @@ bool startMovesenseLogging()
     if (!copy(CONFIG_FILE, std::format("{}/config.jsn", recordDir)))
     {
         logError("startMovesenseLogging", "Failed to copy config file to record directory");
+        rremove(recordDir);
         errorReset(COLOR_SD);
         record.logging = false;
         return false;
@@ -451,6 +460,7 @@ bool startMovesenseLogging()
     if (!saveCheckpoint(currentEpoch))
     {
         logError("startMovesenseLogging", "Failed to save checkpoint before starting logging");
+        rremove(recordDir);
         record.logging = false;
         return false;
     }
@@ -461,6 +471,7 @@ bool startMovesenseLogging()
     if (!movSubLogs())
     {
         logError("startMovesenseLogging", "Failed to subscribe to Movesense logs");
+        rremove(recordDir);
         record.logging = false;
         return false;
     }
@@ -474,6 +485,7 @@ bool startMovesenseLogging()
     if (!movStartLog())
     {
         logError("startMovesenseLogging", "Failed to start Movesense logging");
+        rremove(recordDir);
         record.logging = false;
         return false;
     }
@@ -485,6 +497,7 @@ bool startMovesenseLogging()
         // If saving the record file failed, stop logging
         logError("startMovesenseLogging", "Failed to save record file or start timer after starting logging");
         record.logging = false;
+        rremove(recordDir);
 
         vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
