@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 class GUIState(Enum):
     ERROR = "error"
     DISCONNECTED = "disconnected"
-    SCANNING = "connected_scanning"
+    INFO = "info"
     DEVICE_SELECTION = "connected_device_selection"
     LOGGING = "connected_logging"
     MONITORING = "connected_available"
@@ -163,15 +163,15 @@ class ErrorView(QWidget):
 
 
 # ----------------------------------------------------------------------
-class ScanningView(QWidget):
+class InfoView(QWidget):
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Main message
-        message = QLabel("Scanning for sensors...")
-        message.setStyleSheet(
+        self.message = QLabel("Title")
+        self.message.setStyleSheet(
             f"""
             QLabel {{
                 font-size: 24px;
@@ -180,8 +180,8 @@ class ScanningView(QWidget):
             }}
         """
         )
-        message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(message)
+        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.message)
         layout.addSpacing(30)
 
         # Status label
@@ -608,7 +608,7 @@ class MainWindow(QWidget):
         # Create all views
         self.error_view = ErrorView()
         self.disconnected_view = DisconnectedView()
-        self.scanning_view = ScanningView()
+        self.info_view = InfoView()
         self.device_selection_view = DeviceSelectionView()
         self.logging_view = LoggingView()
         self.monitoring_view = MonitoringView()
@@ -616,7 +616,7 @@ class MainWindow(QWidget):
         # Add views to stack
         self.stacked_widget.addWidget(self.error_view)
         self.stacked_widget.addWidget(self.disconnected_view)
-        self.stacked_widget.addWidget(self.scanning_view)
+        self.stacked_widget.addWidget(self.info_view)
         self.stacked_widget.addWidget(self.device_selection_view)
         self.stacked_widget.addWidget(self.logging_view)
         self.stacked_widget.addWidget(self.monitoring_view)
@@ -661,8 +661,8 @@ class MainWindow(QWidget):
         elif new_state == GUIState.DISCONNECTED:
             self.stacked_widget.setCurrentIndex(1)  # Show disconnected view
 
-        elif new_state == GUIState.SCANNING:
-            self.stacked_widget.setCurrentIndex(2)  # Show scanning view
+        elif new_state == GUIState.INFO:
+            self.stacked_widget.setCurrentIndex(2)  # Show info view
 
         elif new_state == GUIState.DEVICE_SELECTION:
             self.device_selection_view.connect_button.setEnabled(True)
@@ -783,8 +783,9 @@ class MainWindow(QWidget):
         self.update_ui_state(GUIState.DEVICE_SELECTION)
 
     @Slot(str)
-    def update_scanning_status(self, status):
-        self.scanning_view.status_label.setText(status)
+    def update_info_status(self, title, status):
+        self.info_view.message.setText(title)
+        self.info_view.status_label.setText(status)
 
     @Slot(str)
     def update_monitoring_status(self, status):
@@ -1083,9 +1084,10 @@ class CmdBLEScan:
             await back.disconnect()
             return
 
-        back.ui.update_ui_state(GUIState.SCANNING)
-        back.ui.update_scanning_status(
-            "Make sure your Movesense device is powered on and in range."
+        back.ui.update_ui_state(GUIState.INFO)
+        back.ui.update_info_status(
+            "Scanning for sensors...",
+            "Make sure your Movesense device is powered on and in range.",
         )
 
         try:
@@ -1119,8 +1121,10 @@ class CmdStreamDevice:
             await back.disconnect()
             return
 
-        back.ui.update_ui_state(GUIState.SCANNING)
-        back.ui.update_scanning_status(f"Connecting to {self.device.split(';')[0]}...")
+        back.ui.update_info_status(
+            "Connecting to Movesense", f"Connecting to {self.device.split(';')[0]}..."
+        )
+        back.ui.update_ui_state(GUIState.INFO)
 
         try:
             addr = self.device.split(";")[-1]
