@@ -5,9 +5,10 @@ import json
 import logging
 import struct
 import time
+import typing
 
 from .movesense_decoder import decode_stream_packet
-from .serial_async import Commands, open_connection
+from .serial_async import Commands, FrameProtocol, open_connection
 
 
 class DeviceService:
@@ -21,7 +22,7 @@ class DeviceService:
 
     def __init__(self, port: str):
         self._port = port
-        self.proto = None
+        self.proto: typing.Optional[FrameProtocol] = None
         self._tasks: list[asyncio.Task] = []
 
         self.plot_y = collections.deque(maxlen=PLOT_SAMPLES)
@@ -114,7 +115,7 @@ class DeviceService:
 
         return list(scanned)
 
-    async def put_config(self) -> bool:
+    async def put_config(self):
         if not self.proto:
             raise RuntimeError("DeviceService.start() not called")
 
@@ -140,7 +141,7 @@ class DeviceService:
         )
         if payload is None:
             logging.error("Config PUT request timed out")
-            return False
+            return None
         elif payload.decode("utf-8") != self.CONFIG_FILE:
             logging.error(
                 "Config PUT request failed, received: %s", payload.decode("utf-8")
@@ -234,7 +235,7 @@ class DeviceService:
                 return False
         else:
             logging.warning("PUT epoch timed out")
-            return False
+            return None
 
     async def get_status(self):
         self.proto.send_frame(Commands.CMD_STATUS)
@@ -264,15 +265,11 @@ class DeviceService:
             Commands.CMD_RESET_STATE, timeout=self.SERIAL_TIMEOUT_S
         )
         if result:
-            if len(result) == 1 and result[0] == 1:
-                logging.debug("Force reset state succeeded")
-                return True
-            else:
-                logging.error("Invalid force reset state response: %s", result)
-                return False
+            logging.debug("Force reset state succeeded")
+            return True
         else:
             logging.warning("Force reset state timed out")
-            return False
+            return None
 
     async def get_free_space(self):
         self.proto.send_frame(Commands.CMD_GET_FREE_SPACE)
@@ -337,7 +334,7 @@ class DeviceService:
         )
         if result is None:
             logging.warning("Archive log timed out")
-            return False
+            return None
         else:
             logging.debug("Archived log: %s", log_id)
             return True
@@ -364,7 +361,7 @@ class DeviceService:
         )
         if result is None:
             logging.error("Delete error log timed out")
-            return False
+            return None
         else:
             logging.debug("Error log deleted successfully")
             return True
@@ -479,7 +476,7 @@ class DeviceService:
             return True
         else:
             logging.warning("Unsubscribe timed out")
-            return False
+            return None
 
     async def start_movesense_logging(self):
         self.proto.send_frame(Commands.CMD_MOV_LOG_START)
@@ -488,7 +485,7 @@ class DeviceService:
         )
         if result is None:
             logging.error("Start Movesense logging timed out")
-            return False
+            return None
         else:
             logging.debug("Started Movesense logging")
             return True
@@ -500,7 +497,7 @@ class DeviceService:
         )
         if result is None:
             logging.error("Stop Movesense logging timed out")
-            return False
+            return None
         elif len(result) == 1:
             logging.debug("Stopped Movesense logging, log ID: %d", result[0])
             return int(result[0])
