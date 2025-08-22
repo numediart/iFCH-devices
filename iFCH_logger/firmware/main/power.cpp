@@ -111,7 +111,7 @@ void enterHibernation(uint16_t wakeDelayMin)
 
     if (wakeDelayMin)
     {
-        result = esp_sleep_enable_timer_wakeup((uint64_t)60000000 * wakeDelayMin);
+        result = esp_sleep_enable_timer_wakeup((uint64_t)60000000 * (uint64_t)wakeDelayMin);
         if (result != ESP_OK)
         {
             logError("enterHibernation", "Failed to set waketimer");

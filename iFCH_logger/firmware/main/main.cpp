@@ -79,6 +79,8 @@ void fetchLogic()
 {
     if (record.logging)
     {
+        // TODO: we should not be connected already here. What are the scenarios?
+        // TODO: we should definitely disconnect the Movesense after fetching?
         if (!isMovesenseConnected && !retry(connectMovesense, N_RETRIES, RETRY_DELAY_MS))
         {
             logError("fetchStep", "Failed to connect to Movesense");
@@ -828,5 +830,5 @@ extern "C" void app_main()
     {
         loop();
         vTaskDelay(pdMS_TO_TICKS(10));
+        1
     }
-}

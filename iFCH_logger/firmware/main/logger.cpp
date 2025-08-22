@@ -409,7 +409,7 @@ bool startMovesenseLogging()
 
     // Increment the record ID until a free one is found
     std::string recordDir;
-    for (uint8_t i = 0; i < 255; i++)
+    for (uint8_t i = 1; i < 255; i++)
     {
         record.id = (record.id + i) % 256; // Keep the record ID in the range [0, 255]
         recordDir = std::format(MOUNT_POINT "/{:03}", record.id);
@@ -492,7 +492,7 @@ bool startMovesenseLogging()
 
     // Start the RTC timer to fetch data periodically
     // Save the record state to the JSON file
-    if (!startRTCTimer() || !saveJsonRecord())
+    if (!startRTCTimer(config.fetchIntervalMin) || !saveJsonRecord())
     {
         // If saving the record file failed, stop logging
         logError("startMovesenseLogging", "Failed to save record file or start timer after starting logging");
@@ -768,7 +768,7 @@ bool fetchMovesenseData()
     }
 
     // Restart the RTC timer to continue fetching data
-    if (!startRTCTimer())
+    if (!startRTCTimer(config.fetchIntervalMin))
     {
         logError("fetchMovesenseData", "Failed to start RTC timer after fetching data");
     }

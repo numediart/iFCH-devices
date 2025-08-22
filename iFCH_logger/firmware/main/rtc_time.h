@@ -9,7 +9,7 @@
 void setupRTC();
 
 // Start a timer on the RTC chip (resets everything first)
-bool startRTCTimer();
+bool startRTCTimer(uint16_t timerMin);
 
 // Stop the timer on the RTC chip and reset flags
 bool stopRTCTimer();

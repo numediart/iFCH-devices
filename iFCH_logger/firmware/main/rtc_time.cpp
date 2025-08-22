@@ -76,8 +76,8 @@ bool stopRTCTimer()
     }
 
     ext_val &= ~(1 << 4); // Clear the countdown enable bit (bit 4)
-    // ext_val |= 0b11;      // Set the countdown timer frequency bits to 11 (1/60 Hz)
-    ext_val &= 0x00;
+    ext_val |= 0b11;      // Set the countdown timer frequency bits to 11 (1/60 Hz)
+    // ext_val &= 0x00; // For debug only, set frequency to 1 Hz
     ext_val |= 0b10; // Set the countdown timer frequency bits to 10
 
     rc = i2c_master_transmit(rv8803_handle, (uint8_t[]){EXT_REG_ADDR, ext_val}, 2, I2C_TIMEOUT_MS);
@@ -104,7 +104,7 @@ bool stopRTCTimer()
     return true;
 }
 
-bool startRTCTimer()
+bool startRTCTimer(uint16_t timerMin)
 {
     if (!stopRTCTimer())
     {
@@ -114,8 +114,8 @@ bool startRTCTimer()
 
     esp_err_t rc;
 
-    uint8_t ctrl1_val = config.fetchIntervalMin & 0xFF;        // Use the lower byte of the fetch interval
-    uint8_t ctrl2_val = (config.fetchIntervalMin >> 8) & 0x0F; // Use the upper half-byte of the fetch interval
+    uint8_t ctrl1_val = timerMin & 0xFF;        // Use the lower byte of the fetch interval
+    uint8_t ctrl2_val = (timerMin >> 8) & 0x0F; // Use the upper half-byte of the fetch interval
 
     rc = i2c_master_transmit(rv8803_handle, (uint8_t[]){CT_CTRL_REG_ADDR, ctrl1_val, ctrl2_val}, 3, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
