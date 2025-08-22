@@ -9,12 +9,13 @@ import time
 from .movesense_decoder import decode_stream_packet
 from .serial_async import Commands, open_connection
 
-BLE_TIMEOUT_S = 3
-BLE_CONNECT_TIMEOUT_S = 6
-PLOT_SAMPLES = 12 * 200
-
 
 class DeviceService:
+    SERIAL_TIMEOUT_S = 1
+    BLE_TIMEOUT_S = 2.5
+    BLE_CONNECT_TIMEOUT_S = 5
+    PLOT_SAMPLES = 12 * 200
+
     CONFIG_FILE = "/sdcard/config.jsn"
     ERROR_LOG_FILE = "/sdcard/log.txt"
 
@@ -87,7 +88,7 @@ class DeviceService:
 
             while True:
                 result = await self.proto.wait_for_cmd(
-                    Commands.CMD_SCAN, timeout=BLE_TIMEOUT_S
+                    Commands.CMD_SCAN, timeout=self.BLE_TIMEOUT_S
                 )
                 if result is not None:
                     if len(result) == 0:
@@ -113,7 +114,7 @@ class DeviceService:
 
         return list(scanned)
 
-    async def put_config(self, chunk_timeout: float = BLE_TIMEOUT_S) -> bool:
+    async def put_config(self) -> bool:
         if not self.proto:
             raise RuntimeError("DeviceService.start() not called")
 
@@ -135,7 +136,7 @@ class DeviceService:
         # Step 3 – wait for the MCU to echo CMD_CONFIG_PUT <path>
         payload = await self.proto.wait_for_cmd(
             Commands.CMD_CONFIG_PUT,
-            timeout=chunk_timeout,
+            timeout=self.SERIAL_TIMEOUT_S,
         )
         if payload is None:
             logging.error("Config PUT request timed out")
@@ -171,7 +172,7 @@ class DeviceService:
     async def get_version(self):
         self.proto.send_frame(Commands.CMD_VERSION)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_VERSION, timeout=BLE_TIMEOUT_S
+            Commands.CMD_VERSION, timeout=self.SERIAL_TIMEOUT_S
         )
         if result:
             version = result.decode("utf-8")
@@ -184,7 +185,7 @@ class DeviceService:
     async def get_battery(self):
         self.proto.send_frame(Commands.CMD_BATTERY_GET)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_BATTERY_GET, timeout=BLE_TIMEOUT_S
+            Commands.CMD_BATTERY_GET, timeout=self.SERIAL_TIMEOUT_S
         )
         if result:
             if len(result) == 4:
@@ -201,7 +202,7 @@ class DeviceService:
     async def get_epoch(self):
         self.proto.send_frame(Commands.CMD_TIME_GET)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_TIME_GET, timeout=BLE_TIMEOUT_S
+            Commands.CMD_TIME_GET, timeout=self.SERIAL_TIMEOUT_S
         )
         if result:
             if len(result) == 4:
@@ -221,7 +222,7 @@ class DeviceService:
 
         self.proto.send_frame(Commands.CMD_TIME_PUT, epoch.to_bytes(4, "little"))
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_TIME_PUT, timeout=BLE_TIMEOUT_S
+            Commands.CMD_TIME_PUT, timeout=self.SERIAL_TIMEOUT_S
         )
         if result:
             if len(result) == 4:
@@ -238,7 +239,7 @@ class DeviceService:
     async def get_status(self):
         self.proto.send_frame(Commands.CMD_STATUS)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_STATUS, timeout=BLE_TIMEOUT_S
+            Commands.CMD_STATUS, timeout=self.SERIAL_TIMEOUT_S
         )
         if result:
             if len(result) == 4:
@@ -257,10 +258,26 @@ class DeviceService:
             logging.warning("Get status timed out")
             return None
 
+    async def force_reset_state(self):
+        self.proto.send_frame(Commands.CMD_RESET_STATE)
+        result = await self.proto.wait_for_cmd(
+            Commands.CMD_RESET_STATE, timeout=self.SERIAL_TIMEOUT_S
+        )
+        if result:
+            if len(result) == 1 and result[0] == 1:
+                logging.debug("Force reset state succeeded")
+                return True
+            else:
+                logging.error("Invalid force reset state response: %s", result)
+                return False
+        else:
+            logging.warning("Force reset state timed out")
+            return False
+
     async def get_free_space(self):
         self.proto.send_frame(Commands.CMD_GET_FREE_SPACE)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_GET_FREE_SPACE, timeout=BLE_TIMEOUT_S
+            Commands.CMD_GET_FREE_SPACE, timeout=self.SERIAL_TIMEOUT_S
         )
         if result:
             if len(result) == 4:
@@ -282,7 +299,7 @@ class DeviceService:
 
         while True:
             result = await self.proto.wait_for_cmd(
-                Commands.CMD_LIST_LOG, timeout=BLE_TIMEOUT_S
+                Commands.CMD_LIST_LOG, timeout=self.SERIAL_TIMEOUT_S
             )
             if result is None:
                 logging.warning("List logs timed out")
@@ -316,7 +333,7 @@ class DeviceService:
     async def archive_log(self, log_id: str):
         self.proto.send_frame(Commands.CMD_ARCHIVE_LOG, log_id.encode("utf-8"))
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_ARCHIVE_LOG, timeout=BLE_TIMEOUT_S
+            Commands.CMD_ARCHIVE_LOG, timeout=self.SERIAL_TIMEOUT_S
         )
         if result is None:
             logging.warning("Archive log timed out")
@@ -343,7 +360,7 @@ class DeviceService:
     async def delete_error_log(self):
         self.proto.send_frame(Commands.CMD_DELETE_ERROR_LOG)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_DELETE_ERROR_LOG, timeout=BLE_TIMEOUT_S
+            Commands.CMD_DELETE_ERROR_LOG, timeout=self.SERIAL_TIMEOUT_S
         )
         if result is None:
             logging.error("Delete error log timed out")
@@ -357,7 +374,7 @@ class DeviceService:
     async def connect(self, require_hello=True):
         self.proto.send_frame(Commands.CMD_CONNECT)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_CONNECT, timeout=BLE_CONNECT_TIMEOUT_S
+            Commands.CMD_CONNECT, timeout=self.BLE_CONNECT_TIMEOUT_S
         )
 
         if result is None:
@@ -381,7 +398,7 @@ class DeviceService:
     async def disconnect(self):
         self.proto.send_frame(Commands.CMD_DISCONNECT)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_DISCONNECT, timeout=BLE_TIMEOUT_S
+            Commands.CMD_DISCONNECT, timeout=self.SERIAL_TIMEOUT_S
         )
         if result is None:
             logging.error("Disconnect timed out")
@@ -396,7 +413,7 @@ class DeviceService:
     async def hello_movesense(self):
         self.proto.send_frame(Commands.CMD_BLE_HELLO)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_BLE_HELLO, timeout=BLE_TIMEOUT_S
+            Commands.CMD_BLE_HELLO, timeout=self.BLE_TIMEOUT_S
         )
         if result is not None:
             logging.debug("Received hello from Movesense")
@@ -408,7 +425,7 @@ class DeviceService:
     async def get_mov_battery(self):
         self.proto.send_frame(Commands.CMD_MOV_BATTERY_GET)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_MOV_BATTERY_GET, timeout=BLE_TIMEOUT_S
+            Commands.CMD_MOV_BATTERY_GET, timeout=self.BLE_TIMEOUT_S
         )
         if result is None:
             logging.error("Get Movesense battery timed out")
@@ -424,7 +441,7 @@ class DeviceService:
     async def get_mov_islogging(self):
         self.proto.send_frame(Commands.CMD_MOV_GET_LOGGING_STATUS)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_MOV_GET_LOGGING_STATUS, timeout=BLE_TIMEOUT_S
+            Commands.CMD_MOV_GET_LOGGING_STATUS, timeout=self.BLE_TIMEOUT_S
         )
         if result is not None:
             if len(result) == 1:
@@ -443,7 +460,7 @@ class DeviceService:
     async def sub_stream(self):
         self.proto.send_frame(Commands.CMD_MOV_STREAM)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_MOV_STREAM, timeout=BLE_TIMEOUT_S
+            Commands.CMD_MOV_STREAM, timeout=self.BLE_TIMEOUT_S
         )
         if result is None:
             logging.error("Subscribe timed out")
@@ -455,7 +472,7 @@ class DeviceService:
     async def unsub_stream(self):
         self.proto.send_frame(Commands.CMD_MOV_UNSTREAM)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_MOV_UNSTREAM, timeout=BLE_TIMEOUT_S
+            Commands.CMD_MOV_UNSTREAM, timeout=self.BLE_TIMEOUT_S
         )
         if result is not None:
             logging.debug("Unsubscribed from device stream %s", result)
@@ -467,7 +484,7 @@ class DeviceService:
     async def start_movesense_logging(self):
         self.proto.send_frame(Commands.CMD_MOV_LOG_START)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_MOV_LOG_START, timeout=2 * BLE_TIMEOUT_S
+            Commands.CMD_MOV_LOG_START, timeout=2 * self.BLE_TIMEOUT_S
         )
         if result is None:
             logging.error("Start Movesense logging timed out")
@@ -479,7 +496,7 @@ class DeviceService:
     async def stop_movesense_logging(self):
         self.proto.send_frame(Commands.CMD_MOV_LOG_END)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_MOV_LOG_END, timeout=2 * BLE_TIMEOUT_S
+            Commands.CMD_MOV_LOG_END, timeout=2 * self.BLE_TIMEOUT_S
         )
         if result is None:
             logging.error("Stop Movesense logging timed out")

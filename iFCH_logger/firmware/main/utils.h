@@ -25,7 +25,7 @@
 
 #define I2C_MASTER_FREQ_HZ 100000 // could go up to 400 kHz, but 100 kHz is more reliable
 #define I2C_MASTER_PORT I2C_NUM_0
-#define I2C_TIMEOUT_MS 1000
+#define I2C_TIMEOUT_MS 500
 
 #define LED_STRIP_RMT_RES_HZ (10 * 1000 * 1000) // 10 MHz
 

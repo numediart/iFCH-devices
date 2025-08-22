@@ -964,7 +964,7 @@ bool connectMovesense()
     // Wait for the connection to be established
     if (bleConnectSemaphore != NULL)
     {
-        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(2 * BLE_CONNECT_TIMEOUT)) != pdTRUE)
+        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(BLE_CONNECT_TIMEOUT)) != pdTRUE)
         {
             logError("connectMovesense", "Connection timed out");
             return false;
