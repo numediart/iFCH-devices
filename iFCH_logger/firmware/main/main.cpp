@@ -830,5 +830,5 @@ extern "C" void app_main()
     {
         loop();
         vTaskDelay(pdMS_TO_TICKS(10));
-        1
     }
+}
