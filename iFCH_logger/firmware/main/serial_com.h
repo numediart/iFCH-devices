@@ -52,7 +52,7 @@ enum class CmdType : uint8_t
     CMD_MOV_LOG_START = 0x44,
     CMD_MOV_LOG_END = 0x45,
     CMD_MOV_GET_LOGGING_STATUS = 0x46,
-    CMD_MOV_FULL_RESET = 0x48,
+    CMD_MOV_FULL_RESET = 0x47,
     // Errors
     CMD_TIMEOUT = 0xFE,
     CMD_INVALID = 0xFF,

@@ -25,6 +25,7 @@ class Commands(enum.IntEnum):
     CMD_ERROR = 0x04
     CMD_STATUS = 0x05
     CMD_GET_FREE_SPACE = 0x06
+    CMD_RESET_STATE = 0x07
     # BLE
     CMD_SCAN = 0x11
     CMD_CONNECT = 0x12
@@ -52,7 +53,7 @@ class Commands(enum.IntEnum):
     CMD_MOV_LOG_START = 0x44
     CMD_MOV_LOG_END = 0x45
     CMD_MOV_GET_LOGGING_STATUS = 0x46
-    CMD_MOV_FULL_RESET = 0x48
+    CMD_MOV_FULL_RESET = 0x47
     # Errors
     CMD_TIMEOUT = 0xFE
     CMD_INVALID = 0xFF
