@@ -1023,6 +1023,13 @@ class Backend:
 
         t.add_done_callback(_done)
 
+    async def show_error(self, title: str, message: str):
+        self.ui.update_error_status(title, message)
+        self.ui.update_ui_state(GUIState.ERROR)
+
+        await self.clear_state()
+        self.clear_commands()
+
 
 # Internal command types
 
@@ -1048,6 +1055,9 @@ class CmdProbeUSB:
                 await back.start_service(port)
 
                 # After service starts, move to scanning
+
+                # TODO: check if currently in logging state
+                # If so, attempt to connect to corresponding Movesens
                 await back.queue_command(CmdBLEScan())
             else:
                 # Schedule another probe later (no busy loop)
@@ -1148,14 +1158,10 @@ class CmdStreamDevice:
                 return
             elif is_logging:
                 # Show error pop-up when device is already logging
-                back.ui.update_error_status(
+                await back.show_error(
                     "Movesense currently recording",
                     "The Movesense you selected is recording data. It may be paired to a different device.\nTo force-reset it, remove its battery (any ongoing recording will be lost).",
                 )
-                back.ui.update_ui_state(GUIState.ERROR)
-
-                await back.clear_state()
-                back.clear_commands()
                 return
 
             if not await back.svc.sub_stream():
@@ -1219,17 +1225,28 @@ class CmdStartLogging:
             logging.error("Start logging called without USB service")
             await back.disconnect()
             return
-        try:
-            # TODO
-            back.svc.start_logging()
 
+        success = await back.svc.unsub_stream()
+        if not success:
+            logging.error("Unsubscribe stream failed")
+            await back.show_error(
+                "Failed to start recording",
+                "Device will reset, please reconnect to try again",
+            )
             return
 
-        except Exception as e:
-            logging.error("Start logging failed: %s", e)
-            # TODO check this
+        success = await back.svc.start_movesense_logging()
+        if not success:
+            logging.error("Start logging failed")
+            await back.show_error(
+                "Failed to start recording",
+                "Device will reset, please reconnect to try again",
+            )
+            return
 
-            await back.disconnect()
+        else:
+            logging.debug("Movesense logging started")
+            back.ui.update_ui_state(GUIState.LOGGING)
             return
 
 
