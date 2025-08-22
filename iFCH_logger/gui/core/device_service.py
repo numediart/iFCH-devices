@@ -25,8 +25,8 @@ class DeviceService:
         self.proto: typing.Optional[FrameProtocol] = None
         self._tasks: list[asyncio.Task] = []
 
-        self.plot_y = collections.deque(maxlen=PLOT_SAMPLES)
-        self.plot_x = collections.deque(maxlen=PLOT_SAMPLES)
+        self.plot_y = collections.deque(maxlen=self.PLOT_SAMPLES)
+        self.plot_x = collections.deque(maxlen=self.PLOT_SAMPLES)
         self.time_start = -1
 
         self.config = {
