@@ -18,6 +18,18 @@ async def test_device(port):
     else:
         logging.info("Firmware version: %s", version)
 
+    status = await device.get_status()
+    if status is None:
+        logging.error("Failed to get status")
+    else:
+        logging.info("Status retrieved successfully: %s", status)
+
+    ok = await device.force_reset_state()
+    if not ok:
+        logging.error("Failed to force reset state")
+    else:
+        logging.info("Force reset state successful")
+
     battery = await device.get_battery()
     if battery is None:
         logging.error("Failed to get battery level")
@@ -63,17 +75,18 @@ async def test_device(port):
         logging.info("Logs listed successfully: %s", logs)
 
     if logs is not None and len(logs) > 0:
-        log = await device.get_log(logs[0])
+        log_id = logs[0]
+        log = await device.get_log(log_id)
         if log is None:
-            logging.error("Failed to get log %s", logs[0])
+            logging.error("Failed to get log %s", log_id)
         else:
-            logging.info("Log %s retrieved successfully: %s", logs[0], list(log.keys()))
+            logging.info("Log %s retrieved successfully: %s", log_id, list(log.keys()))
 
-            archived = await device.archive_log(log)
+            archived = await device.archive_log(log_id)
             if not archived:
-                logging.error("Failed to archive log %s", log)
+                logging.error("Failed to archive log %s", log_id)
             else:
-                logging.info("Log %s archived successfully", log)
+                logging.info("Log %s archived successfully", log_id)
 
     logging.info("Scanning for devices...")
     devices = await device.scan()
