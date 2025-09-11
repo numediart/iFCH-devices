@@ -264,7 +264,7 @@ class DeviceService:
         result = await self.proto.wait_for_cmd(
             Commands.CMD_RESET_STATE, timeout=self.SERIAL_TIMEOUT_S
         )
-        if result:
+        if result is not None:
             logging.debug("Force reset state succeeded")
             return True
         else:

@@ -276,7 +276,6 @@ class FrameProtocol(asyncio.Protocol):
     async def wait_for_cmd(
         self, wanted: Commands, timeout=SERIAL_TIMEOUT_S
     ) -> typing.Optional[bytes]:
-
         # Enforce a single active waiter. Cancel the previous one if present.
         this_task = asyncio.current_task()
         if this_task is None:
@@ -364,7 +363,7 @@ class FrameProtocol(asyncio.Protocol):
                 chunk = payload[1:]
 
                 if seq == expected_seq:
-                    if seq == 0:
+                    if file_name is None and seq == 0:
                         file_name = chunk.decode()
                         logging.debug("Received file name: %s", file_name)
 
