@@ -26,7 +26,15 @@ bool resetState()
     xQueueReset(responseQueue);
     xQueueReset(logQueue);
 
-    bool success = stopRTCTimer();
+    bool success = saveJsonRecord();
+    if (!success)
+    {
+        logError("resetState", "Failed to save record file");
+        errorReset(COLOR_SD);
+        return success;
+    }
+
+    success |= stopRTCTimer();
 
     ESP_LOGW("resetState", "State reset to default values");
     if (!success)
