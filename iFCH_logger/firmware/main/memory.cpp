@@ -44,6 +44,7 @@ bool sendFile(std::string filename)
         memcpy(tx_buffer + 1, filename.c_str(), filename.length());
         if (!sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, filename.length() + 1, seqNum))
         {
+            sendERR(CmdType::CMD_FILE_CHUNK);
             return false;
         }
 
@@ -53,6 +54,7 @@ bool sendFile(std::string filename)
         if (f == NULL)
         {
             logError("sendFile", "Failed to open file for reading");
+            sendERR(CmdType::CMD_FILE_CHUNK);
             errorReset(COLOR_SD);
             return false;
         }
@@ -82,15 +84,17 @@ bool sendFile(std::string filename)
         if (sentOK)
         {
             seqNum++;
-            if (!sendProtectedFrame(CmdType::CMD_FILE_CHUNK, &seqNum, 1, seqNum))
-            {
-                sentOK = false;
-            }
+            sentOK = sendProtectedFrame(CmdType::CMD_FILE_CHUNK, &seqNum, 1, seqNum);
         }
     }
     else
     {
         logError("sendFile", "File not found");
+    }
+
+    if (!sentOK)
+    {
+        sendERR(CmdType::CMD_FILE_CHUNK);
     }
 
     ledWrite(false);
@@ -102,12 +106,14 @@ bool sendDir(std::string folderName)
     if (!exists(folderName))
     {
         logError("sendFolder", "Path does not exist: %s", folderName.c_str());
+        sendERR(CmdType::CMD_DIR_CHUNK);
         return false;
     }
 
     else if (!isDir(folderName))
     {
         logError("sendFolder", "Path is not a directory: %s", folderName.c_str());
+        sendERR(CmdType::CMD_DIR_CHUNK);
         return false;
     }
 
@@ -115,6 +121,7 @@ bool sendDir(std::string folderName)
     if (dir == NULL)
     {
         logError("sendFolder", "Failed to open directory: %s", folderName.c_str());
+        sendERR(CmdType::CMD_DIR_CHUNK);
         errorReset(COLOR_SD);
         return false;
     }
@@ -166,7 +173,12 @@ bool sendDir(std::string folderName)
     {
         // Send EOF for the directory
         dirSeqNum++;
-        sendProtectedFrame(CmdType::CMD_DIR_CHUNK, &dirSeqNum, 1, dirSeqNum);
+        sentOK = sendProtectedFrame(CmdType::CMD_DIR_CHUNK, &dirSeqNum, 1, dirSeqNum);
+    }
+
+    if (!sentOK)
+    {
+        sendERR(CmdType::CMD_DIR_CHUNK);
     }
 
     return sentOK;

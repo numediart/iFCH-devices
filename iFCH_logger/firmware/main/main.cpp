@@ -203,6 +203,7 @@ void handleSerialCommand(CmdType cmd)
         if (isMovesenseConnected)
         {
             logError("CMD_SCAN", "Movesense connected, cannot scan");
+            sendERR(CmdType::CMD_SCAN);
             break;
         }
 
@@ -214,6 +215,7 @@ void handleSerialCommand(CmdType cmd)
         else
         {
             logError("CMD_SCAN", "Failed to scan for devices");
+            sendERR(CmdType::CMD_SCAN);
         }
         break;
     }
@@ -234,11 +236,13 @@ void handleSerialCommand(CmdType cmd)
         if (isMovesenseConnected)
         {
             logError("CMD_CONFIG_PUT", "Movesense connected, cannot update config");
+            sendERR(CmdType::CMD_CONFIG_PUT);
             break;
         }
         else if (record.logging)
         {
             logError("CMD_CONFIG_PUT", "Movesense currently logging, cannot update config");
+            sendERR(CmdType::CMD_CONFIG_PUT);
             break;
         }
         else
@@ -257,6 +261,7 @@ void handleSerialCommand(CmdType cmd)
             {
                 // If the config file is invalid
                 logError("CMD_CONFIG_PUT", "Invalid config file");
+                sendERR(CmdType::CMD_CONFIG_PUT);
             }
         }
         break;
@@ -268,11 +273,13 @@ void handleSerialCommand(CmdType cmd)
         if (isStreaming)
         {
             logError("CMD_LIST_LOG", "Movesense currently streaming, cannot list logs");
+            sendERR(CmdType::CMD_LIST_LOG);
             break;
         }
         else if (record.logging)
         {
             logError("CMD_LIST_LOG", "Movesense currently logging, cannot list logs");
+            sendERR(CmdType::CMD_LIST_LOG);
             break;
         }
         else if (listLogs())
@@ -282,6 +289,7 @@ void handleSerialCommand(CmdType cmd)
         else
         {
             logError("CMD_LIST_LOG", "Failed to list logs");
+            sendERR(CmdType::CMD_LIST_LOG);
         }
 
         break;
@@ -326,11 +334,13 @@ void handleSerialCommand(CmdType cmd)
         if (isStreaming)
         {
             logError("CMD_ARCHIVE_LOG", "Movesense currently streaming, cannot archive log");
+            sendERR(CmdType::CMD_ARCHIVE_LOG);
             break;
         }
         else if (record.logging)
         {
             logError("CMD_ARCHIVE_LOG", "Movesense currently logging, cannot archive log");
+            sendERR(CmdType::CMD_ARCHIVE_LOG);
             break;
         }
         else
@@ -339,6 +349,7 @@ void handleSerialCommand(CmdType cmd)
             if (rx_payload_len < 1)
             {
                 logError("CMD_ARCHIVE_LOG", "Invalid log file name payload");
+                sendERR(CmdType::CMD_ARCHIVE_LOG);
                 break;
             }
 
@@ -348,6 +359,7 @@ void handleSerialCommand(CmdType cmd)
             if (logName[0] == '_')
             {
                 logError("CMD_ARCHIVE_LOG", "Log already archived");
+                sendERR(CmdType::CMD_ARCHIVE_LOG);
                 break;
             }
 
@@ -358,6 +370,7 @@ void handleSerialCommand(CmdType cmd)
             if (!move(dirPath, archivePath))
             {
                 logError("CMD_GET_LOG", "Failed to archive log directory");
+                sendERR(CmdType::CMD_ARCHIVE_LOG);
             }
             else
             {
@@ -382,6 +395,7 @@ void handleSerialCommand(CmdType cmd)
         if (!deleteLog())
         {
             logError("CMD_DELETE_ERROR_LOG", "Failed to delete error log");
+            sendERR(CmdType::CMD_DELETE_ERROR_LOG);
         }
         else
         {
@@ -399,6 +413,10 @@ void handleSerialCommand(CmdType cmd)
         {
             sendFrame(CmdType::CMD_TIME_GET, (uint8_t *)&currentTime, sizeof(currentTime));
         }
+        else
+        {
+            sendERR(CmdType::CMD_TIME_GET);
+        }
         break;
     }
 
@@ -408,6 +426,7 @@ void handleSerialCommand(CmdType cmd)
         if (record.logging)
         {
             logError("CMD_TIME_PUT", "Movesense currently logging, cannot set time");
+            sendERR(CmdType::CMD_TIME_PUT);
             break;
         }
         else
@@ -418,6 +437,7 @@ void handleSerialCommand(CmdType cmd)
             if (rx_payload_len != sizeof(newTime))
             {
                 logError("CMD_TIME_PUT", "Invalid time payload");
+                sendERR(CmdType::CMD_TIME_PUT);
                 break;
             }
 
@@ -429,6 +449,7 @@ void handleSerialCommand(CmdType cmd)
             else
             {
                 logError("CMD_TIME_PUT", "Failed to set time");
+                sendERR(CmdType::CMD_TIME_PUT);
             }
         }
         break;
@@ -464,6 +485,7 @@ void handleSerialCommand(CmdType cmd)
         if (freeSpace == 0)
         {
             logError("CMD_GET_FREE_SPACE", "Failed to get free space");
+            sendERR(CmdType::CMD_GET_FREE_SPACE);
         }
         else
         {
@@ -484,6 +506,10 @@ void handleSerialCommand(CmdType cmd)
             resetState();
             sendCMD(CmdType::CMD_MOV_FULL_RESET);
         }
+        else
+        {
+            sendERR(CmdType::CMD_MOV_FULL_RESET);
+        }
 
         break;
     }
@@ -503,11 +529,13 @@ void handleSerialCommand(CmdType cmd)
         if (!config.initialized)
         {
             logError("CMD_CONNECT", "Config not initialized");
+            sendERR(CmdType::CMD_CONNECT);
             break;
         }
         else if (isMovesenseConnected)
         {
             logError("CMD_CONNECT", "Movesense already connected");
+            sendERR(CmdType::CMD_CONNECT);
             break;
         }
         else
@@ -519,6 +547,7 @@ void handleSerialCommand(CmdType cmd)
             else
             {
                 logError("CMD_CONNECT", "Failed to connect to Movesense");
+                sendERR(CmdType::CMD_CONNECT);
             }
         }
         break;
@@ -535,6 +564,7 @@ void handleSerialCommand(CmdType cmd)
         else
         {
             logError("CMD_DISCONNECT", "Failed to disconnect from Movesense");
+            sendERR(CmdType::CMD_DISCONNECT);
         }
         break;
     }
@@ -545,6 +575,7 @@ void handleSerialCommand(CmdType cmd)
         if (!isMovesenseConnected)
         {
             logError("CMD_BLE_HELLO", "Movesense not connected");
+            sendERR(CmdType::CMD_BLE_HELLO);
             break;
         }
         else if (movHello())
@@ -554,6 +585,7 @@ void handleSerialCommand(CmdType cmd)
         else
         {
             logError("CMD_BLE_HELLO", "Failed to send hello to Movesense");
+            sendERR(CmdType::CMD_BLE_HELLO);
         }
         break;
     }
@@ -564,6 +596,7 @@ void handleSerialCommand(CmdType cmd)
         if (!isMovesenseConnected)
         {
             logError("CMD_MOV_BATTERY_GET", "Movesense not connected");
+            sendERR(CmdType::CMD_MOV_BATTERY_GET);
             break;
         }
         else
@@ -577,6 +610,7 @@ void handleSerialCommand(CmdType cmd)
             else
             {
                 logError("CMD_MOV_BATTERY_GET", "Failed to get Movesense battery level");
+                sendERR(CmdType::CMD_MOV_BATTERY_GET);
             }
         }
         break;
@@ -588,16 +622,19 @@ void handleSerialCommand(CmdType cmd)
         if (!isMovesenseConnected)
         {
             logError("CMD_MOV_STREAM", "Movesense not connected");
+            sendERR(CmdType::CMD_MOV_STREAM);
             break;
         }
         else if (record.logging)
         {
             logError("CMD_MOV_STREAM", "Movesense currently logging, cannot stream");
+            sendERR(CmdType::CMD_MOV_STREAM);
             break;
         }
         else if (isStreaming)
         {
             logError("CMD_MOV_STREAM", "Already streaming");
+            sendERR(CmdType::CMD_MOV_STREAM);
             break;
         }
         else if (movSubscribe())
@@ -608,6 +645,7 @@ void handleSerialCommand(CmdType cmd)
         else
         {
             logError("CMD_MOV_STREAM", "Failed to subscribe to Movesense");
+            sendERR(CmdType::CMD_MOV_STREAM);
         }
         break;
     }
@@ -618,11 +656,13 @@ void handleSerialCommand(CmdType cmd)
         if (!isMovesenseConnected)
         {
             logError("CMD_MOV_UNSTREAM", "Movesense not connected");
+            sendERR(CmdType::CMD_MOV_UNSTREAM);
             break;
         }
         else if (!isStreaming)
         {
             logError("CMD_MOV_UNSTREAM", "Not streaming, cannot stop");
+            sendERR(CmdType::CMD_MOV_UNSTREAM);
             break;
         }
         else if (movUnsubscribe())
@@ -636,6 +676,7 @@ void handleSerialCommand(CmdType cmd)
         else
         {
             logError("CMD_MOV_UNSTREAM", "Failed to unsubscribe from Movesense");
+            sendERR(CmdType::CMD_MOV_UNSTREAM);
         }
         break;
     }
@@ -646,16 +687,19 @@ void handleSerialCommand(CmdType cmd)
         if (!isMovesenseConnected)
         {
             logError("CMD_MOV_LOG_START", "Movesense not connected");
+            sendERR(CmdType::CMD_MOV_LOG_START);
             break;
         }
         else if (isStreaming)
         {
             logError("CMD_MOV_LOG_START", "Streaming, cannot start logging");
+            sendERR(CmdType::CMD_MOV_LOG_START);
             break;
         }
         else if (record.logging)
         {
             logError("CMD_MOV_LOG_START", "Movesense currently logging, cannot start new log");
+            sendERR(CmdType::CMD_MOV_LOG_START);
             break;
         }
         else if (startMovesenseLogging())
@@ -665,6 +709,7 @@ void handleSerialCommand(CmdType cmd)
         else
         {
             logError("CMD_MOV_LOG_START", "Failed to start Movesense logging");
+            sendERR(CmdType::CMD_MOV_LOG_START);
         }
 
         break;
@@ -676,11 +721,13 @@ void handleSerialCommand(CmdType cmd)
         if (!isMovesenseConnected)
         {
             logError("CMD_MOV_LOG_END", "Movesense not connected");
+            sendERR(CmdType::CMD_MOV_LOG_END);
             break;
         }
         else if (!record.logging)
         {
             logError("CMD_MOV_LOG_END", "Movesense not logging, cannot stop logging");
+            sendERR(CmdType::CMD_MOV_LOG_END);
             break;
         }
         else if (endMovesenseLogging())
@@ -690,6 +737,7 @@ void handleSerialCommand(CmdType cmd)
         else
         {
             logError("CMD_MOV_LOG_END", "Failed to end Movesense logging");
+            sendERR(CmdType::CMD_MOV_LOG_END);
         }
         break;
     }
@@ -702,6 +750,7 @@ void handleSerialCommand(CmdType cmd)
         if (!isMovesenseConnected)
         {
             logError("CMD_MOV_GET_LOGGING_STATUS", "Movesense not connected");
+            sendERR(CmdType::CMD_MOV_GET_LOGGING_STATUS);
             break;
         }
         else if (movGetLoggingStatus(loggingStatus))
@@ -711,6 +760,7 @@ void handleSerialCommand(CmdType cmd)
         else
         {
             logError("CMD_MOV_GET_LOGGING_STATUS", "Failed to get Movesense logging status");
+            sendERR(CmdType::CMD_MOV_GET_LOGGING_STATUS);
         }
         break;
     }
