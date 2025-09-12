@@ -29,6 +29,8 @@ static uint16_t data_char_handle;
 static uint16_t response_char_handle;
 static uint16_t log_char_handle;
 
+uint8_t sbemBuffer[SD_WRITE_BUFFER]; // Buffer for writing data to file
+
 #define REF_OFFSET_COMMAND 10
 
 enum Commands
@@ -638,7 +640,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
         }
         else
         {
-            ESP_LOGE("BLE_GAP_EVENT_NOTIFY_RX", "Received notification on unknown handle: %d",
+            logError("BLE_GAP_EVENT_NOTIFY_RX", "Received notification on unknown handle: %d",
                      event->notify_rx.attr_handle);
             return BLE_HS_EBADDATA;
         }
@@ -1320,6 +1322,9 @@ bool _movFetchLog(FILE *f, uint32_t logId)
     uint32_t receivedAmount = 0;
     bool complete = false;
 
+    size_t bufferLen = 0; // Current length of data in the buffer
+    uint32_t bufferOffset = 0;
+
     // Define the timeout deadline for the next message
     deadline = xTaskGetTickCount() + pdMS_TO_TICKS(BLE_TIMEOUT);
 
@@ -1356,15 +1361,6 @@ bool _movFetchLog(FILE *f, uint32_t logId)
                 uint32_t offset = (logNotif[6] << 24) | (logNotif[5] << 16) |
                                   (logNotif[4] << 8) | logNotif[3];
 
-                // Seek to the offset in the file
-                int ret = fseek(f, offset, SEEK_SET);
-                if (ret != 0)
-                {
-                    logError("_movFetchLog", "Failed to seek to offset %d in file: %d", offset, ret);
-                    errorReset(COLOR_SD);
-                    return false;
-                }
-
                 // Compute the length of the data
                 size_t dataLength = len - 6; // 6 bytes are the payload header
 
@@ -1372,18 +1368,86 @@ bool _movFetchLog(FILE *f, uint32_t logId)
                 {
                     // No data -> last part of the log
                     // Exit the loop
+
+                    // Write the buffer if not empty
+                    if (bufferLen > 0)
+                    {
+                        size_t written = fwrite(sbemBuffer, 1, bufferLen, f);
+                        if (written != bufferLen)
+                        {
+                            logError("_movFetchLog", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
+                            errorReset(COLOR_SD);
+                            return false;
+                        }
+                    }
+
                     complete = true;
                     break;
                 }
 
-                // Write the data to the file
-                // Start reading at 7 because the firt bytes are the length and the header
-                size_t written = fwrite(logNotif + 7, 1, dataLength, f);
-                if (written != dataLength)
+                bool sequentialWrite = (offset == bufferOffset + bufferLen);
+
+                // If not sequential write, flush the buffer to file
+                // Then create a new buffer at the correct offset
+                if (!sequentialWrite)
                 {
-                    logError("_movFetchLog", "Failed to write data to file, expected %zu bytes, wrote %zu bytes", dataLength, written);
-                    errorReset(COLOR_SD);
-                    return false;
+                    logError("_movFetchLog", "Non-sequential log data received. Expected offset %d, got %d. Flushing buffer.", bufferOffset + bufferLen, offset);
+
+                    size_t written = fwrite(sbemBuffer, 1, bufferLen, f);
+
+                    if (written != bufferLen)
+                    {
+                        logError("_movFetchLog", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
+                        errorReset(COLOR_SD);
+                        return false;
+                    }
+
+                    bufferLen = 0;
+
+                    // Seek to the new offset in the file
+                    int ret = fseek(f, offset, SEEK_SET);
+                    if (ret != 0)
+                    {
+                        logError("_movFetchLog", "Failed to seek to offset %lu in file: %d", offset, ret);
+                        errorReset(COLOR_SD);
+                        return false;
+                    }
+
+                    // Align the buffer offset to the new location
+                    bufferOffset = offset;
+                }
+
+                // Compute the free space left in the buffer
+                size_t spaceLeft = SD_WRITE_BUFFER - bufferLen;
+                size_t toCopy = (dataLength < spaceLeft) ? dataLength : spaceLeft;
+
+                // Start reading at 7 because the firt bytes are the length and the header
+                memcpy(sbemBuffer + bufferLen, logNotif + 7, toCopy);
+                bufferLen += toCopy;
+
+                // If the buffer is full, write it to the file immediately
+                if (bufferLen == SD_WRITE_BUFFER)
+                {
+                    size_t written = fwrite(sbemBuffer, 1, bufferLen, f);
+
+                    if (written != bufferLen)
+                    {
+                        logError("_movFetchLog", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
+                        errorReset(COLOR_SD);
+                        return false;
+                    }
+
+                    bufferOffset += bufferLen;
+                    bufferLen = 0;
+
+                    // If there is still remaining data, copy it to the buffer
+                    if (toCopy < dataLength)
+                    {
+                        size_t remaining = dataLength - toCopy;
+
+                        memcpy(sbemBuffer, logNotif + 7 + toCopy, remaining);
+                        bufferLen += remaining;
+                    }
                 }
 
                 // We will now wait for the next part of the log

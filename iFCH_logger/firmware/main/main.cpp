@@ -89,6 +89,10 @@ void fetchLogic()
     {
         // TODO: we should not be connected already here. What are the scenarios?
         // TODO: we should definitely disconnect the Movesense after fetching?
+        if (isMovesenseConnected)
+        {
+            logError("fetchStep", "Movesense already connected at fetch step start");
+        }
         if (!isMovesenseConnected && !retry(connectMovesense, N_RETRIES, RETRY_DELAY_MS))
         {
             logError("fetchStep", "Failed to connect to Movesense");
@@ -751,7 +755,7 @@ extern "C" void app_main()
 
     // Initialize notification queues
     dataQueue = xQueueCreate(BLE_DATA_QUEUE_LENGTH, NOTIF_LEN);
-    logQueue = xQueueCreate(BLE_DATA_QUEUE_LENGTH, NOTIF_LEN);
+    logQueue = xQueueCreate(BLE_LOG_QUEUE_LENGTH, NOTIF_LEN);
     responseQueue = xQueueCreate(BLE_RESPONSE_QUEUE_LENGTH, NOTIF_LEN);
 
     if (dataQueue == NULL || responseQueue == NULL || logQueue == NULL)
@@ -803,6 +807,7 @@ extern "C" void app_main()
         }
     }
 
+    // TODO check if USB is connected, if yes wait for messages before
     // If the clock interrupt is active, fetch data
     if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER || timerIsOver())
     {

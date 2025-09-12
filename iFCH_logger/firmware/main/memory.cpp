@@ -501,7 +501,8 @@ bool loadJsonRecord()
     record.id = id->valueint;
     record.part = part->valueint;
 
-    ESP_LOGI("loadJsonRecord", "Record file loaded");
+    ESP_LOGI("loadJsonRecord", "Record file loaded: lastFetch=%lu, logging=%s, id=%u, part=%u",
+             record.lastFetch, record.logging ? "true" : "false", record.id, record.part);
 
     cJSON_Delete(json);
     return true;

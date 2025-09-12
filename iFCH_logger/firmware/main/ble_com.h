@@ -14,7 +14,8 @@
 #define BLE_CONNECT_TIMEOUT 4000    // milliseconds
 #define GATT_DELAY 50               // milliseconds
 #define BLE_RESPONSE_QUEUE_LENGTH 16
-#define BLE_DATA_QUEUE_LENGTH 256
+#define BLE_DATA_QUEUE_LENGTH 128
+#define BLE_LOG_QUEUE_LENGTH 1024
 
 // Is movesense currently connected
 extern volatile bool isMovesenseConnected;

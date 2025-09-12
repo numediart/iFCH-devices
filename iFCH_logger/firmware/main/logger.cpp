@@ -12,6 +12,8 @@
 static TaskHandle_t stream_dump_task = nullptr;
 static TaskHandle_t stream_dump_control = nullptr;
 
+uint8_t binBuffer[SD_WRITE_BUFFER]; // Buffer for writing data to file
+
 bool backupIfExists(std::string &filename)
 {
     // Check if the file exists
@@ -108,29 +110,64 @@ void streamDumpTask(void *params)
         goto cleanup;
     }
 
-    uint8_t dataBuffer[NOTIF_LEN]; // +1 for the length byte
-
-    while (true)
     {
-        if (ulTaskNotifyTake(pdTRUE, 0) > 0)
+        uint8_t dataBuffer[NOTIF_LEN]; // +1 for the length byte
+
+        size_t bufferLen = 0;
+
+        while (true)
         {
-            // If we received a notification, it means the task is being stopped
-            ESP_LOGI("streamDumpTask", "Stream dump task stopping");
-            break;
-        }
-        else if (xQueueReceive(dataQueue, dataBuffer, 0) == pdTRUE)
-        {
-            size_t notifLen = dataBuffer[0] + 1; // First byte is the length of the notification
-            size_t written = fwrite(dataBuffer, 1, notifLen, f);
-            if (written != notifLen)
+            if (ulTaskNotifyTake(pdTRUE, 0) > 0)
             {
-                logError("streamDumpTask", "Failed to write data to file");
-                blink(COLOR_RUNTIME_ERROR, 1, 1);
+                // If we received a notification, it means the task is being stopped
+                ESP_LOGI("streamDumpTask", "Stream dump task stopping");
+                break;
+            }
+            else if (xQueueReceive(dataQueue, dataBuffer, 0) == pdTRUE)
+            {
+                size_t notifLen = dataBuffer[0] + 1; // First byte is the length of the notification
+
+                size_t spaceLeft = SD_WRITE_BUFFER - bufferLen;
+                size_t toCopy = (notifLen < spaceLeft) ? notifLen : spaceLeft;
+
+                memcpy(binBuffer + bufferLen, dataBuffer, toCopy);
+                bufferLen += toCopy;
+
+                if (bufferLen == SD_WRITE_BUFFER)
+                {
+                    size_t written = fwrite(binBuffer, 1, bufferLen, f);
+                    if (written != bufferLen)
+                    {
+                        logError("streamDumpTask", "Failed to write data to file");
+                        blink(COLOR_RUNTIME_ERROR, 1, 1);
+                    }
+                    bufferLen = 0;
+
+                    if (toCopy < notifLen)
+                    {
+                        // If there is still remaining data, copy it to the buffer
+                        size_t remaining = notifLen - toCopy;
+
+                        memcpy(binBuffer, dataBuffer + toCopy, remaining);
+                        bufferLen += remaining;
+                    }
+                }
+            }
+            else
+            {
+                vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS)); // Prevent busy-waiting
             }
         }
-        else
+
+        // Write any remaining data in the buffer
+        if (bufferLen > 0)
         {
-            vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS)); // Prevent busy-waiting
+            size_t written = fwrite(binBuffer, 1, bufferLen, f);
+            if (written != bufferLen)
+            {
+                logError("streamDumpTask", "Failed to write remaining data to file");
+                blink(COLOR_RUNTIME_ERROR, 1, 1);
+            }
         }
     }
 
