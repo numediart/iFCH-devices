@@ -730,14 +730,20 @@ void handleSerialCommand(CmdType cmd)
             sendERR(CmdType::CMD_MOV_LOG_END);
             break;
         }
-        else if (endMovesenseLogging())
-        {
-            sendFrame(CmdType::CMD_MOV_LOG_END, (uint8_t *)&record.id, sizeof(record.id));
-        }
         else
         {
-            logError("CMD_MOV_LOG_END", "Failed to end Movesense logging");
-            sendERR(CmdType::CMD_MOV_LOG_END);
+            // Warn that the request is being processed, it might take time
+            sendCMD(CmdType::CMD_MOV_LOG_END);
+            if (endMovesenseLogging())
+            {
+                // The process was successful, send the record ID
+                sendFrame(CmdType::CMD_MOV_LOG_END, (uint8_t *)&record.id, sizeof(record.id));
+            }
+            else
+            {
+                logError("CMD_MOV_LOG_END", "Failed to end Movesense logging");
+                sendERR(CmdType::CMD_MOV_LOG_END);
+            }
         }
         break;
     }

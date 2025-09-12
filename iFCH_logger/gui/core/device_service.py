@@ -492,6 +492,13 @@ class DeviceService:
 
     async def stop_movesense_logging(self):
         self.proto.send_frame(Commands.CMD_MOV_LOG_END)
+        processing = await self.proto.wait_for_cmd(
+            Commands.CMD_MOV_LOG_END, timeout=self.SERIAL_TIMEOUT_S
+        )
+        if processing is None:
+            logging.error("Stop Movesense logging (processing) timed out")
+            return None
+
         result = await self.proto.wait_for_cmd(
             Commands.CMD_MOV_LOG_END, timeout=2 * self.BLE_TIMEOUT_S
         )
