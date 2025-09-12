@@ -20,9 +20,18 @@ StaticQueue_t dataQueueStorage;
 StaticQueue_t responseQueueStorage;
 StaticQueue_t logQueueStorage;
 
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+// Allocate in PSRAM for ESP32-S3
+// This allows to have larger queues without using too much internal RAM
+uint8_t *logQueueBuffer = (uint8_t *)heap_caps_malloc(NOTIF_LEN * BLE_LOG_QUEUE_LENGTH, MALLOC_CAP_SPIRAM);
+#elifdef CONFIG_IDF_TARGET_ESP32C6
+uint8_t logQueueBuffer[NOTIF_LEN * BLE_LOG_QUEUE_LENGTH];
+#else
+#error "Unsupported target platform."
+#endif // CONFIG_IDF_TARGET
+
 uint8_t dataQueueBuffer[NOTIF_LEN * BLE_DATA_QUEUE_LENGTH];
 uint8_t responseQueueBuffer[NOTIF_LEN * BLE_RESPONSE_QUEUE_LENGTH];
-uint8_t logQueueBuffer[NOTIF_LEN * BLE_LOG_QUEUE_LENGTH];
 
 bool isStreaming;
 

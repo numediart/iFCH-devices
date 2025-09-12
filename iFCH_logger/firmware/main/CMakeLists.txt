@@ -10,4 +10,5 @@ idf_component_register(SRCS "${srcs}"
     REQUIRES json
     REQUIRES led_strip
     REQUIRES nvs_flash
+    REQUIRES esp_psram
 )
