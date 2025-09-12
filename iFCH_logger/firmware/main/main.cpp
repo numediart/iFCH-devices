@@ -16,6 +16,14 @@ QueueHandle_t dataQueue;
 QueueHandle_t responseQueue;
 QueueHandle_t logQueue;
 
+StaticQueue_t dataQueueStorage;
+StaticQueue_t responseQueueStorage;
+StaticQueue_t logQueueStorage;
+
+uint8_t dataQueueBuffer[NOTIF_LEN * BLE_DATA_QUEUE_LENGTH];
+uint8_t responseQueueBuffer[NOTIF_LEN * BLE_RESPONSE_QUEUE_LENGTH];
+uint8_t logQueueBuffer[NOTIF_LEN * BLE_LOG_QUEUE_LENGTH];
+
 bool isStreaming;
 
 bool resetState()
@@ -754,9 +762,9 @@ extern "C" void app_main()
     ESP_LOGI("setup", "Starting %s", VERSION);
 
     // Initialize notification queues
-    dataQueue = xQueueCreate(BLE_DATA_QUEUE_LENGTH, NOTIF_LEN);
-    logQueue = xQueueCreate(BLE_LOG_QUEUE_LENGTH, NOTIF_LEN);
-    responseQueue = xQueueCreate(BLE_RESPONSE_QUEUE_LENGTH, NOTIF_LEN);
+    dataQueue = xQueueCreateStatic(BLE_DATA_QUEUE_LENGTH, NOTIF_LEN, dataQueueBuffer, &dataQueueStorage);
+    logQueue = xQueueCreateStatic(BLE_LOG_QUEUE_LENGTH, NOTIF_LEN, logQueueBuffer, &logQueueStorage);
+    responseQueue = xQueueCreateStatic(BLE_RESPONSE_QUEUE_LENGTH, NOTIF_LEN, responseQueueBuffer, &responseQueueStorage);
 
     if (dataQueue == NULL || responseQueue == NULL || logQueue == NULL)
     {
