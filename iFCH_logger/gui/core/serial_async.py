@@ -237,10 +237,6 @@ class FrameProtocol(asyncio.Protocol):
             if ok:
                 try:
                     cmd = Commands(cmd)
-                    if cmd == Commands.CMD_ERROR:
-                        logging.error(
-                            "Device error: %s", payload.decode(errors="ignore")
-                        )
 
                     if cmd == Commands.CMD_BLE_NOTIFY:
                         logging.debug(
@@ -304,15 +300,22 @@ class FrameProtocol(asyncio.Protocol):
 
                 if cmd == wanted:
                     return payload
-                elif not cmd == Commands.CMD_ERROR:
-                    logging.debug(
+                elif (
+                    cmd == Commands.CMD_ERROR
+                    and len(payload) == 1
+                    and payload[0] == wanted
+                ):
+                    logging.warning("Received ERR for command: %s", wanted.name)
+                    return None
+                else:
+                    logging.warning(
                         "Unexpected command: %s while waiting for %s",
                         cmd.name,
                         wanted.name,
                     )
 
         except asyncio.TimeoutError:
-            logging.debug("Timeout waiting for command: %s", wanted.name)
+            logging.warning("Timeout waiting for command: %s", wanted.name)
             return None
         except asyncio.CancelledError:
             logging.debug("wait_for_cmd(%s) cancelled", wanted.name)
@@ -355,7 +358,7 @@ class FrameProtocol(asyncio.Protocol):
             payload = await self.wait_for_cmd(Commands.CMD_FILE_CHUNK)
 
             if payload is None:
-                logging.error("Timeout waiting for file chunk")
+                logging.error("Waiting for file chunk failed")
                 return None, None
 
             else:
@@ -401,7 +404,7 @@ class FrameProtocol(asyncio.Protocol):
             payload = await self.wait_for_cmd(Commands.CMD_DIR_CHUNK)
 
             if payload is None:
-                logging.error("Timeout waiting for directory chunk")
+                logging.error("Waiting for directory chunk failed")
                 return None, None
 
             else:

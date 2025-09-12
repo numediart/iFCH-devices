@@ -15,6 +15,7 @@ class DeviceService:
     SERIAL_TIMEOUT_S = 1
     BLE_TIMEOUT_S = 2.5
     BLE_CONNECT_TIMEOUT_S = 5
+    END_LOG_TIMEOUT_S = 300
     PLOT_SAMPLES = 12 * 200
 
     CONFIG_FILE = "/sdcard/config.jsn"
@@ -105,7 +106,7 @@ class DeviceService:
                     scanned.add(result)
 
                 else:
-                    logging.error("BLE scan timed out")
+                    logging.warning("BLE scan failed")
                     return None
 
             if len(scanned) > 0:
@@ -131,7 +132,7 @@ class DeviceService:
         ok = await self.proto.send_file(config_data, self.CONFIG_FILE)
 
         if not ok:
-            logging.error("Failed to send config file")
+            logging.warning("Failed to send config file")
             return False
 
         # Step 3 – wait for the MCU to echo CMD_CONFIG_PUT <path>
@@ -140,7 +141,7 @@ class DeviceService:
             timeout=self.SERIAL_TIMEOUT_S,
         )
         if payload is None:
-            logging.error("Config PUT request timed out")
+            logging.warning("Config PUT request failed")
             return None
         elif payload.decode("utf-8") != self.CONFIG_FILE:
             logging.error(
@@ -159,7 +160,7 @@ class DeviceService:
         file_name, data = await self.proto.wait_for_file()
 
         if file_name is None or file_name != self.CONFIG_FILE:
-            logging.error("Failed to get config file")
+            logging.warning("Failed to get config file")
             return None
 
         try:
@@ -180,7 +181,7 @@ class DeviceService:
             logging.debug("Received version: %s", version)
             return version
         else:
-            logging.warning("Get version timed out")
+            logging.warning("Get version failed")
             return None
 
     async def get_battery(self):
@@ -197,7 +198,7 @@ class DeviceService:
                 logging.error("Invalid battery response: %s", result)
                 return None
         else:
-            logging.warning("Get battery timed out")
+            logging.warning("Get battery failed")
             return None
 
     async def get_epoch(self):
@@ -214,7 +215,7 @@ class DeviceService:
                 logging.error("Invalid epoch response: %s", result)
                 return None
         else:
-            logging.warning("Get epoch timed out")
+            logging.warning("Get epoch failed")
             return None
 
     async def put_epoch(self, epoch=None):
@@ -234,7 +235,7 @@ class DeviceService:
                 logging.error("Invalid PUT epoch response: %s", result)
                 return False
         else:
-            logging.warning("PUT epoch timed out")
+            logging.warning("PUT epoch failed")
             return None
 
     async def get_status(self):
@@ -256,7 +257,7 @@ class DeviceService:
                 logging.error("Invalid status response: %s", result)
                 return None
         else:
-            logging.warning("Get status timed out")
+            logging.warning("Get status failed")
             return None
 
     async def force_reset_state(self):
@@ -268,7 +269,7 @@ class DeviceService:
             logging.debug("Force reset state succeeded")
             return True
         else:
-            logging.warning("Force reset state timed out")
+            logging.warning("Force reset state failed")
             return None
 
     async def get_free_space(self):
@@ -286,7 +287,7 @@ class DeviceService:
                 logging.error("Invalid free space response: %s", result)
                 return None
         else:
-            logging.warning("Get free space timed out")
+            logging.warning("Get free space failed")
             return None
 
     async def list_logs(self, show_archived=False):
@@ -299,7 +300,7 @@ class DeviceService:
                 Commands.CMD_LIST_LOG, timeout=self.SERIAL_TIMEOUT_S
             )
             if result is None:
-                logging.warning("List logs timed out")
+                logging.warning("List logs failed")
                 return None
             elif result:
                 try:
@@ -319,7 +320,7 @@ class DeviceService:
         dir_name, dir_files = await self.proto.wait_for_dir()
 
         if dir_name is None:
-            logging.warning("Get log timed out")
+            logging.warning("Get log failed")
             return None
         elif dir_name.split("/")[-1] != log_id:
             logging.error("Get log failed, expected %s, got %s", log_id, dir_name)
@@ -333,7 +334,7 @@ class DeviceService:
             Commands.CMD_ARCHIVE_LOG, timeout=self.SERIAL_TIMEOUT_S
         )
         if result is None:
-            logging.warning("Archive log timed out")
+            logging.warning("Archive log failed")
             return None
         else:
             logging.debug("Archived log: %s", log_id)
@@ -344,8 +345,15 @@ class DeviceService:
 
         file_name, data = await self.proto.wait_for_file()
 
-        if file_name is None or file_name != self.ERROR_LOG_FILE:
-            logging.error("Failed to get error log file")
+        if file_name is None:
+            logging.warning("Failed to get error log file")
+            return None
+        elif file_name != self.ERROR_LOG_FILE:
+            logging.error(
+                "Get error log failed, expected %s, got %s",
+                self.ERROR_LOG_FILE,
+                file_name,
+            )
             return None
 
         try:
@@ -360,7 +368,7 @@ class DeviceService:
             Commands.CMD_DELETE_ERROR_LOG, timeout=self.SERIAL_TIMEOUT_S
         )
         if result is None:
-            logging.error("Delete error log timed out")
+            logging.warning("Delete error log failed")
             return None
         else:
             logging.debug("Error log deleted successfully")
@@ -375,14 +383,14 @@ class DeviceService:
         )
 
         if result is None:
-            logging.error("Connect timed out")
+            logging.warning("Connect failed")
             return None
 
         elif result:
             if require_hello:
                 hello = await self.hello_movesense()
                 if not hello:
-                    logging.error("Failed to greet Movesense")
+                    logging.warning("Failed to greet Movesense")
                     return False
 
             logging.debug("Connected to device %s", result)
@@ -398,7 +406,7 @@ class DeviceService:
             Commands.CMD_DISCONNECT, timeout=self.SERIAL_TIMEOUT_S
         )
         if result is None:
-            logging.error("Disconnect timed out")
+            logging.warning("Disconnect failed")
             return None
         elif result:
             logging.debug("Disconnected from device %s", result)
@@ -416,7 +424,7 @@ class DeviceService:
             logging.debug("Received hello from Movesense")
             return True
         else:
-            logging.warning("Hello Movesense timed out")
+            logging.warning("Hello Movesense failed")
             return None
 
     async def get_mov_battery(self):
@@ -425,7 +433,7 @@ class DeviceService:
             Commands.CMD_MOV_BATTERY_GET, timeout=self.BLE_TIMEOUT_S
         )
         if result is None:
-            logging.error("Get Movesense battery timed out")
+            logging.warning("Get Movesense battery failed")
             return None
         elif len(result) == 1:
             battery_level = int.from_bytes(result, "little")
@@ -451,7 +459,7 @@ class DeviceService:
                 logging.error("Invalid Movesense logging status response: %s", result)
                 return None
         else:
-            logging.warning("Hello Movesense timed out")
+            logging.warning("Hello Movesense failed")
             return None
 
     async def sub_stream(self):
@@ -460,7 +468,7 @@ class DeviceService:
             Commands.CMD_MOV_STREAM, timeout=self.BLE_TIMEOUT_S
         )
         if result is None:
-            logging.error("Subscribe timed out")
+            logging.warning("Subscribe failed")
             return None
         else:
             logging.debug("Subscribed to Movesense stream")
@@ -475,7 +483,7 @@ class DeviceService:
             logging.debug("Unsubscribed from device stream %s", result)
             return True
         else:
-            logging.warning("Unsubscribe timed out")
+            logging.warning("Unsubscribe failed")
             return None
 
     async def start_movesense_logging(self):
@@ -484,7 +492,7 @@ class DeviceService:
             Commands.CMD_MOV_LOG_START, timeout=2 * self.BLE_TIMEOUT_S
         )
         if result is None:
-            logging.error("Start Movesense logging timed out")
+            logging.warning("Start Movesense logging failed")
             return None
         else:
             logging.debug("Started Movesense logging")
@@ -496,14 +504,14 @@ class DeviceService:
             Commands.CMD_MOV_LOG_END, timeout=self.SERIAL_TIMEOUT_S
         )
         if processing is None:
-            logging.error("Stop Movesense logging (processing) timed out")
+            logging.warning("Stop Movesense logging (processing) failed")
             return None
 
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_MOV_LOG_END, timeout=2 * self.BLE_TIMEOUT_S
+            Commands.CMD_MOV_LOG_END, timeout=self.END_LOG_TIMEOUT_S
         )
         if result is None:
-            logging.error("Stop Movesense logging timed out")
+            logging.warning("Stop Movesense logging failed")
             return None
         elif len(result) == 1:
             logging.debug("Stopped Movesense logging, log ID: %d", result[0])
