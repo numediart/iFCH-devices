@@ -112,7 +112,8 @@ void fetchLogic()
             return;
         }
 
-        if (!retry(connectMovesense, N_RETRIES, RETRY_DELAY_MS))
+        // Connect to the Movesense
+        if (!retry(connectMovesense, 3, 1000))
         {
             logError("fetchStep", "Failed to connect to Movesense");
             blink(COLOR_BLE, 5, 50);
@@ -121,6 +122,42 @@ void fetchLogic()
             return;
         }
 
+        // Check the Movesense state
+        uint8_t loggingStatus;
+        if (!movGetLoggingStatus(loggingStatus))
+        {
+            logError("fetchStep", "Failed to get Movesense logging status");
+            errorReset(COLOR_BLE);
+            return;
+        }
+
+        // If not logging, restart logging
+        if (loggingStatus != 3)
+        {
+            logError("fetchStep", "Movesense not logging at fetch step start");
+            if (!retry(movReset, 3, GATT_DELAY))
+            {
+                logError("fetchStep", "Failed to reset Movesense");
+                errorReset(COLOR_BLE);
+                return;
+            }
+            vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+            if (!movSubLogs())
+            {
+                logError("fetchStep", "Failed to subscribe to Movesense logs");
+                errorReset(COLOR_BLE);
+                return;
+            }
+            vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+            if (!retry(movStartLog, 3, GATT_DELAY))
+            {
+                logError("fetchStep", "Failed to start Movesense logging");
+                errorReset(COLOR_BLE);
+                return;
+            }
+        }
+
+        // Fetch the data from Movesense
         if (!fetchMovesenseData())
         {
             logError("fetchStep", "Failed to fetch Movesense data");
@@ -128,6 +165,7 @@ void fetchLogic()
             return;
         }
 
+        // Prune old archives if space needed
         if (!pruneArchives())
         {
             logError("fetchStep", "Failed to prune archives, SD card may be full");

@@ -14,8 +14,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
-#define RETRY_DELAY_MS 1000
-#define N_RETRIES 3
 #define FAILURE_DELAY_MIN 2
 #define BOOT_RTC_DELAY_S 10
 
