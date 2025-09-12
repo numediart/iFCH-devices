@@ -33,6 +33,8 @@ uint8_t logQueueBuffer[NOTIF_LEN * BLE_LOG_QUEUE_LENGTH];
 uint8_t dataQueueBuffer[NOTIF_LEN * BLE_DATA_QUEUE_LENGTH];
 uint8_t responseQueueBuffer[NOTIF_LEN * BLE_RESPONSE_QUEUE_LENGTH];
 
+uint32_t bootTime = 0;
+
 bool isStreaming;
 
 bool resetState()
@@ -104,32 +106,41 @@ void fetchLogic()
 {
     if (record.logging)
     {
-        // TODO: we should not be connected already here. What are the scenarios?
-        // TODO: we should definitely disconnect the Movesense after fetching?
         if (isMovesenseConnected)
         {
-            logError("fetchStep", "Movesense already connected at fetch step start");
+            logError("fetchStep", "Movesense already connected at fetch step start, aborting");
+            return;
         }
-        if (!isMovesenseConnected && !retry(connectMovesense, N_RETRIES, RETRY_DELAY_MS))
+
+        if (!retry(connectMovesense, N_RETRIES, RETRY_DELAY_MS))
         {
             logError("fetchStep", "Failed to connect to Movesense");
             blink(COLOR_BLE, 5, 50);
             // If we failed to connect, enter hibernation for some time and retry later
             enterHibernation(FAILURE_DELAY_MIN);
+            return;
         }
-        else if (!fetchMovesenseData())
+
+        if (!fetchMovesenseData())
         {
             logError("fetchStep", "Failed to fetch Movesense data");
             errorReset(COLOR_RUNTIME_ERROR);
+            return;
         }
+
         if (!pruneArchives())
         {
             logError("fetchStep", "Failed to prune archives, SD card may be full");
         }
+
+        if (!disconnectMovesense())
+        {
+            logError("fetchStep", "Failed to disconnect from Movesense");
+        }
     }
     else
     {
-        logError("fetchStep", "Clock interrupt active but not logging");
+        logError("fetchStep", "Called fetch but not logging, stopping timer");
         stopRTCTimer();
     }
 }
@@ -692,7 +703,8 @@ void handleSerialCommand(CmdType cmd)
 void loop()
 {
     // The clock interrupt is active, fetch data
-    if (timerIsOver())
+    // Give some time after boot to let serial commands be processed first
+    if (timerIsOver() && (getUNIXTime() - bootTime > BOOT_RTC_DELAY_S))
     {
         ESP_LOGI("loop", "Clock interrupt active, fetching");
         fetchLogic();
@@ -789,8 +801,8 @@ extern "C" void app_main()
     setupSDCard();
     setupRTC();
 
-    uint32_t currentEpoch = getUNIXTime();
-    logMessage(("Boot time: " + std::to_string(currentEpoch)).c_str());
+    bootTime = getUNIXTime();
+    logMessage(("Boot time: " + std::to_string(bootTime)).c_str());
 
     setupVUSB();
     setupGauge();
@@ -824,11 +836,10 @@ extern "C" void app_main()
         }
     }
 
-    // TODO check if USB is connected, if yes wait for messages before
     // If the clock interrupt is active, fetch data
-    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER || timerIsOver())
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER)
     {
-        ESP_LOGI("app_main", "Clock interrupt active, fetching");
+        ESP_LOGI("app_main", "Woke up from timer, fetching");
         fetchLogic();
     }
 
