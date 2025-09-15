@@ -15,6 +15,7 @@
 #include <freertos/queue.h>
 
 #define FAILURE_DELAY_MIN 2
+#define MAX_CONNECT_FAILURES 15
 #define BOOT_RTC_DELAY_S 10
 
 // Global configuration parameters

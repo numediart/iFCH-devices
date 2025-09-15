@@ -20,6 +20,8 @@ StaticQueue_t dataQueueStorage;
 StaticQueue_t responseQueueStorage;
 StaticQueue_t logQueueStorage;
 
+RTC_NOINIT_ATTR static uint8_t connectFailureCount;
+
 #ifdef CONFIG_IDF_TARGET_ESP32S3
 // Allocate in PSRAM for ESP32-S3
 // This allows to have larger queues without using too much internal RAM
@@ -106,6 +108,12 @@ void fetchLogic()
 {
     if (record.logging)
     {
+        if (connectFailureCount >= MAX_CONNECT_FAILURES)
+        {
+            logError("fetchStep", "Maximum connection failures reached, skipping fetch");
+            return;
+        }
+
         if (isMovesenseConnected)
         {
             logError("fetchStep", "Movesense already connected at fetch step start, aborting");
@@ -116,9 +124,20 @@ void fetchLogic()
         if (!retry(connectMovesense, 3, 1000))
         {
             logError("fetchStep", "Failed to connect to Movesense");
-            blink(COLOR_BLE, 5, 50);
-            // If we failed to connect, enter hibernation for some time and retry later
-            enterHibernation(FAILURE_DELAY_MIN);
+            // blink(COLOR_BLE, 5, 50);
+
+            // If we fail to connect too many times in a row, we consider that
+            // the Movesense is not reachable and stop attempting to connect
+            connectFailureCount++;
+            if (connectFailureCount >= MAX_CONNECT_FAILURES)
+            {
+                logError("fetchStep", "Maximum connection failures reached");
+            }
+            else
+            {
+                // If we failed to connect, enter hibernation for some time and retry later
+                enterHibernation(FAILURE_DELAY_MIN);
+            }
             return;
         }
 
@@ -705,6 +724,7 @@ void handleSerialCommand(CmdType cmd)
         else if (startMovesenseLogging())
         {
             sendCMD(CmdType::CMD_MOV_LOG_START);
+            connectFailureCount = 0;
         }
         else
         {
@@ -798,7 +818,8 @@ void loop()
 {
     // The clock interrupt is active, fetch data
     // Give some time after boot to let serial commands be processed first
-    if (timerIsOver() && (getUNIXTime() - bootTime > BOOT_RTC_DELAY_S))
+    // Do not fetch if we reached the maximum number of connection failures
+    if (timerIsOver() && (getUNIXTime() - bootTime > BOOT_RTC_DELAY_S) && connectFailureCount < MAX_CONNECT_FAILURES)
     {
         ESP_LOGI("loop", "Clock interrupt active, fetching");
         fetchLogic();
@@ -863,7 +884,8 @@ void loop()
 
         // If we are not logging, enter hibernation indefinitely
         uint16_t fetchDelayMin = 0;
-        if (record.logging)
+        // If we are logging but failed to connect too many times, do not fetch
+        if (record.logging && connectFailureCount < MAX_CONNECT_FAILURES)
         {
             fetchDelayMin = getFetchDelayMin();
         }
@@ -930,8 +952,14 @@ extern "C" void app_main()
         }
     }
 
+    // Detect cold boot and set RTC NOINIT variables
+    if (esp_reset_reason() == ESP_RST_POWERON)
+    {
+        connectFailureCount = 0;
+    }
+
     // If the clock interrupt is active, fetch data
-    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER)
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER && connectFailureCount < MAX_CONNECT_FAILURES)
     {
         ESP_LOGI("app_main", "Woke up from timer, fetching");
         fetchLogic();
@@ -952,7 +980,8 @@ extern "C" void app_main()
 
         // If we are not logging, enter hibernation indefinitely
         uint16_t fetchDelayMin = 0;
-        if (record.logging)
+        // If we are logging but failed to connect too many times, do not fetch
+        if (record.logging && connectFailureCount < MAX_CONNECT_FAILURES)
         {
             fetchDelayMin = getFetchDelayMin();
         }
