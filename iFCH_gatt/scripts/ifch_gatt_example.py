@@ -142,9 +142,10 @@ class MovesenseController:
     BATTERY_CHAR_UUID = "00002a19-0000-1000-8000-00805f9b34fb"
 
     ECG_128 = bytearray("/Meas/ECG/128", "utf-8")
+    ECG_200 = bytearray("/Meas/ECG/200", "utf-8")
     ECG_128_mV = bytearray("/Meas/ECG/128/mV", "utf-8")
     IMU_104 = bytearray("/Meas/IMU9/104", "utf-8")
-    ACC_13 = bytearray("/Meas/Acc/26", "utf-8")
+    ACC_13 = bytearray("/Meas/Acc/13", "utf-8")
 
     def __init__(self):
         self.command_responses = []
@@ -158,7 +159,7 @@ class MovesenseController:
         logging.debug("Notification: %s", data)
         self.data_responses.append(data)
         if self.printing:
-            logging.info(f"Dat Notif: {Responses(data[0])}:{data[1]}-{data[2:]}")
+            logging.debug(f"Dat Notif: {Responses(data[0])}:{data[1]}-{data[2:]}")
 
     def command_notification_handler(self, _, data):
         logging.debug("Notification: %s", data)
@@ -170,13 +171,14 @@ class MovesenseController:
         logging.debug("Notification: %s", data)
         self.log_responses.append(data)
         if self.printing:
-            logging.info(f"Log Notif: {Responses(data[0])}:{data[1]}-{data[2:]}")
+            logging.debug(f"Log Notif: {Responses(data[0])}:{data[1]}-{data[2:]}")
 
     async def send_command(
         self,
         command,
         client_ref=None,
         data=None,
+        wait=0.5,
     ):
         self.client_ref += 1
 
@@ -195,7 +197,7 @@ class MovesenseController:
 
         try:
             await self.client.write_gatt_char(self.COMMAND_CHAR_UUID, command_bytes)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(wait)
         except Exception as e:
             logging.error(f"Sending {command} failed: Exception {e}")
 
@@ -265,8 +267,8 @@ class MovesenseController:
 
         await self.send_command(Commands.RESET)
         await self.send_command(Commands.CLEAR_LOGS)
-        await self.send_command(Commands.SUB_LOG, client_ref=1, data=self.ECG_128)
-        await self.send_command(Commands.SUB_LOG, client_ref=2, data=self.IMU_104)
+        await self.send_command(Commands.SUB_LOG, client_ref=1, data=self.ECG_200)
+        await self.send_command(Commands.SUB_LOG, client_ref=2, data=self.ACC_13)
         await self.send_command(Commands.START_LOG)
         await asyncio.sleep(1)
         await self.send_command(Commands.STOP_LOG)
