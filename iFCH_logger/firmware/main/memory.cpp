@@ -12,10 +12,13 @@
 
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
+#include <nvs_flash.h>
 
 #ifdef CONFIG_IDF_TARGET_ESP32S3
 #include <driver/sdmmc_host.h>
 #endif // CONFIG_IDF_TARGET_ESP32S3
+
+static nvs_handle_t nvs_record;
 
 bool isDir(std::string path)
 {
@@ -371,6 +374,33 @@ void setupSDCard()
     }
 }
 
+void setupFlash()
+{
+    esp_err_t err;
+    err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        // NVS partition was truncated and needs to be erased
+        // Retry nvs_flash_init
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    if (err != ESP_OK)
+    {
+        logError("setupFlash", "Failed to initialize NVS flash");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return;
+    }
+
+    err = nvs_open("record", NVS_READWRITE, &nvs_record);
+    if (err != ESP_OK)
+    {
+        logError("setupFlash", "Failed to open NVS handle");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return;
+    }
+}
+
 bool loadJsonConfig()
 {
     config.initialized = false;
@@ -454,111 +484,95 @@ bool loadJsonConfig()
     return config.initialized;
 }
 
-bool loadJsonRecord()
+bool loadRecordState()
 {
-    // If the record file does not exist, return false
-    if (!exists(RECORD_FILE))
-    {
-        ESP_LOGW("loadJsonRecord", "Record file not found");
-        return false;
-    }
-    FILE *f = fopen(RECORD_FILE, "r");
-    if (f == NULL)
-    {
-        logError("loadJsonRecord", "Failed to open record file");
-        errorReset(COLOR_SD);
-        return false;
-    }
+    esp_err_t ret;
 
-    char buffer[JSON_BUFFER_SIZE];
-    size_t len = fread(buffer, 1, JSON_BUFFER_SIZE, f);
-    fclose(f);
+    uint32_t lastFetch = 0;
+    uint8_t id = 0;
+    uint8_t part = 0;
+    uint8_t logging = 0;
 
-    cJSON *json = cJSON_ParseWithLength(buffer, len);
-
-    cJSON *lastFetch = cJSON_GetObjectItemCaseSensitive(json, "lastFetch");
-    if (lastFetch == NULL || !cJSON_IsNumber(lastFetch))
+    ret = nvs_get_u32(nvs_record, "lastFetch", &lastFetch);
+    if (ret != ESP_OK)
     {
-        logError("loadJsonRecord", "Invalid lastFetch in record file");
-        cJSON_Delete(json);
+        ESP_LOGW("loadRecordState", "Failed to get lastFetch from NVS");
         return false;
     }
 
-    cJSON *logging = cJSON_GetObjectItemCaseSensitive(json, "logging");
-    if (logging == NULL || !cJSON_IsBool(logging))
+    ret = nvs_get_u8(nvs_record, "id", &id);
+    if (ret != ESP_OK)
     {
-        logError("loadJsonRecord", "Invalid logging in record file");
-        cJSON_Delete(json);
+        ESP_LOGW("loadRecordState", "Failed to get id from NVS");
         return false;
     }
 
-    cJSON *id = cJSON_GetObjectItemCaseSensitive(json, "id");
-    if (id == NULL || !cJSON_IsNumber(id))
+    ret = nvs_get_u8(nvs_record, "part", &part);
+    if (ret != ESP_OK)
     {
-        logError("loadJsonRecord", "Invalid id in record file");
-        cJSON_Delete(json);
+        ESP_LOGW("loadRecordState", "Failed to get part from NVS");
         return false;
     }
 
-    cJSON *part = cJSON_GetObjectItemCaseSensitive(json, "part");
-    if (part == NULL || !cJSON_IsNumber(part))
+    ret = nvs_get_u8(nvs_record, "logging", &logging);
+    if (ret != ESP_OK)
     {
-        logError("loadJsonRecord", "Invalid part in record file");
-        cJSON_Delete(json);
+        ESP_LOGW("loadRecordState", "Failed to get logging from NVS");
         return false;
     }
 
-    record.lastFetch = lastFetch->valueint;
-    record.logging = cJSON_IsTrue(logging);
-    record.id = id->valueint;
-    record.part = part->valueint;
+    record.lastFetch = lastFetch;
+    record.logging = logging != 0;
+    record.id = id;
+    record.part = part;
 
-    ESP_LOGI("loadJsonRecord", "Record file loaded: lastFetch=%lu, logging=%s, id=%u, part=%u",
+    ESP_LOGI("loadRecordState", "Record state loaded: lastFetch=%lu, logging=%s, id=%u, part=%u",
              record.lastFetch, record.logging ? "true" : "false", record.id, record.part);
 
-    cJSON_Delete(json);
     return true;
 }
 
-bool saveJsonRecord()
+bool saveRecordState()
 {
-    // Create a JSON object and add the record data
-    cJSON *json = cJSON_CreateObject();
-    cJSON_AddNumberToObject(json, "lastFetch", record.lastFetch);
-    cJSON_AddBoolToObject(json, "logging", record.logging);
-    cJSON_AddNumberToObject(json, "id", record.id);
-    cJSON_AddNumberToObject(json, "part", record.part);
-
-    // Open the file for writing
-    FILE *f = fopen(RECORD_FILE, "w");
-    if (f == NULL)
+    esp_err_t ret;
+    ret = nvs_set_u32(nvs_record, "lastFetch", record.lastFetch);
+    if (ret != ESP_OK)
     {
-        logError("saveJsonRecord", "Failed to open record file");
-        errorReset(COLOR_SD);
+        logError("saveRecordState", "Failed to save lastFetch to NVS");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return false;
+    }
+    ret = nvs_set_u8(nvs_record, "id", record.id);
+    if (ret != ESP_OK)
+    {
+        logError("saveRecordState", "Failed to save id to NVS");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return false;
+    }
+    ret = nvs_set_u8(nvs_record, "part", record.part);
+    if (ret != ESP_OK)
+    {
+        logError("saveRecordState", "Failed to save part to NVS");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return false;
+    }
+    ret = nvs_set_u8(nvs_record, "logging", record.logging ? 1 : 0);
+    if (ret != ESP_OK)
+    {
+        logError("saveRecordState", "Failed to save logging to NVS");
+        errorReset(COLOR_RUNTIME_ERROR);
         return false;
     }
 
-    char *json_str = cJSON_PrintUnformatted(json);
-
-    int ret = fputs(json_str, f);
-
-    if (ret > 0)
+    ret = nvs_commit(nvs_record);
+    if (ret != ESP_OK)
     {
-        logError("saveJsonRecord", "Failed to write record file");
-        errorReset(COLOR_SD);
-
-        fclose(f);
-        cJSON_free(json_str);
-        cJSON_Delete(json);
+        logError("saveRecordState", "Failed to commit NVS changes");
+        errorReset(COLOR_RUNTIME_ERROR);
         return false;
     }
 
-    fflush(f);
-    fclose(f);
-    cJSON_free(json_str);
-    cJSON_Delete(json);
-
-    ESP_LOGI("saveJsonRecord", "Record file saved");
+    ESP_LOGI("saveRecordState", "Record state saved");
 
     return true;
 }

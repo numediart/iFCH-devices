@@ -47,10 +47,10 @@ bool resetState()
     xQueueReset(responseQueue);
     xQueueReset(logQueue);
 
-    bool success = saveJsonRecord();
+    bool success = saveRecordState();
     if (!success)
     {
-        logError("resetState", "Failed to save record file");
+        logError("resetState", "Failed to save record state");
         errorReset(COLOR_SD);
         return success;
     }
@@ -915,6 +915,7 @@ extern "C" void app_main()
     // Set up all components
     setupBoard();
     setupSDCard();
+    setupFlash();
     setupRTC();
 
     bootTime = getUNIXTime();
@@ -925,12 +926,12 @@ extern "C" void app_main()
     setupBLE();
 
     // Load the saved record and config files
-    if (!loadJsonRecord())
+    if (!loadRecordState())
     {
-        logError("app_main", "Failed to load record file, using default values");
-        if (!saveJsonRecord())
+        logError("app_main", "Failed to load record state, using default values");
+        if (!saveRecordState())
         {
-            logError("app_main", "Failed to save default record file");
+            logError("app_main", "Failed to save default record state");
             errorReset(COLOR_SD);
         }
         else

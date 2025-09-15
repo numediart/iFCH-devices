@@ -529,10 +529,10 @@ bool startMovesenseLogging()
 
     // Start the RTC timer to fetch data periodically
     // Save the record state to the JSON file
-    if (!startRTCTimer(config.fetchIntervalMin) || !saveJsonRecord())
+    if (!startRTCTimer(config.fetchIntervalMin) || !saveRecordState())
     {
-        // If saving the record file failed, stop logging
-        logError("startMovesenseLogging", "Failed to save record file or start timer after starting logging");
+        // If saving the record state failed, stop logging
+        logError("startMovesenseLogging", "Failed to save record state or start timer after starting logging");
         record.logging = false;
         rremove(recordDir);
 
@@ -617,9 +617,9 @@ bool endMovesenseLogging()
 
     // Update the record state
     record.logging = false;
-    if (!retry(saveJsonRecord, 3, GATT_DELAY))
+    if (!retry(saveRecordState, 3, GATT_DELAY))
     {
-        logError("endMovesenseLogging", "Failed to save record file after ending logging");
+        logError("endMovesenseLogging", "Failed to save record state after ending logging");
         record.logging = true;
         record.part--;
         return false;
@@ -788,9 +788,9 @@ bool fetchMovesenseData()
     }
 
     // Save the record state to the JSON file
-    if (!retry(saveJsonRecord, 3, GATT_DELAY))
+    if (!retry(saveRecordState, 3, GATT_DELAY))
     {
-        logError("fetchMovesenseData", "Failed to save record file");
+        logError("fetchMovesenseData", "Failed to save record state");
         record.part--;
         retry(movStartLog, 3, GATT_DELAY);
         retry(stopStreamDumpTask, 3, GATT_DELAY);

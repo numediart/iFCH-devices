@@ -42,14 +42,17 @@ std::string receiveFile(std::string filename);
 // Setup the SD card and mount it
 void setupSDCard();
 
+// Setup NVS flash storage
+void setupFlash();
+
 // Load the JSON configuration file
 bool loadJsonConfig();
 
-// Load the JSON record file
-bool loadJsonRecord();
+// Load the record state
+bool loadRecordState();
 
-// Save the record state to the JSON file
-bool saveJsonRecord();
+// Save the record state
+bool saveRecordState();
 
 // Check if a file or directory exists
 bool exists(std::string path);
