@@ -141,6 +141,8 @@ void fetchLogic()
             return;
         }
 
+        vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
         // Check the Movesense state
         uint8_t loggingStatus;
         if (!movGetLoggingStatus(loggingStatus))
@@ -149,6 +151,8 @@ void fetchLogic()
             errorReset(COLOR_BLE);
             return;
         }
+
+        vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
         // If not logging, restart logging
         if (loggingStatus != 3)
@@ -174,6 +178,7 @@ void fetchLogic()
                 errorReset(COLOR_BLE);
                 return;
             }
+            vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
         }
 
         // Fetch the data from Movesense
@@ -183,6 +188,8 @@ void fetchLogic()
             errorReset(COLOR_RUNTIME_ERROR);
             return;
         }
+
+        vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
         // Prune old archives if space needed
         if (!pruneArchives())

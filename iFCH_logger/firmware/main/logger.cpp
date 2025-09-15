@@ -328,6 +328,7 @@ bool stopStreamDumpTask()
     return true;
 }
 
+// Will return 0 if no logs listed
 bool getMovesenseLastLogId(uint32_t &logId)
 {
     std::vector<uint32_t> logIds;
@@ -341,7 +342,8 @@ bool getMovesenseLastLogId(uint32_t &logId)
     else if (logIds.empty())
     {
         logError("getMovesenseLastLogId", "No Movesense logs found");
-        return false;
+        logId = 0;
+        return true;
     }
     else if (logIds.size() > 1)
     {
@@ -591,28 +593,32 @@ bool endMovesenseLogging()
         return false;
     }
 
-    // Prepare the record file
-    std::string recordFile = std::format(MOUNT_POINT "/{:03}/{:03}.sbm", record.id, record.part);
-    if (!backupIfExists(recordFile))
+    // Only fetch the log if there is one
+    if (logId > 0)
     {
-        logError("endMovesenseLogging", "Failed to backup record file %s", recordFile.c_str());
-        record.part--;
-        return false;
-    }
+        // Prepare the record file
+        std::string recordFile = std::format(MOUNT_POINT "/{:03}/{:03}.sbm", record.id, record.part);
+        if (!backupIfExists(recordFile))
+        {
+            logError("endMovesenseLogging", "Failed to backup record file %s", recordFile.c_str());
+            record.part--;
+            return false;
+        }
 
-    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+        vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
-    // Fetch the Movesense log and save it to SD card
-    // Create a lambda to capture the parameters for retry
-    auto movFetchLog_ = [recordFile, logId]()
-    {
-        return movFetchLog(recordFile, logId);
-    };
-    if (!retry(movFetchLog_, 3, GATT_DELAY))
-    {
-        logError("endMovesenseLogging", "Failed to fetch Movesense log with ID: %d", logId);
-        record.part--;
-        return false;
+        // Fetch the Movesense log and save it to SD card
+        // Create a lambda to capture the parameters for retry
+        auto movFetchLog_ = [recordFile, logId]()
+        {
+            return movFetchLog(recordFile, logId);
+        };
+        if (!retry(movFetchLog_, 3, GATT_DELAY))
+        {
+            logError("endMovesenseLogging", "Failed to fetch Movesense log with ID: %d", logId);
+            record.part--;
+            return false;
+        }
     }
 
     // Update the record state
@@ -722,6 +728,12 @@ bool fetchMovesenseData()
     if (!getMovesenseLastLogId(logId))
     {
         logError("fetchMovesenseData", "Failed to get Movesense last log ID");
+        record.part--;
+        return false;
+    }
+    else if (logId == 0)
+    {
+        logError("fetchMovesenseData", "No new Movesense logs to fetch");
         record.part--;
         return false;
     }
