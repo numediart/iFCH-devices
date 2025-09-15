@@ -518,7 +518,7 @@ class DeviceService:
             return int(result[0])
         else:
             logging.error("Invalid Movesense logging stop response: %s", result)
-            return -1
+            return None
 
     async def notify_stream(self):
         while True:

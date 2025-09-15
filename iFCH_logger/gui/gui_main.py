@@ -45,6 +45,10 @@ RED_L = "#af4c4c"
 RED_M = "#a14545"
 RED_D = "#913f3f"
 
+PURPLE_L = "#654cb0"
+PURPLE_M = "#5c45a1"
+PURPLE_D = "#533f91"
+
 BLUE_L = "#4c82af"
 BLUE_M = "#4577a1"
 BLUE_D = "#3f6c91"
@@ -68,7 +72,7 @@ class DisconnectedView(QWidget):
         message.setStyleSheet(
             f"""
             QLabel {{
-                font-size: 24px;
+                font-size: 28px;
                 font-weight: bold;
                 color: {GREY_D};
             }}
@@ -110,7 +114,7 @@ class ErrorView(QWidget):
         self.message.setStyleSheet(
             f"""
             QLabel {{
-                font-size: 24px;
+                font-size: 28px;
                 font-weight: bold;
                 color: {RED_D};
             }}
@@ -174,7 +178,7 @@ class InfoView(QWidget):
         self.message.setStyleSheet(
             f"""
             QLabel {{
-                font-size: 24px;
+                font-size: 28px;
                 font-weight: bold;
                 color: {BLUE_L};
             }}
@@ -218,7 +222,7 @@ class DeviceSelectionView(QWidget):
         header.setStyleSheet(
             f"""
             QLabel {{
-                font-size: 24px;
+                font-size: 28px;
                 font-weight: bold;
                 color: {BLUE_L};
             }}
@@ -381,7 +385,7 @@ class LoggingView(QWidget):
             QLabel {{
                 font-size: 28px;
                 font-weight: bold;
-                color: {RED_L};
+                color: {PURPLE_L};
             }}
         """
         )
@@ -411,17 +415,17 @@ class LoggingView(QWidget):
             QPushButton {{
                 font-size: 18px;
                 font-weight: bold;
-                background-color: {RED_L};
+                background-color: {PURPLE_L};
                 color: white;
                 border: none;
                 border-radius: 8px;
                 padding: 0 40px;
             }}
             QPushButton:hover {{
-                background-color: {RED_M};
+                background-color: {PURPLE_M};
             }}
             QPushButton:pressed {{
-                background-color: {RED_D};
+                background-color: {PURPLE_D};
             }}
             QPushButton:disabled {{
                 background-color: {GREY_L};
@@ -503,7 +507,7 @@ class MonitoringView(QWidget):
         message.setStyleSheet(
             f"""
             QLabel {{
-                font-size: 24px;
+                font-size: 28px;
                 font-weight: bold;
                 color: {GREEN_L};
             }}
@@ -590,7 +594,6 @@ class MonitoringView(QWidget):
 
 # ----------------------------------------------------------------------
 class MainWindow(QWidget):
-
     FORCE_SHUTDOWN_ATTEMPTS = 3
 
     def __init__(self, loop):
@@ -670,7 +673,7 @@ class MainWindow(QWidget):
             self.stacked_widget.setCurrentIndex(3)  # Show device selection view
 
         elif new_state == GUIState.LOGGING:
-            # TODO enable/disable buttons based on logging state
+            self.logging_view.stop_button.setEnabled(True)
             self.stacked_widget.setCurrentIndex(4)  # Show logging view
 
         elif new_state == GUIState.MONITORING:
@@ -718,6 +721,7 @@ class MainWindow(QWidget):
     @Slot()
     def handle_stop_logging(self):
         """Handle stop logging button"""
+        self.logging_view.stop_button.setEnabled(False)
         asyncio.create_task(self.backend.stop_logging())
 
     async def cleanup(self):
@@ -836,7 +840,6 @@ class MainWindow(QWidget):
 
 # ----------------------------------------------------------------------
 class Backend:
-
     def __init__(self, ui: "MainWindow"):
         self.ui = ui
         self.svc: DeviceService | None = None
@@ -1056,9 +1059,24 @@ class CmdProbeUSB:
 
                 # After service starts, move to scanning
 
-                # TODO: check if currently in logging state
-                # If so, attempt to connect to corresponding Movesens
-                await back.queue_command(CmdBLEScan())
+                # If so, attempt to connect to corresponding Movesense
+                status = await back.svc.get_status()
+
+                if status["logging"]:
+                    await back.queue_command(CmdLogging())
+                    return
+
+                elif status["streaming"] or status["connected"]:
+                    # This should not happen
+                    logging.error("Device already streaming on connect")
+                    await back.disconnect()
+                    return
+
+                else:
+                    # Start scanning for Movesense
+                    await back.queue_command(CmdBLEScan())
+                    return
+
             else:
                 # Schedule another probe later (no busy loop)
                 back.schedule_after(self.SCAN_PERIOD_S, CmdProbeUSB())
@@ -1067,6 +1085,50 @@ class CmdProbeUSB:
             logging.error("USB probe called while service already running")
             await back.disconnect()
             return
+
+
+@dataclass
+class CmdLogging:
+    async def handle(self, back: Backend):
+        if not back.svc:
+            logging.error("CmdLogging called without USB service")
+            back.ui.update_ui_state(GUIState.DISCONNECTED)
+
+            await back.disconnect()
+            return
+
+        back.ui.update_info_status("Device found", "Connecting to Movesense...")
+        back.ui.update_ui_state(GUIState.INFO)
+
+        if not await back.svc.connect():
+            logging.warning("Auto BLE connect failed")
+            # TODO force end logging screen
+            await back.show_error(
+                "Failed to connect to Movesense",
+                "Please ensure the Movesense is powered on and in range.",
+            )
+            return
+
+        back.ui.update_info_status("Device found", "Fetching Movesense info...")
+
+        mov_status = await back.svc.get_mov_islogging()
+
+        if mov_status is None:
+            await back.show_error(
+                "Connection error",
+                "Communication with Movesense failed. Please try again.",
+            )
+            return
+        elif not mov_status:
+            logging.warning("Movesense stopped logging on its own")
+            # TODO end logging screen with warning
+            await back.show_error(
+                "Movesense in incorrect state",
+                "The Movesense is not recording, but should be.",
+            )
+            return
+
+        back.ui.update_ui_state(GUIState.LOGGING)
 
 
 @dataclass
@@ -1109,7 +1171,7 @@ class CmdBLEScan:
             return
 
         if devices is None:
-            logging.error("Scan timed out, disconnecting")
+            logging.error("Scan failed, disconnecting")
             await back.disconnect()
             return
 
@@ -1208,6 +1270,10 @@ class CmdBatteryTick:
             if mov_bat is not None:
                 state["mov_bat"] = f"{mov_bat}%"
 
+            dev_bat = await back.svc.get_battery()
+            if dev_bat is not None:
+                state["bat"] = f"{dev_bat:.0f}%"
+
             back.ui.update_device_info(state)
 
             back.schedule_after(self.REFRESH_PERIOD_S, CmdBatteryTick())
@@ -1219,7 +1285,6 @@ class CmdBatteryTick:
 
 @dataclass
 class CmdStartLogging:
-
     async def handle(self, back: Backend):
         if not back.svc:
             logging.error("Start logging called without USB service")
@@ -1246,30 +1311,42 @@ class CmdStartLogging:
 
         else:
             logging.debug("Movesense logging started")
-            back.ui.update_ui_state(GUIState.LOGGING)
+            back.ui.update_info_status(
+                "Recording started", "You can disconnect your device"
+            )
+            back.ui.update_ui_state(GUIState.INFO)
             return
 
 
 @dataclass
 class CmdStopLogging:
-
     async def handle(self, back: Backend):
         if not back.svc:
             logging.error("Stop logging called without USB service")
             await back.disconnect()
             return
-        try:
-            # TODO
-            await back.svc.stop_logging()
 
-            return
-
-        except Exception as e:
-            logging.error("Stop logging failed: %s", e)
-            # TODO check this
-
+        status = await back.svc.get_status()
+        if not status["logging"]:
+            logging.error("Stop logging called when not logging")
             await back.disconnect()
             return
+
+        if not status["connected"]:
+            logging.error("Movesense not connected when stopping logging")
+            await back.show_error("Movesense connection lost", "Please try again.")
+            return
+
+        log_id = await back.svc.stop_movesense_logging()
+        if log_id is None:
+            logging.error("Stop Movesense logging failed")
+            await back.show_error(
+                "Connection error",
+                "Communication with Movesense failed. Please try again.",
+            )
+            return
+
+        # TODO download the log
 
 
 # ----------------------------------------------------------------------
