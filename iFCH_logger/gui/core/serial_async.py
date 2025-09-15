@@ -332,13 +332,16 @@ class FrameProtocol(asyncio.Protocol):
         while timeout > 0:
             payload = await self.wait_for_cmd(Commands.CMD_ACK, timeout)
 
+            # Timeout or error waiting for ACK
+            if payload is None:
+                return False
+
             # Correct ACK received
-            if payload is not None and payload[0] == seq:
+            if payload[0] == seq:
                 logging.debug("Received ACK %d", seq)
                 return True
-
             # Incorrect ACK received
-            if payload is not None:
+            else:
                 logging.warning("Incorrect ACK %d (expected %d)", payload[0], seq)
 
             # Keep waiting for ACK
