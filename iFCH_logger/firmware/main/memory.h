@@ -69,6 +69,9 @@ bool rremove(std::string path);
 // Move a file
 bool move(std::string oldName, std::string newName);
 
+// Delete all files on the SD card
+bool wipeSD();
+
 // Get the available space on the SD card in kiB
 uint32_t getFreeSpace();
 

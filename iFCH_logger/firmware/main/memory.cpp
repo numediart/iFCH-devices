@@ -739,6 +739,38 @@ bool move(std::string oldName, std::string newName)
     return true;
 }
 
+bool wipeSD()
+{
+    DIR *root = opendir(MOUNT_POINT);
+    if (root == NULL)
+    {
+        logError("wipeSD", "Failed to open root directory: %s", MOUNT_POINT);
+        errorReset(COLOR_SD);
+        return false;
+    }
+
+    bool done = true;
+
+    struct dirent *entry;
+    while ((entry = readdir(root)) != NULL)
+    {
+        bool success = rremove(std::string(MOUNT_POINT) + "/" + entry->d_name);
+        if (!success)
+        {
+            logError("wipeSD", "Failed to remove entry: %s/%s", MOUNT_POINT, entry->d_name);
+            done = false;
+        }
+    }
+    closedir(root);
+
+    if (done)
+    {
+        logError("wipeSD", "SD card wiped successfully");
+    }
+
+    return done;
+}
+
 uint32_t getFreeSpace()
 {
     FATFS *fs;
