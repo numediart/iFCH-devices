@@ -549,6 +549,13 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Get the current record ID
+    case CmdType::CMD_GET_RECORD_ID:
+    {
+        sendFrame(CmdType::CMD_GET_RECORD_ID, (uint8_t *)&record.id, sizeof(record.id));
+        break;
+    }
+
     // Connect to the Movesense
     case CmdType::CMD_CONNECT:
     {

@@ -25,6 +25,7 @@ enum class CmdType : uint8_t
     CMD_STATUS = 0x05,
     CMD_GET_FREE_SPACE = 0x06,
     CMD_RESET_STATE = 0x07,
+    CMD_GET_RECORD_ID = 0x08,
     // BLE
     CMD_SCAN = 0x11,
     CMD_CONNECT = 0x12,
