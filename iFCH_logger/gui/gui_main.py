@@ -58,6 +58,20 @@ GREY_M = "#a1a1a1"
 GREY_D = "#919191"
 
 
+# TODO add retries to sensitive operations
+async def retry(func, retries=3, delay=0.3, *args, **kwargs):
+    for attempt in range(retries):
+        result = await func(*args, **kwargs)
+        if result is not None:
+            return result
+        if attempt < retries - 1:
+            logging.warning(
+                "Retrying %s (attempt %d/%d)", func.__name__, attempt + 1, retries
+            )
+            await asyncio.sleep(delay)
+    return None
+
+
 # ----------------------------------------------------------------------
 class DisconnectedView(QWidget):
     def __init__(self):
@@ -1337,6 +1351,11 @@ class CmdStopLogging:
             await back.show_error("Movesense connection lost", "Please try again.")
             return
 
+        back.ui.update_info_status(
+            "Ending recording", "Fetching data from Movesense..."
+        )
+        back.ui.update_ui_state(GUIState.INFO)
+
         log_id = await back.svc.stop_movesense_logging()
         if log_id is None:
             logging.error("Stop Movesense logging failed")
@@ -1346,7 +1365,37 @@ class CmdStopLogging:
             )
             return
 
-        # TODO download the log
+        await back.queue_command(CmdDownloadLog(log_id=log_id))
+
+
+@dataclass
+class CmdDownloadLog:
+    log_id: str
+
+    async def handle(self, back: Backend):
+        if not back.svc:
+            logging.error("Download log called without USB service")
+            await back.disconnect()
+            return
+
+        if not self.log_id:
+            logging.error("Download log called without log ID")
+            await back.disconnect()
+            return
+
+        back.ui.update_info_status("Saving record", "Saving data to computer...")
+        back.ui.update_ui_state(GUIState.INFO)
+
+        record_list = await retry(back.svc.list_logs)
+        if record_list is None:
+            logging.error("Get log list failed")
+            await back.show_error(
+                "Connection error",
+                "Communication with device failed. Please try again.",
+            )
+            return
+
+        # TODO
 
 
 # ----------------------------------------------------------------------
