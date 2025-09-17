@@ -19,10 +19,14 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -35,6 +39,7 @@ class GUIState(Enum):
     DEVICE_SELECTION = "connected_device_selection"
     LOGGING = "connected_logging"
     MONITORING = "connected_available"
+    FORM = "form"
 
 
 GREEN_L = "#4caf50"
@@ -218,6 +223,132 @@ class InfoView(QWidget):
         layout.addWidget(self.status_label)
 
 
+class FormView(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        over_layout = QVBoxLayout(self)
+        over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main = QWidget()
+        over_layout.addWidget(main)
+        main.setMaximumWidth(700)
+
+        layout = QVBoxLayout(main)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addStretch()
+
+        header = QLabel("Record information")
+        header.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 28px;
+                font-weight: bold;
+                color: {PURPLE_L};
+            }}
+        """
+        )
+        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(header)
+        layout.addSpacing(30)
+
+        status_label = QLabel("Saving record, plase fill in the following information:")
+        status_label.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+        """
+        )
+        status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(status_label)
+
+        layout.addSpacing(20)
+
+        form_widget = QWidget()
+
+        form_widget.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {PURPLE_L};
+            }}
+            """
+        )
+
+        form_layout = QFormLayout(form_widget, verticalSpacing=20)
+
+        # Name
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("Enter name")
+        self.name_input.setStyleSheet("font-size: 16px;")
+        form_layout.addRow("Name:", self.name_input)
+
+        # Notes
+        self.notes_input = QTextEdit()
+        self.notes_input.setPlaceholderText("Optional notes")
+        self.notes_input.setStyleSheet("font-size: 16px;")
+        self.notes_input.setMaximumHeight(300)
+        self.notes_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        form_layout.addRow("Notes:", self.notes_input)
+
+        layout.addWidget(form_widget)
+
+        layout.addSpacing(20)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        self.save_button = QPushButton("SAVE")
+        self.save_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                font-size: 16px;
+                padding: 10px 30px;
+                background-color: {PURPLE_L};
+                border: none;
+                border-radius: 4px;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {PURPLE_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {PURPLE_D};
+            }}
+            QPushButton:disabled {{
+                background-color: {GREY_L};
+                color: {GREY_D};
+            }}
+        """
+        )
+        btn_layout.addWidget(self.save_button)
+        layout.addLayout(btn_layout)
+
+        layout.addStretch()
+
+        self.name_input.textChanged.connect(self._on_form_changed)
+
+    @Slot()
+    def _on_form_changed(self):
+        """Enable save button if name is not empty"""
+        name = self.name_input.text().strip()
+        self.save_button.setEnabled(len(name) > 0)
+
+    def get_data(self) -> dict:
+        """Return the current form contents as a dict."""
+        return {
+            "name": self.name_input.text(),
+            "notes": self.notes_input.toPlainText(),
+        }
+
+    def clear(self):
+        """Reset all fields to defaults."""
+
+        self.name_input.clear()
+        self.notes_input.clear()
+
+
 # ----------------------------------------------------------------------
 class DeviceSelectionView(QWidget):
     def __init__(self):
@@ -353,6 +484,7 @@ class DeviceSelectionView(QWidget):
         # Connect signals
         self.device_list.itemSelectionChanged.connect(self._on_selection_changed)
 
+    @Slot()
     def _on_selection_changed(self):
         """Enable connect button when a device is selected"""
         self.connect_button.setEnabled(len(self.device_list.selectedItems()) > 0)
@@ -619,6 +751,8 @@ class MainWindow(QWidget):
         self._shutdown_attempts = 0
         self._shutdown_complete = False
 
+        self.prevent_close = False
+
         # Create stacked widget to hold different views
         self.stacked_widget = QStackedWidget(self)
 
@@ -629,6 +763,7 @@ class MainWindow(QWidget):
         self.device_selection_view = DeviceSelectionView()
         self.logging_view = LoggingView()
         self.monitoring_view = MonitoringView()
+        self.form_view = FormView()
 
         # Add views to stack
         self.stacked_widget.addWidget(self.error_view)
@@ -637,6 +772,7 @@ class MainWindow(QWidget):
         self.stacked_widget.addWidget(self.device_selection_view)
         self.stacked_widget.addWidget(self.logging_view)
         self.stacked_widget.addWidget(self.monitoring_view)
+        self.stacked_widget.addWidget(self.form_view)
 
         # Set main layout
         main_layout = QVBoxLayout(self)
@@ -653,6 +789,7 @@ class MainWindow(QWidget):
             self.handle_device_refresh
         )
         self.error_view.ok_button.clicked.connect(self.handle_error_ok)
+        self.form_view.save_button.clicked.connect(self.handle_form_save)
 
         # Timer to update the live plot (only active in monitoring view)
         self.plot_timer = QTimer(self)
@@ -667,7 +804,6 @@ class MainWindow(QWidget):
         # Set initial state
         self.update_ui_state(GUIState.DISCONNECTED)
 
-    @Slot(GUIState)
     def update_ui_state(self, new_state: GUIState):
         """Update the entire UI based on the current device state"""
         self.current_state = new_state
@@ -695,6 +831,13 @@ class MainWindow(QWidget):
             self.monitoring_view.start_button.setEnabled(True)
             self.monitoring_view.switch_button.setEnabled(True)
             self.stacked_widget.setCurrentIndex(5)  # Show monitoring view
+
+        elif new_state == GUIState.FORM:
+            self.form_view.clear()
+            self.form_view.save_button.setEnabled(False)
+            self.form_view.name_input.setEnabled(True)
+            self.form_view.notes_input.setEnabled(True)
+            self.stacked_widget.setCurrentIndex(6)  # Show form view
 
     @Slot()
     def handle_error_ok(self):
@@ -737,6 +880,15 @@ class MainWindow(QWidget):
         """Handle stop logging button"""
         self.logging_view.stop_button.setEnabled(False)
         asyncio.create_task(self.backend.stop_logging())
+
+    @Slot()
+    def handle_form_save(self):
+        """Handle save form button"""
+        self.form_view.save_button.setEnabled(False)
+        self.form_view.name_input.setEnabled(False)
+        self.form_view.notes_input.setEnabled(False)
+        form_data = self.form_view.get_data()
+        asyncio.create_task(self.backend.save_record(form_data))
 
     async def cleanup(self):
         logging.debug("Cleaning up...")
@@ -785,37 +937,79 @@ class MainWindow(QWidget):
     def reset_graph(self):
         self.monitoring_view.series.clear()
 
-    @Slot(str)
     def update_disconnected_status(self, status):
         self.disconnected_view.status_label.setText(status)
 
-    @Slot(str, str)
     def update_error_status(self, title, message):
         """Update the error view with a title and message"""
         self.error_view.message.setText(title)
         self.error_view.status_label.setText(message)
 
-    @Slot(list)
     def show_device_selection(self, devices):
         self.device_selection_view.set_devices(devices)
         self.update_ui_state(GUIState.DEVICE_SELECTION)
 
-    @Slot(str)
     def update_info_status(self, title, status):
         self.info_view.message.setText(title)
         self.info_view.status_label.setText(status)
 
-    @Slot(str)
     def update_monitoring_status(self, status):
         self.monitoring_view.status_label.setText(status)
 
-    @Slot(dict)
     def update_device_info(self, state):
         for key in self.monitoring_view.fields.keys():
             if key in state:
                 self.monitoring_view.fields[key].setText(state[key])
 
     def closeEvent(self, event):
+        if self.prevent_close:
+            event.ignore()
+
+            # Open a popup or dialog to inform the user
+            logging.warning("Close event ignored due to prevent_close flag.")
+            msg = QMessageBox(
+                QMessageBox.Icon.Warning,
+                "Warning",
+                "Potential data loss if closed now!",
+                QMessageBox.StandardButton.Ignore | QMessageBox.StandardButton.Cancel,
+                modal=True,
+                parent=self,
+            )
+            msg.button(QMessageBox.StandardButton.Ignore).setText("Ignore")
+            msg.button(QMessageBox.StandardButton.Cancel).setText("Cancel")
+            msg.setWindowFlags(Qt.Popup)
+            # Customize the message box appearance
+            msg.setStyleSheet(
+                f"""
+                QMessageBox {{
+                    background-color: {RED_L};
+                }}
+                QLabel {{
+                     color: white;
+                     font-size: 18px;
+                }}
+                QPushButton {{
+                    font-size: 18px;
+                    padding: 6px 12px;
+                    background-color: {GREY_L};
+                    border: none;
+                    border-radius: 8px;
+                    color: white;
+                }}
+                QPushButton:hover {{
+                    background-color: {GREY_M};
+                }}
+                QPushButton:pressed {{
+                    background-color: {GREY_D};
+                }}
+            """
+            )
+            pressed = msg.exec()
+            if pressed == QMessageBox.StandardButton.Ignore:
+                logging.warning("User confirmed close, proceeding with shutdown.")
+                self.prevent_close = False
+            return
+
         if self._shutdown_complete:
             # If shutdown already complete, ignore the event to prevent further cleanup
             event.accept()
@@ -907,6 +1101,12 @@ class Backend:
 
     async def stop_logging(self):
         await self.queue_command(CmdStopLogging())
+
+    async def save_record(self, form_data: dict):
+        self.ui.update_info_status("Saving record", "Saving data to computer...")
+        self.ui.update_ui_state(GUIState.INFO)
+
+        await self.queue_command(CmdSaveRecord(metadata=form_data))
 
     async def connect_to_device(self, device_string: str):
         """GUI calls this when the user clicks Connect."""
@@ -1021,6 +1221,7 @@ class Backend:
             with contextlib.suppress(Exception):
                 await self.svc.stop()
         self.svc = None
+        self.ui.prevent_close = False
 
     def schedule_after(self, delay: float, cmd: Any):
         """Schedule a one-shot task that enqueues cmd after delay."""
@@ -1356,6 +1557,9 @@ class CmdStopLogging:
         )
         back.ui.update_ui_state(GUIState.INFO)
 
+        back.ui.prevent_close = True
+        # TODO enable close after download complete
+
         log_id = await back.svc.stop_movesense_logging()
         if log_id is None:
             logging.error("Stop Movesense logging failed")
@@ -1395,7 +1599,25 @@ class CmdDownloadLog:
             )
             return
 
+        back.ui.update_ui_state(GUIState.FORM)
+
         # TODO
+        await asyncio.sleep(5)
+
+
+@dataclass
+class CmdSaveRecord:
+    metadata: dict
+
+    async def handle(self, back: Backend):
+        if not self.metadata:
+            logging.error("Save record called without metadata")
+            await back.disconnect()
+            return
+
+        # TODO
+        back.ui.update_info_status("DONE", "Saving data to computer...")
+        back.ui.update_ui_state(GUIState.INFO)
 
 
 # ----------------------------------------------------------------------
