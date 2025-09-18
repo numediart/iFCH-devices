@@ -26,6 +26,7 @@
 #include "meas_ecg/resources.h"
 #include "meas_hr/resources.h"
 #include "movesense_time/resources.h"
+#include "system_energy/resources.h"
 #include "sbem-code/sbem_definitions.h"
 
 const char *const IfchGattClient::LAUNCHABLE_NAME = "iFCHGatt";
@@ -68,6 +69,7 @@ enum Commands
     RESET = 11,
     UNSUBSCRIBE_ALL = 12,
     GET_LOGGING_STATE = 13,
+    GET_BATTERY = 14,
 };
 
 enum Responses
@@ -125,6 +127,7 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mLogListLastId(0),
                                    mDataloggerStateReference(0),
                                    mGetTimeReference(0),
+                                   mGetBatteryReference(0),
                                    mGetLoggingReference(0),
                                    mLogbookFull(true),
                                    mIsIndicating(false)
@@ -771,6 +774,16 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
         return;
     }
+    case Commands::GET_BATTERY:
+    {
+        DEBUGLOG("Commands::GET_BATTERY. reference: %d", reference);
+
+        // Get current time
+        mGetBatteryReference = reference;
+        asyncGet(WB_RES::LOCAL::SYSTEM_ENERGY_LEVEL(), AsyncRequestOptions::ForceAsync);
+
+        return;
+    }
     default:
     {
         // Return an error message
@@ -1039,6 +1052,41 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         mGetTimeReference = 0;
         break;
     }
+    case WB_RES::LOCAL::SYSTEM_ENERGY_LEVEL::LID:
+    {
+        if (mGetBatteryReference == 0)
+        {
+            return;
+        }
+
+        if (resultCode >= 400)
+        {
+            DEBUGLOG("Error fetching battery: %d", resultCode);
+
+            // 500: Internal server error
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetBatteryReference, Status::ERROR, Codes::INTERNAL_ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+
+            mGetBatteryReference = 0;
+            return;
+        }
+
+        const uint8_t &battery = rResultData.convertTo<const uint8_t &>();
+
+        uint8_t responseMsg[5];
+
+        responseMsg[0] = Responses::COMMAND_RESULT;
+        responseMsg[1] = mGetBatteryReference;
+        responseMsg[2] = Status::SUCCESS;
+        responseMsg[3] = Codes::OK;
+
+        memcpy(&responseMsg[4], &battery, 1);
+
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), responseMsg, sizeof(responseMsg));
+
+        mGetBatteryReference = 0;
+        break;
+    }
     }
 }
 
@@ -1248,6 +1296,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             mLogListReference = 0;
             mLogFetchReference = 0;
             mGetTimeReference = 0;
+            mGetBatteryReference = 0;
             mGetLoggingReference = 0;
             mDataloggerStateReference = 0;
 

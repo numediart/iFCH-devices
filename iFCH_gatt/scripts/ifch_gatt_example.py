@@ -117,6 +117,8 @@ class Commands(enum.Enum):
     GET_TIME = 10
     RESET = 11
     UNSUBSCRIBE_ALL = 12
+    GET_LOGGING_STATE = 13
+    GET_BATTERY = 14
     INVALID = 0xFF
 
 
@@ -139,7 +141,6 @@ class MovesenseController:
     DATA_CHAR_UUID = "34800002-7185-4d5d-b431-630e7050e8f0"
     RESPONSE_CHAR_UUID = "34800003-7185-4d5d-b431-630e7050e8f0"
     LOG_CHAR_UUID = "34800004-7185-4d5d-b431-630e7050e8f0"
-    BATTERY_CHAR_UUID = "00002a19-0000-1000-8000-00805f9b34fb"
 
     ECG_128 = bytearray("/Meas/ECG/128", "utf-8")
     ECG_200 = bytearray("/Meas/ECG/200", "utf-8")
@@ -247,12 +248,13 @@ class MovesenseController:
             self.printing = False
 
     async def main(self):
-        try:
-            battery_level = await self.client.read_gatt_char(self.BATTERY_CHAR_UUID)
-            battery_percentage = int.from_bytes(battery_level, byteorder="little")
+        await self.send_command(Commands.GET_BATTERY, wait=1)
+        if not self.command_responses:
+            logging.error("No response for GET_BATTERY")
+            return
+        else:
+            battery_percentage = self.command_responses[-1][-1]
             logging.info(f"Battery Level: {battery_percentage}%")
-        except Exception as e:
-            logging.error(f"Failed to read battery level: {e}")
 
         host_time = time.time()
         await self.send_command(Commands.GET_TIME)

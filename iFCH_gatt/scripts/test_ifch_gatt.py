@@ -26,6 +26,7 @@ class Commands(enum.Enum):
     RESET = 11
     UNSUBSCRIBE_ALL = 12
     GET_LOGGING_STATE = 13
+    GET_BATTERY = 14
     INVALID = 0xFF
 
 
@@ -213,6 +214,12 @@ class MovesenseTester:
             Commands.GET_TIME,
             StatusCodes.OK_200,
             test_name="GET_TIME",
+        )
+
+        await self.test_command(
+            Commands.GET_BATTERY,
+            StatusCodes.OK_200,
+            test_name="GET_BATTERY",
         )
 
         await self.test_command(
