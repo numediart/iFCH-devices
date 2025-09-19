@@ -1010,4 +1010,7 @@ extern "C" void app_main()
         loop();
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+
+    logError("app_main", "Reached end of app_main, resetting");
+    errorReset(COLOR_RUNTIME_ERROR);
 }

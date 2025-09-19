@@ -103,10 +103,6 @@ void enterHibernation(uint16_t wakeDelayMin)
 
     shutdownBlinkTask(SHUTDOWN_TIMEOUT_MS);
 
-    // ledWrite(COLOR_POWER);          // Blink blue to indicate hibernation
-    // vTaskDelay(pdMS_TO_TICKS(300)); // Wait for the LED to blink
-    // ledWrite(false);
-
     esp_err_t result;
 
     if (wakeDelayMin)
