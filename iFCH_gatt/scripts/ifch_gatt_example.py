@@ -248,7 +248,7 @@ class MovesenseController:
             self.printing = False
 
     async def main(self):
-        await self.send_command(Commands.GET_BATTERY, wait=1)
+        await self.send_command(Commands.GET_BATTERY, wait=3)
         if not self.command_responses:
             logging.error("No response for GET_BATTERY")
             return
