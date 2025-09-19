@@ -23,7 +23,6 @@ volatile bool isMovesenseConnected = false;
 
 static uint16_t movesense_handle;
 
-static uint16_t bat_char_handle;
 static uint16_t command_char_handle;
 static uint16_t data_char_handle;
 static uint16_t response_char_handle;
@@ -49,6 +48,7 @@ enum Commands
     RESET = 11,
     UNSUBSCRIBE_ALL = 12,
     GET_LOGGING_STATUS = 13,
+    GET_BATTERY = 14,
 };
 
 enum Responses
@@ -135,14 +135,6 @@ static int disc_chr_cb(uint16_t conn_handle,
             log_char_handle = chr->val_handle;
             *registered += 1;
             ESP_LOGI("disc_chr_cb", "Discovered log characteristic");
-        }
-        else if (ble_uuid_cmp(
-                     (ble_uuid_t *)&chr->uuid.u,
-                     (ble_uuid_t *)&bat_chr_uuid) == 0)
-        {
-            bat_char_handle = chr->val_handle;
-            *registered += 1;
-            ESP_LOGI("disc_chr_cb", "Discovered battery characteristic");
         }
     }
 
@@ -284,30 +276,11 @@ static bool unsubscribeCharacteristic(uint16_t char_handle)
     return true;
 }
 
-// Register the characteristics for the battery service and ifch service
+// Register the characteristics for the ifch service
 static int registerCharacteristics()
 {
     uint8_t registered = 0;
-
-    // Discover the battery service
-    esp_err_t rc = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&bat_svc_uuid, disc_svc_cb, &registered);
-    if (rc != ESP_OK)
-    {
-        logError("registerCharacteristics", "Failed to discover battery service: %d", rc);
-        return rc;
-    }
-
-    // Wait for the characteristics to be registered
-    if (bleConnectSemaphore != NULL)
-    {
-        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
-        {
-            logError("registerCharacteristics", "Battery registration timed out");
-            return BLE_HS_ETIMEOUT;
-        }
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+    esp_err_t rc;
 
     // Discover the ifch service
     rc = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&ifch_svc_uuid, disc_svc_cb, &registered);
@@ -367,10 +340,10 @@ bool writeMovesenseCommandNowait(uint8_t command, uint8_t reference, uint8_t *da
     return true;
 }
 
-bool waitForMovesenseResponse(uint8_t reference, uint8_t *response_data = NULL, uint8_t *response_length = NULL)
+bool waitForMovesenseResponse(uint8_t reference, uint8_t *response_data = NULL, uint8_t *response_length = NULL, uint16_t timeout_ms = BLE_TIMEOUT)
 {
     // Compute the deadline for the timeout
-    uint32_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(BLE_TIMEOUT);
+    uint32_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
     uint32_t current_tick;
 
     // Wait for the response from the Movesense device
@@ -451,7 +424,7 @@ bool waitForMovesenseResponse(uint8_t reference, uint8_t *response_data = NULL, 
 }
 
 // Write a Movesense command and wait for the corresponding response
-bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, uint8_t length, uint8_t *response_data = NULL, uint8_t *response_length = NULL)
+bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, uint8_t length, uint8_t *response_data = NULL, uint8_t *response_length = NULL, uint16_t timeout_ms = BLE_TIMEOUT)
 {
     // Write the Movesense command
     bool success = writeMovesenseCommandNowait(command, reference, data, length);
@@ -461,48 +434,7 @@ bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, ui
     }
 
     // Wait for the Movesense response
-    return waitForMovesenseResponse(reference, response_data, response_length);
-}
-
-// Callback for GATT read operation, extracts a uint8_t from the response
-static int gatt_read_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
-                        struct ble_gatt_attr *attr, void *arg)
-{
-
-    if (error != NULL && error->status != 0)
-    {
-        logError("gatt_read_cb", "Read failed; status=%d", error->status);
-    }
-    else if (attr != NULL && attr->om != NULL)
-    {
-        if (OS_MBUF_PKTLEN(attr->om) == 1)
-        {
-            // Pull up the response to get a uint8_t
-            os_mbuf *data = os_mbuf_pullup(attr->om, 1);
-
-            if (data == NULL)
-            {
-                logError("gatt_read_cb", "Failed to pull up uint8_t");
-            }
-            else
-            {
-                uint8_t *pResponse = (uint8_t *)arg;
-                *pResponse = *OS_MBUF_DATA(data, uint8_t *);
-                ESP_LOGI("gatt_read_cb", "Read uint8_t: %d", *pResponse);
-
-                if (bleGattSemaphore != NULL)
-                {
-                    xSemaphoreGive(bleGattSemaphore);
-                }
-            }
-        }
-        else
-        {
-            logError("gatt_read_cb", "Invalid read response for uint8_t");
-        }
-    }
-
-    return 0;
+    return waitForMovesenseResponse(reference, response_data, response_length, timeout_ms);
 }
 
 // Callback for GAP events
@@ -533,12 +465,6 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
 
             logError("BLE_GAP_EVENT_CONNECT", "Error: Connection failed; status=%d",
                      event->connect.status);
-        }
-
-        // Signal that connection procedure is over
-        if (bleConnectSemaphore != NULL)
-        {
-            xSemaphoreGive(bleConnectSemaphore);
         }
 
         return 0;
@@ -746,6 +672,13 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
         {
             ESP_LOGI("BLE_GAP_EVENT_LINK_ESTAB", "Link established");
         }
+
+        // Signal that connection procedure is over
+        if (bleConnectSemaphore != NULL)
+        {
+            xSemaphoreGive(bleConnectSemaphore);
+        }
+
         return 0;
     }
 
@@ -994,6 +927,8 @@ bool connectMovesense()
 
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
+    // TODO wait for link to be fully established!
+
     // Subscribe to the response characteristic
     ESP_LOGI("connectMovesense", "Subscribing to response characteristic...");
     if (!subscribeCharacteristic(response_char_handle, true))
@@ -1050,24 +985,26 @@ bool disconnectMovesense()
 
 bool getMovesenseBattery(uint8_t &batteryLevel)
 {
+    uint8_t responseBuffer[1];
+    uint8_t responseLength = sizeof(responseBuffer);
 
-    int rc = ble_gattc_read(movesense_handle, bat_char_handle, gatt_read_cb, &batteryLevel);
-    if (rc != 0)
+    bool success = writeMovesenseCommand(Commands::GET_BATTERY, Commands::GET_BATTERY + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength, BLE_CONNECT_TIMEOUT);
+
+    if (!success)
     {
-        logError("getMovesenseBattery", "Error initiating GATT read; rc=%d", rc);
+        logError("getMovesenseBattery", "Failed to send get battery command");
+        return false;
     }
 
-    if (bleGattSemaphore != NULL)
+    if (responseLength != 1)
     {
-        if (xSemaphoreTake(bleGattSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
-        {
-            logError("getMovesenseBattery", "GATT read timed out");
-            return false;
-        }
+        logError("getMovesenseBattery", "Unexpected response length: %d", responseLength);
+        return false;
     }
 
-    ESP_LOGI("getMovesenseBattery", "Battery level read");
-    ESP_LOGI("getMovesenseBattery", "Battery level: %d%%", batteryLevel);
+    batteryLevel = responseBuffer[0];
+
+    ESP_LOGI("getMovesenseBattery", "Battery level: %u%%", batteryLevel);
     return true;
 }
 

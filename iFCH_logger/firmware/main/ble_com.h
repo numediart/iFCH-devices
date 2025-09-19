@@ -100,9 +100,6 @@ const ble_uuid128_t log_chr_uuid =
     BLE_UUID128_INIT(0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x31, 0xb4,
                      0x5d, 0x4d, 0x85, 0x71, 0x04, 0x00, 0x80, 0x34);
 
-const ble_uuid16_t bat_svc_uuid = BLE_UUID16_INIT(0x180f);
-const ble_uuid16_t bat_chr_uuid = BLE_UUID16_INIT(0x2a19);
-
-#define NUM_CHARS 5
+#define NUM_CHARS 4
 
 #endif // BLE_COM_H
