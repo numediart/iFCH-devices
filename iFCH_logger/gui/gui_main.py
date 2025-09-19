@@ -956,10 +956,10 @@ class MainWindow(QWidget):
     def update_monitoring_status(self, status):
         self.monitoring_view.status_label.setText(status)
 
-    def update_device_info(self, state):
+    def update_device_info(self, **kwargs):
         for key in self.monitoring_view.fields.keys():
-            if key in state:
-                self.monitoring_view.fields[key].setText(state[key])
+            if key in kwargs:
+                self.monitoring_view.fields[key].setText(kwargs[key])
 
     def closeEvent(self, event):
         if self.prevent_close:
@@ -1441,12 +1441,21 @@ class CmdStreamDevice:
                 )
                 return
 
+            mov_bat = await back.svc.get_mov_battery()
+            if mov_bat is not None:
+                back.ui.update_device_info(mov_bat=f"{mov_bat}%")
+
+            else:
+                logging.warning("Failed to get Movesense battery")
+                await back.disconnect()
+                return
+
             if not await back.svc.sub_stream():
                 logging.warning("Stream subscribe failed")
                 await back.disconnect()
                 return
 
-            back.ui.update_device_info({"mov": self.device.split(";")[0]})
+            back.ui.update_device_info(mov=self.device.split(";")[0])
             back.ui.update_ui_state(GUIState.MONITORING)
 
             # Kick battery/info updates
@@ -1479,17 +1488,14 @@ class CmdBatteryTick:
 
         if status["connected"]:
             # Update device info
-            state = {}
-
-            mov_bat = await back.svc.get_mov_battery()
-            if mov_bat is not None:
-                state["mov_bat"] = f"{mov_bat}%"
 
             dev_bat = await back.svc.get_battery()
             if dev_bat is not None:
-                state["bat"] = f"{dev_bat:.0f}%"
-
-            back.ui.update_device_info(state)
+                back.ui.update_device_info(bat=f"{dev_bat:.0f}%")
+            else:
+                logging.warning("Failed to get device battery")
+                await back.disconnect()
+                return
 
             back.schedule_after(self.REFRESH_PERIOD_S, CmdBatteryTick())
 

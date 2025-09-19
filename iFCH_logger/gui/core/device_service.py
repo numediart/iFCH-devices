@@ -430,7 +430,7 @@ class DeviceService:
     async def get_mov_battery(self):
         self.proto.send_frame(Commands.CMD_MOV_BATTERY_GET)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_MOV_BATTERY_GET, timeout=self.BLE_TIMEOUT_S
+            Commands.CMD_MOV_BATTERY_GET, timeout=self.BLE_CONNECT_TIMEOUT_S
         )
         if result is None:
             logging.warning("Get Movesense battery failed")
