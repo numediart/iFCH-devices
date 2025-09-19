@@ -76,6 +76,6 @@ def decode_stream_packet(packet, subscriptions: dict):
         logging.warning("Stream decoding of %s not implemented.", data_type)
 
     if samples is not None:
-        time = [timestamp / 1000 + int(i / sampling) for i in range(len(samples))]
+        time = [timestamp / 1000 + i / sampling for i in range(len(samples))]
 
     return time, samples, reference
