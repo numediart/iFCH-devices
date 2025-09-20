@@ -40,11 +40,16 @@ class GUIState(Enum):
     LOGGING = "connected_logging"
     MONITORING = "connected_available"
     FORM = "form"
+    WARNING = "warning"
 
 
 GREEN_L = "#4caf50"
 GREEN_M = "#45a148"
 GREEN_D = "#3f9141"
+
+ORANGE_L = "#b0974c"
+ORANGE_M = "#a18a45"
+ORANGE_D = "#917d3f"
 
 RED_L = "#af4c4c"
 RED_M = "#a14545"
@@ -135,7 +140,7 @@ class ErrorView(QWidget):
             QLabel {{
                 font-size: 28px;
                 font-weight: bold;
-                color: {RED_D};
+                color: {RED_L};
             }}
         """
         )
@@ -182,7 +187,100 @@ class ErrorView(QWidget):
         ok_layout.addWidget(self.ok_button)
 
         layout.addSpacing(20)
+
         layout.addLayout(ok_layout)
+
+
+class WarningView(QWidget):
+    def __init__(self):
+        super().__init__()
+        over_layout = QVBoxLayout(self)
+        over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main = QWidget()
+        over_layout.addWidget(main)
+        main.setMaximumWidth(700)
+        layout = QVBoxLayout(main)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Large icon or image placeholder
+
+        # Main message
+        self.message = QLabel("WARNING")
+        self.message.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 28px;
+                font-weight: bold;
+                color: {ORANGE_L};
+            }}
+        """
+        )
+        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.message)
+        layout.addSpacing(30)
+
+        # Status label
+        self.status_label = QLabel("Click OK to reset")
+        self.status_label.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+        """
+        )
+        self.status_label.setWordWrap(True)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self.status_label)
+
+        button_layout = QHBoxLayout()
+        self.ok_button = QPushButton("OK")
+        self.ok_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                font-size: 16px;
+                padding: 10px 30px;
+                background-color: {GREY_L};
+                border: none;
+                border-radius: 4px;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {GREY_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {GREY_D};
+            }}
+        """
+        )
+        self.ok_button.setFixedWidth(150)
+        button_layout.addStretch()
+        button_layout.addWidget(self.ok_button)
+
+        self.cancel_button = QPushButton("CANCEL")
+        self.cancel_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                font-size: 16px;
+                padding: 10px 30px;
+                background-color: {ORANGE_L};
+                border: none;
+                border-radius: 4px;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {ORANGE_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {ORANGE_D};
+            }}
+        """
+        )
+        self.cancel_button.setFixedWidth(150)
+        button_layout.addWidget(self.cancel_button)
+
+        layout.addSpacing(20)
+        layout.addLayout(button_layout)
 
 
 # ----------------------------------------------------------------------
@@ -764,6 +862,7 @@ class MainWindow(QWidget):
         self.logging_view = LoggingView()
         self.monitoring_view = MonitoringView()
         self.form_view = FormView()
+        self.warning_view = WarningView()
 
         # Add views to stack
         self.stacked_widget.addWidget(self.error_view)
@@ -773,6 +872,7 @@ class MainWindow(QWidget):
         self.stacked_widget.addWidget(self.logging_view)
         self.stacked_widget.addWidget(self.monitoring_view)
         self.stacked_widget.addWidget(self.form_view)
+        self.stacked_widget.addWidget(self.warning_view)
 
         # Set main layout
         main_layout = QVBoxLayout(self)
@@ -790,6 +890,10 @@ class MainWindow(QWidget):
         )
         self.error_view.ok_button.clicked.connect(self.handle_error_ok)
         self.form_view.save_button.clicked.connect(self.handle_form_save)
+        self.warning_view.cancel_button.clicked.connect(self.handle_error_ok)
+        self.warning_view.ok_button.clicked.connect(self.handle_warning_ok)
+
+        self._warning_ok_cb = None
 
         # Timer to update the live plot (only active in monitoring view)
         self.plot_timer = QTimer(self)
@@ -838,6 +942,10 @@ class MainWindow(QWidget):
             self.form_view.name_input.setEnabled(True)
             self.form_view.notes_input.setEnabled(True)
             self.stacked_widget.setCurrentIndex(6)  # Show form view
+
+        elif new_state == GUIState.WARNING:
+            self.warning_view.ok_button.setEnabled(True)
+            self.stacked_widget.setCurrentIndex(7)  # Show warning view
 
     @Slot()
     def handle_error_ok(self):
@@ -889,6 +997,15 @@ class MainWindow(QWidget):
         self.form_view.notes_input.setEnabled(False)
         form_data = self.form_view.get_data()
         asyncio.create_task(self.backend.save_record(form_data))
+
+    @Slot()
+    def handle_warning_ok(self):
+        """Handle OK button in warning view"""
+        self.warning_view.ok_button.setEnabled(False)
+        if self._warning_ok_cb:
+            asyncio.create_task(self._warning_ok_cb())
+        else:
+            asyncio.create_task(self.backend.disconnect())
 
     async def cleanup(self):
         logging.debug("Cleaning up...")
@@ -944,6 +1061,16 @@ class MainWindow(QWidget):
         """Update the error view with a title and message"""
         self.error_view.message.setText(title)
         self.error_view.status_label.setText(message)
+
+    def update_warning_status(
+        self, title, message, ok_text="OK", ok_cb=None, show_cancel=False
+    ):
+        """Update the warning view with a title and message"""
+        self._warning_ok_cb = ok_cb
+        self.warning_view.message.setText(title)
+        self.warning_view.status_label.setText(message)
+        self.warning_view.ok_button.setText(ok_text)
+        self.warning_view.cancel_button.setVisible(show_cancel)
 
     def show_device_selection(self, devices):
         self.device_selection_view.set_devices(devices)
@@ -1158,14 +1285,9 @@ class Backend:
                     await cmd.handle(self)
 
             except Exception as e:
-                logging.warning("Actor command error: %s", e)
+                logging.error("Actor command error: %s", e)
                 # Try to keep running, but ensure replies are resolved
-                if hasattr(cmd, "reply") and isinstance(
-                    getattr(cmd, "reply"), asyncio.Future
-                ):
-                    fut = getattr(cmd, "reply")
-                    if fut and not fut.done():
-                        fut.set_exception(e)
+                await self.show_error("Internal error", str(e))
 
     async def start_service(self, port: str):
         """Open serial, start notification processing, start disconnect watcher."""
@@ -1241,7 +1363,11 @@ class Backend:
 
         t.add_done_callback(_done)
 
-    async def show_error(self, title: str, message: str):
+    async def show_error(
+        self,
+        title: str = "Connection error",
+        message: str = "Communication with the device failed. Please try again.",
+    ):
         self.ui.update_error_status(title, message)
         self.ui.update_ui_state(GUIState.ERROR)
 
@@ -1284,7 +1410,10 @@ class CmdProbeUSB:
                 elif status["streaming"] or status["connected"]:
                     # This should not happen
                     logging.error("Device already streaming on connect")
-                    await back.disconnect()
+                    await back.show_error(
+                        "Incorrect device state",
+                        "Please unplug your device if the error persists.",
+                    )
                     return
 
                 else:
@@ -1317,11 +1446,20 @@ class CmdLogging:
 
         if not await back.svc.connect():
             logging.warning("Auto BLE connect failed")
-            # TODO force end logging screen
-            await back.show_error(
-                "Failed to connect to Movesense",
-                "Please ensure the Movesense is powered on and in range.",
+
+            # TODO get Movesense ID for error message
+            config = await back.svc.get_config()
+
+            # TODO force end logging screen instead of disconnect
+            # TODO check why after this the movesense connects but iFCH returns an error
+            back.ui.update_warning_status(
+                "Movesense not found",
+                "The associated Movesense device could not be found. Please ensure it is powered on and in range. Press 'CANCEL' to retry scanning.\n\nYou may force the end of the recording by pressing 'IGNORE', but any data left on the Movesense will be lost.",
+                ok_text="IGNORE",
+                ok_cb=back.disconnect,
+                show_cancel=True,
             )
+            back.ui.update_ui_state(GUIState.WARNING)
             return
 
         back.ui.update_info_status("Device found", "Fetching Movesense info...")
@@ -1329,18 +1467,17 @@ class CmdLogging:
         mov_status = await back.svc.get_mov_islogging()
 
         if mov_status is None:
-            await back.show_error(
-                "Connection error",
-                "Communication with Movesense failed. Please try again.",
-            )
+            await back.show_error()
             return
         elif not mov_status:
             logging.warning("Movesense stopped logging on its own")
-            # TODO end logging screen with warning
-            await back.show_error(
-                "Movesense in incorrect state",
-                "The Movesense is not recording, but should be.",
+            back.ui.update_warning_status(
+                "Movesense reset",
+                "The associated Movesense device was reset. This may have happened if the battery was replaced. Some of the recording may have been lost in the process.",
+                ok_cb=back.stop_logging,
+                show_cancel=False,
             )
+            back.ui.update_ui_state(GUIState.WARNING)
             return
 
         back.ui.update_ui_state(GUIState.LOGGING)
@@ -1377,13 +1514,7 @@ class CmdBLEScan:
             "Make sure your Movesense device is powered on and in range.",
         )
 
-        try:
-            devices = await back.svc.scan()
-        except Exception as e:
-            logging.error("Scan failed: %s", e)
-            devices = None
-            await back.disconnect()
-            return
+        devices = await back.svc.scan()
 
         if devices is None:
             logging.error("Scan failed, disconnecting")
@@ -1413,61 +1544,53 @@ class CmdStreamDevice:
         )
         back.ui.update_ui_state(GUIState.INFO)
 
-        try:
-            addr = self.device.split(";")[-1]
-            back.svc.set_address(addr)
+        addr = self.device.split(";")[-1]
+        back.svc.set_address(addr)
 
-            if not await back.svc.put_config():
-                logging.warning("Config PUT failed")
-                await back.disconnect()
-                return
-
-            if not await back.svc.connect():
-                logging.warning("BLE connect failed")
-                await back.disconnect()
-                return
-
-            is_logging = await back.svc.get_mov_islogging()
-
-            if is_logging is None:
-                logging.warning("Failed to get Movesense logging status")
-                await back.disconnect()
-                return
-            elif is_logging:
-                # Show error pop-up when device is already logging
-                await back.show_error(
-                    "Movesense currently recording",
-                    "The Movesense you selected is recording data. It may be paired to a different device.\nTo force-reset it, remove its battery (any ongoing recording will be lost).",
-                )
-                return
-
-            mov_bat = await back.svc.get_mov_battery()
-            if mov_bat is not None:
-                back.ui.update_device_info(mov_bat=f"{mov_bat}%")
-
-            else:
-                logging.warning("Failed to get Movesense battery")
-                await back.disconnect()
-                return
-
-            if not await back.svc.sub_stream():
-                logging.warning("Stream subscribe failed")
-                await back.disconnect()
-                return
-
-            back.ui.update_device_info(mov=self.device.split(";")[0])
-            back.ui.update_ui_state(GUIState.MONITORING)
-
-            # Kick battery/info updates
-            await back.queue_command(CmdBatteryTick())
-
+        if not await back.svc.put_config():
+            logging.warning("Config PUT failed")
+            await back.show_error()
             return
 
-        except Exception as e:
-            logging.warning("Connect to Movesense failed: %s", e)
-
-            await back.disconnect()
+        if not await back.svc.connect():
+            logging.warning("BLE connect failed")
+            await back.show_error()
             return
+
+        is_logging = await back.svc.get_mov_islogging()
+
+        if is_logging is None:
+            logging.warning("Failed to get Movesense logging status")
+            await back.show_error()
+            return
+
+        elif is_logging:
+            # Show error pop-up when device is already logging
+            await back.show_error(
+                "Movesense currently recording",
+                "The Movesense you selected is recording data. It may be paired to a different device.\nTo force-reset it, remove its battery (any ongoing recording will be lost).",
+            )
+            return
+
+        mov_bat = await back.svc.get_mov_battery()
+        if mov_bat is not None:
+            back.ui.update_device_info(mov_bat=f"{mov_bat}%")
+
+        else:
+            logging.warning("Failed to get Movesense battery")
+            await back.show_error()
+            return
+
+        if not await back.svc.sub_stream():
+            logging.warning("Stream subscribe failed")
+            await back.show_error()
+            return
+
+        back.ui.update_device_info(mov=self.device.split(";")[0])
+        back.ui.update_ui_state(GUIState.MONITORING)
+
+        # Kick battery/info updates
+        await back.queue_command(CmdBatteryTick())
 
 
 @dataclass
@@ -1484,7 +1607,7 @@ class CmdBatteryTick:
         status = await back.svc.get_status()
         if not status:
             logging.error("Status check failed")
-            await back.disconnect()
+            await back.show_error()
 
         if status["connected"]:
             # Update device info
@@ -1494,14 +1617,17 @@ class CmdBatteryTick:
                 back.ui.update_device_info(bat=f"{dev_bat:.0f}%")
             else:
                 logging.warning("Failed to get device battery")
-                await back.disconnect()
+                await back.show_error()
                 return
 
             back.schedule_after(self.REFRESH_PERIOD_S, CmdBatteryTick())
 
         else:
             # Lost connection
-            await back.disconnect()
+            await back.show_error(
+                "Movesense disconnected",
+                "Lost connection to the Movesense device. Please ensure it is powered on and in range and try again.",
+            )
 
 
 @dataclass
@@ -1569,10 +1695,7 @@ class CmdStopLogging:
         log_id = await back.svc.stop_movesense_logging()
         if log_id is None:
             logging.error("Stop Movesense logging failed")
-            await back.show_error(
-                "Connection error",
-                "Communication with Movesense failed. Please try again.",
-            )
+            await back.show_error()
             return
 
         await back.queue_command(CmdDownloadLog(log_id=log_id))
@@ -1599,10 +1722,7 @@ class CmdDownloadLog:
         record_list = await retry(back.svc.list_logs)
         if record_list is None:
             logging.error("Get log list failed")
-            await back.show_error(
-                "Connection error",
-                "Communication with device failed. Please try again.",
-            )
+            await back.show_error()
             return
 
         back.ui.update_ui_state(GUIState.FORM)

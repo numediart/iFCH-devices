@@ -116,6 +116,7 @@ void fetchLogic()
 
         if (isMovesenseConnected)
         {
+            // TODO there should be some timeout here to avoid spamming serial? Or just silent error?
             logError("fetchStep", "Movesense already connected at fetch step start, aborting");
             return;
         }
