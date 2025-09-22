@@ -18,6 +18,12 @@ async def test_device(port):
     else:
         logging.info("Firmware version: %s", version)
 
+    record_id = await device.get_record_id()
+    if record_id is None:
+        logging.error("Failed to get record ID")
+    else:
+        logging.info("Record ID: %s", record_id)
+
     status = await device.get_status()
     if status is None:
         logging.error("Failed to get status")

@@ -185,6 +185,23 @@ class DeviceService:
             logging.warning("Get version failed")
             return None
 
+    async def get_record_id(self):
+        self.proto.send_frame(Commands.CMD_GET_RECORD_ID)
+        result = await self.proto.wait_for_cmd(
+            Commands.CMD_GET_RECORD_ID, timeout=self.SERIAL_TIMEOUT_S
+        )
+        if result:
+            if len(result) == 1:
+                record_id = result[0]
+                logging.debug("Received record ID: %d", record_id)
+                return record_id
+            else:
+                logging.error("Invalid record ID response: %s", result)
+                return None
+        else:
+            logging.warning("Get record ID failed")
+            return None
+
     async def get_battery(self):
         self.proto.send_frame(Commands.CMD_BATTERY_GET)
         result = await self.proto.wait_for_cmd(
