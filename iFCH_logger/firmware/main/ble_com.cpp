@@ -514,7 +514,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_NOTIFY_RX:
     { /* Peer sent us a notification or indication. */
-        ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "received %s; conn_handle=%d attr_handle=%d "
+        ESP_LOGD("BLE_GAP_EVENT_NOTIFY_RX", "received %s; conn_handle=%d attr_handle=%d "
                                             "attr_len=%d",
                  event->notify_rx.indication ? "indication" : "notification",
                  event->notify_rx.conn_handle,
@@ -536,7 +536,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
 
         if (event->notify_rx.attr_handle == response_char_handle)
         {
-            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received response notification");
+            ESP_LOGD("BLE_GAP_EVENT_NOTIFY_RX", "Received response notification");
             BaseType_t result = xQueueSendToBack(responseQueue, rxNotify, 0);
             if (result == pdFALSE)
             {
@@ -546,7 +546,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
         }
         else if (event->notify_rx.attr_handle == data_char_handle)
         {
-            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received data notification");
+            ESP_LOGD("BLE_GAP_EVENT_NOTIFY_RX", "Received data notification");
             BaseType_t result = xQueueSendToBack(dataQueue, rxNotify, 0);
             if (result == pdFALSE)
             {
@@ -556,7 +556,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
         }
         else if (event->notify_rx.attr_handle == log_char_handle)
         {
-            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received log notification");
+            ESP_LOGD("BLE_GAP_EVENT_NOTIFY_RX", "Received log notification");
             BaseType_t result = xQueueSendToBack(logQueue, rxNotify, 0);
             if (result == pdFALSE)
             {

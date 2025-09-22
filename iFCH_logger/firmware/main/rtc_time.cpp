@@ -178,7 +178,7 @@ uint32_t getUNIXTime()
         .tm_year = bcd_to_dec(raw_data[6]) + 100,
     };
 
-    ESP_LOGI("getUNIXTime", "RTC time read: %02d:%02d:%02d %02d/%02d/%04d",
+    ESP_LOGD("getUNIXTime", "RTC time read: %02d:%02d:%02d %02d/%02d/%04d",
              t.tm_hour, t.tm_min, t.tm_sec, t.tm_mday, t.tm_mon + 1, t.tm_year + 1900);
 
     time_t now = mktime(&t);
