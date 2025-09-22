@@ -37,7 +37,7 @@ class DeviceService:
                 "/Meas/ECG/200",
                 "/Meas/Acc/13",
             ],
-            "fetchIntervalMin": 1,  # TODO set this accordingly
+            "fetchIntervalMin": 20,
             "MovesenseID": None,
         }
 
@@ -84,6 +84,8 @@ class DeviceService:
                 timestamps = [t + self.time_start for t in timestamps]
                 self.plot_x.extend(timestamps)
                 self.plot_y.extend(samples)
+
+                # TODO enhancement: signal filtering
 
     async def scan(self, retries=5, filter_movesense=True):
         scanned = set()

@@ -1,6 +1,8 @@
 import asyncio
 import contextlib
+import json
 import logging
+import pathlib
 import sys
 import time
 from dataclasses import dataclass
@@ -43,6 +45,8 @@ class GUIState(Enum):
     WARNING = "warning"
 
 
+METADATA_FILENAME = "metadata.json"
+
 GREEN_L = "#4caf50"
 GREEN_M = "#45a148"
 GREEN_D = "#3f9141"
@@ -68,7 +72,7 @@ GREY_M = "#a1a1a1"
 GREY_D = "#919191"
 
 
-# TODO add retries to sensitive operations
+# TODO enhancement: add retries to sensitive operations
 async def retry(func, retries=3, delay=0.3, *args, **kwargs):
     for attempt in range(retries):
         result = await func(*args, **kwargs)
@@ -638,7 +642,7 @@ class LoggingView(QWidget):
         layout.addSpacing(30)
 
         # Warning message
-        warning = QLabel("Do not disconnect the device during recording")
+        warning = QLabel("Device is currently recording data.")
         warning.setStyleSheet(
             f"""
             QLabel {{
@@ -904,6 +908,10 @@ class MainWindow(QWidget):
         self._tasks = []
         self.backend = Backend(self)
         self._tasks.append(loop.create_task(self.backend.run()))
+
+        # TODO enhancement: use QSetting here
+        self.output_dir = pathlib.Path(__file__).parent / "iFCH_records"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Set initial state
         self.update_ui_state(GUIState.DISCONNECTED)
@@ -1188,6 +1196,9 @@ class Backend:
         self._timers: set[asyncio.Task] = set()
         self._disconnect_watch: Optional[asyncio.Task] = None
 
+        self.record_files = None
+        self.record_meta = {}
+
     async def run(self):
         """Start the actor and bootstrap probing."""
         if self._actor_task is None:
@@ -1291,9 +1302,11 @@ class Backend:
                     await cmd.handle(self)
 
             except Exception as e:
-                logging.error("Actor command error: %s", e)
+                logging.error("Actor command error in %s: %s", cmd, e)
                 # Try to keep running, but ensure replies are resolved
-                await self.show_error("Internal error", str(e))
+                await self.show_error(
+                    "Internal error", f"Exception in {str(cmd)}: {str(e)}"
+                )
 
     async def start_service(self, port: str):
         """Open serial, start notification processing, start disconnect watcher."""
@@ -1348,8 +1361,11 @@ class Backend:
         if self.svc:
             with contextlib.suppress(Exception):
                 await self.svc.stop()
+
         self.svc = None
         self.ui.prevent_close = False
+        self.record_files = None
+        self.record_meta = {}
 
     def schedule_after(self, delay: float, cmd: Any):
         """Schedule a one-shot task that enqueues cmd after delay."""
@@ -1432,22 +1448,19 @@ class CmdProbeUSB:
                 back.schedule_after(self.SCAN_PERIOD_S, CmdProbeUSB())
         else:
             # We should not be here
-            logging.error("USB probe called while service already running")
-            await back.disconnect()
-            return
+            raise RuntimeError("USB probe called while service already running")
 
 
 @dataclass
 class CmdLogging:
     async def handle(self, back: Backend):
         if not back.svc:
-            logging.error("CmdLogging called without USB service")
-            back.ui.update_ui_state(GUIState.DISCONNECTED)
+            raise RuntimeError("CmdLogging called without USB service")
 
-            await back.disconnect()
-            return
-
-        back.ui.update_info_status("Device found", "Connecting to Movesense...")
+        back.ui.update_info_status(
+            "Device found",
+            "Recording in progress, connecting to Movesense...\nThis might take up to 10 seconds.",
+        )
         back.ui.update_ui_state(GUIState.INFO)
 
         if not await back.svc.connect():
@@ -1467,6 +1480,7 @@ class CmdLogging:
                 ok_cb=back.force_stop_logging,
                 show_cancel=True,
             )
+            back.record_meta["Stopping"] = "Forced"
             back.ui.update_ui_state(GUIState.WARNING)
             return
 
@@ -1485,6 +1499,7 @@ class CmdLogging:
                 ok_cb=back.stop_logging,
                 show_cancel=False,
             )
+            back.record_meta["Stopping"] = "Early"
             back.ui.update_ui_state(GUIState.WARNING)
             return
 
@@ -1510,11 +1525,7 @@ class CmdBLEScan:
 
     async def handle(self, back: Backend):
         if not back.svc:
-            logging.error("BLE scan called without USB service")
-            back.ui.update_ui_state(GUIState.DISCONNECTED)
-
-            await back.disconnect()
-            return
+            raise RuntimeError("CmdBLEScan called without USB service")
 
         back.ui.update_ui_state(GUIState.INFO)
         back.ui.update_info_status(
@@ -1525,9 +1536,7 @@ class CmdBLEScan:
         devices = await back.svc.scan()
 
         if devices is None:
-            logging.error("Scan failed, disconnecting")
-            await back.disconnect()
-            return
+            raise RuntimeError("BLE scan failed")
 
         if not devices:
             back.available_devices = []
@@ -1543,12 +1552,11 @@ class CmdStreamDevice:
 
     async def handle(self, back: Backend):
         if not back.svc:
-            logging.error("Connect called without USB service")
-            await back.disconnect()
-            return
+            raise RuntimeError("Connect called without USB service")
 
         back.ui.update_info_status(
-            "Connecting to Movesense", f"Connecting to {self.device.split(';')[0]}..."
+            "Connecting to Movesense",
+            f"Connecting to {self.device.split(';')[0]}...\nThis might take up to 10 seconds.",
         )
         back.ui.update_ui_state(GUIState.INFO)
 
@@ -1608,9 +1616,7 @@ class CmdBatteryTick:
     async def handle(self, back: Backend):
         """Only runs when connected/streaming. Schedules itback again."""
         if not back.svc:
-            logging.error("Battery tick called without USB service")
-            await back.disconnect()
-            return
+            raise RuntimeError("Battery tick called without USB service")
 
         status = await back.svc.get_status()
         if not status:
@@ -1642,13 +1648,20 @@ class CmdBatteryTick:
 class CmdStartLogging:
     async def handle(self, back: Backend):
         if not back.svc:
-            logging.error("Start logging called without USB service")
-            await back.disconnect()
-            return
+            raise RuntimeError("Start logging called without USB service")
 
         success = await back.svc.unsub_stream()
         if not success:
             logging.warning("Unsubscribe stream failed")
+            await back.show_error(
+                "Failed to start recording",
+                "Device will reset, please reconnect to try again",
+            )
+            return
+
+        success = await back.svc.put_epoch()
+        if not success:
+            logging.warning("PUT epoch failed")
             await back.show_error(
                 "Failed to start recording",
                 "Device will reset, please reconnect to try again",
@@ -1677,15 +1690,11 @@ class CmdStartLogging:
 class CmdStopLogging:
     async def handle(self, back: Backend):
         if not back.svc:
-            logging.error("Stop logging called without USB service")
-            await back.disconnect()
-            return
+            raise RuntimeError("Stop logging called without USB service")
 
         status = await back.svc.get_status()
         if not status["logging"]:
-            logging.error("Stop logging called when not logging")
-            await back.disconnect()
-            return
+            raise RuntimeError("Stop logging called when not logging")
 
         if not status["connected"]:
             logging.error("Movesense not connected when stopping logging")
@@ -1693,12 +1702,12 @@ class CmdStopLogging:
             return
 
         back.ui.update_info_status(
-            "Ending recording", "Fetching data from Movesense..."
+            "Ending recording",
+            "Fetching data from Movesense...\nThis might take a minute or two.",
         )
         back.ui.update_ui_state(GUIState.INFO)
 
         back.ui.prevent_close = True
-        # TODO enable close after download complete
 
         log_id = await back.svc.stop_movesense_logging()
         if log_id is None:
@@ -1712,15 +1721,11 @@ class CmdStopLogging:
 class CmdForceStopLogging:
     async def handle(self, back: Backend):
         if not back.svc:
-            logging.error("Force stop logging called without USB service")
-            await back.disconnect()
-            return
+            raise RuntimeError("Force stop logging called without USB service")
 
         status = await back.svc.get_status()
         if not status["logging"]:
-            logging.error("Force stop logging called when not logging")
-            await back.disconnect()
-            return
+            raise RuntimeError("Force stop logging called when not logging")
 
         if status["connected"]:
             logging.error("Movesense connected when force stopping logging")
@@ -1750,21 +1755,16 @@ class CmdForceStopLogging:
 
 @dataclass
 class CmdDownloadLog:
-    log_id: str
+    log_id: int | str
 
     async def handle(self, back: Backend):
         if not back.svc:
-            logging.error("Download log called without USB service")
-            await back.disconnect()
-            return
+            raise RuntimeError("Download log called without USB service")
 
         if not self.log_id:
-            logging.error("Download log called without log ID")
-            await back.disconnect()
-            return
+            raise RuntimeError("Download log called without log ID")
 
         back.ui.update_info_status("Saving record", "Saving data to computer...")
-        back.ui.update_ui_state(GUIState.INFO)
 
         record_list = await retry(back.svc.list_logs)
         if record_list is None:
@@ -1772,10 +1772,41 @@ class CmdDownloadLog:
             await back.show_error()
             return
 
+        if isinstance(self.log_id, int):
+            self.log_id = f"{self.log_id:03d}"
+        elif not isinstance(self.log_id, str):
+            raise ValueError("Invalid log ID type: %s", type(self.log_id))
+
+        if self.log_id not in record_list:
+            logging.warning(
+                "Log ID %s not found in record list: %s", self.log_id, record_list
+            )
+            await back.show_error(
+                "Record not found",
+                "The requested record was not found on the device, no data were saved.",
+            )
+            return
+
         back.ui.update_ui_state(GUIState.FORM)
 
-        # TODO
-        await asyncio.sleep(5)
+        dir_files = await back.svc.get_log(self.log_id)
+        if dir_files is None:
+            logging.warning("Get log data failed")
+            await back.show_error()
+            return
+
+        back.record_files = dir_files
+        back.record_meta = {"ID": self.log_id}
+
+        error_log = await back.svc.get_error_log()
+        if error_log is None:
+            logging.warning("Get error log failed")
+        else:
+            back.record_files["log.txt"] = error_log.encode("utf-8")
+
+            deleted = await back.svc.delete_error_log()
+            if not deleted:
+                logging.warning("Delete error log failed")
 
 
 @dataclass
@@ -1784,13 +1815,48 @@ class CmdSaveRecord:
 
     async def handle(self, back: Backend):
         if not self.metadata:
-            logging.error("Save record called without metadata")
-            await back.disconnect()
-            return
+            raise RuntimeError("Save record called without metadata")
 
-        # TODO
-        back.ui.update_info_status("DONE", "Saving data to computer...")
-        back.ui.update_ui_state(GUIState.INFO)
+        self.metadata.update(back.record_meta)
+
+        record_dir = back.ui.output_dir / self.metadata["ID"]
+        if record_dir.exists():
+            logging.warning("Record directory already exists: %s", record_dir)
+            for i in range(1, 100):
+                new_dir = back.ui.output_dir / f"{self.metadata['ID']}_b{i:02d}"
+                if not new_dir.exists():
+                    record_dir = new_dir
+                    break
+            else:
+                raise RuntimeError(
+                    "Failed to find unique record directory name, too many copies of %s exist"
+                    % self.metadata["ID"]
+                )
+
+        record_dir.mkdir(parents=True, exist_ok=False)
+        for filename, data in back.record_files.items():
+            # Optional: convert short names to standard ones
+            filename = filename.lower()
+            filename = filename.replace(".sbm", ".sbem")
+            filename = filename.replace(".jsn", ".json")
+
+            file_path = record_dir / filename
+            with open(file_path, "wb") as f:
+                f.write(data)
+
+        with open(record_dir / METADATA_FILENAME, "w") as f:
+            json.dump(self.metadata, f, indent=4)
+
+        archived = await back.svc.archive_log(self.metadata["ID"])
+        if not archived:
+            logging.warning("Archive log failed for ID %s", self.metadata["ID"])
+            # Not critical, continue
+
+        back.ui.update_warning_status(
+            "Record saved", f"The data were successfully saved to:\n{str(record_dir)}"
+        )
+        back.ui.prevent_close = False
+        back.ui.update_ui_state(GUIState.WARNING)
 
 
 # ----------------------------------------------------------------------
@@ -1815,3 +1881,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    # TODO enhancement: have an interface for advanced manual download
+    # TODO enhancement: have settings using QSettings
