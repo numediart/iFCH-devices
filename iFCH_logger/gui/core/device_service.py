@@ -14,7 +14,8 @@ from .serial_async import Commands, FrameProtocol, open_connection
 class DeviceService:
     SERIAL_TIMEOUT_S = 1
     BLE_TIMEOUT_S = 2.5
-    BLE_CONNECT_TIMEOUT_S = 5
+    BLE_CONNECT_TIMEOUT_S = 10
+    BLE_BATTERY_TIMEOUT_S = 5
     END_LOG_TIMEOUT_S = 300
     PLOT_SAMPLES = 12 * 200
 
@@ -430,7 +431,7 @@ class DeviceService:
     async def get_mov_battery(self):
         self.proto.send_frame(Commands.CMD_MOV_BATTERY_GET)
         result = await self.proto.wait_for_cmd(
-            Commands.CMD_MOV_BATTERY_GET, timeout=self.BLE_CONNECT_TIMEOUT_S
+            Commands.CMD_MOV_BATTERY_GET, timeout=self.BLE_BATTERY_TIMEOUT_S
         )
         if result is None:
             logging.warning("Get Movesense battery failed")
