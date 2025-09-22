@@ -1,4 +1,4 @@
-set(srcs "main.cpp" "utils.cpp" "memory.cpp" "serial_com.cpp" "rtc_time.cpp" "power.cpp" "ble_com.cpp")
+set(srcs "main.cpp" "utils.cpp" "memory.cpp" "serial_com.cpp" "rtc_time.cpp" "power.cpp" "ble_com.cpp" "logger.cpp")
 
 idf_component_register(SRCS "${srcs}"
     INCLUDE_DIRS "."
@@ -10,6 +10,5 @@ idf_component_register(SRCS "${srcs}"
     REQUIRES json
     REQUIRES led_strip
     REQUIRES nvs_flash
-
-    # REQUIRES vfs //TODO remove?
+    REQUIRES esp_psram
 )

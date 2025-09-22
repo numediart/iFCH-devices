@@ -18,6 +18,24 @@ async def test_device(port):
     else:
         logging.info("Firmware version: %s", version)
 
+    record_id = await device.get_record_id()
+    if record_id is None:
+        logging.error("Failed to get record ID")
+    else:
+        logging.info("Record ID: %s", record_id)
+
+    status = await device.get_status()
+    if status is None:
+        logging.error("Failed to get status")
+    else:
+        logging.info("Status retrieved successfully: %s", status)
+
+    ok = await device.force_reset_state()
+    if not ok:
+        logging.error("Failed to force reset state")
+    else:
+        logging.info("Force reset state successful")
+
     battery = await device.get_battery()
     if battery is None:
         logging.error("Failed to get battery level")
@@ -36,12 +54,45 @@ async def test_device(port):
     if not ok:
         logging.error("Failed to set epoch")
 
-    logging.info("Getting free space...")
     free_space = await device.get_free_space()
     if free_space is None:
         logging.error("Failed to get free space")
     else:
         logging.info("Free space: %.02fGB", free_space)
+
+    error_log = await device.get_error_log()
+    if error_log is None:
+        logging.error("Failed to get error log")
+    else:
+        logging.info("Error log retrieved successfully")
+        logging.info("Error log content:\n%s", error_log)
+
+    ok = await device.delete_error_log()
+    if not ok:
+        logging.error("Failed to delete error log")
+    else:
+        logging.info("Error log deleted successfully")
+
+    logs = await device.list_logs(show_archived=False)
+    if logs is None:
+        logging.error("Failed to list logs")
+    else:
+        logs = sorted(logs)
+        logging.info("Logs listed successfully: %s", logs)
+
+    if logs is not None and len(logs) > 0:
+        log_id = logs[0]
+        log = await device.get_log(log_id)
+        if log is None:
+            logging.error("Failed to get log %s", log_id)
+        else:
+            logging.info("Log %s retrieved successfully: %s", log_id, list(log.keys()))
+
+            archived = await device.archive_log(log_id)
+            if not archived:
+                logging.error("Failed to archive log %s", log_id)
+            else:
+                logging.info("Log %s archived successfully", log_id)
 
     logging.info("Scanning for devices...")
     devices = await device.scan()

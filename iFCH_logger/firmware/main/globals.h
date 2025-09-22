@@ -4,6 +4,7 @@
 #define VERSION "iFCH-logger v0.1"
 
 #include <vector>
+#include <map>
 #include <string>
 #include <cstring>
 #include <cstdarg>
@@ -13,8 +14,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
-// Define for sending error logs to the serial port
-// #define ERR_LOG_SERIAL
+#define FAILURE_DELAY_MIN 2
+#define MAX_CONNECT_FAILURES 15
+#define BOOT_RTC_DELAY_S 30
 
 // Global configuration parameters
 struct Config

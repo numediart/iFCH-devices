@@ -25,6 +25,8 @@ class Commands(enum.IntEnum):
     CMD_ERROR = 0x04
     CMD_STATUS = 0x05
     CMD_GET_FREE_SPACE = 0x06
+    CMD_RESET_STATE = 0x07
+    CMD_GET_RECORD_ID = 0x08
     # BLE
     CMD_SCAN = 0x11
     CMD_CONNECT = 0x12
@@ -35,6 +37,12 @@ class Commands(enum.IntEnum):
     CMD_FILE_CHUNK = 0x20
     CMD_CONFIG_GET = 0x21
     CMD_CONFIG_PUT = 0x22
+    CMD_LIST_LOG = 0x23
+    CMD_GET_LOG = 0x24
+    CMD_DIR_CHUNK = 0x25
+    CMD_ARCHIVE_LOG = 0x26
+    CMD_GET_ERROR_LOG = 0x27
+    CMD_DELETE_ERROR_LOG = 0x28
     # RTC
     CMD_TIME_GET = 0x31
     CMD_TIME_PUT = 0x32
@@ -46,7 +54,7 @@ class Commands(enum.IntEnum):
     CMD_MOV_LOG_START = 0x44
     CMD_MOV_LOG_END = 0x45
     CMD_MOV_GET_LOGGING_STATUS = 0x46
-    CMD_MOV_FULL_RESET = 0x48
+    CMD_MOV_FULL_RESET = 0x47
     # Errors
     CMD_TIMEOUT = 0xFE
     CMD_INVALID = 0xFF
@@ -94,12 +102,15 @@ class FrameProtocol(asyncio.Protocol):
 
         self.connected = asyncio.Event()
         self.disconnected = asyncio.Event()
+        self.is_connected = False
 
-        self.other_rx = []
+        self.other_rx: list[str] = []
+        self._current_waiter: typing.Optional[asyncio.Task] = None
 
     # --- low‑level serial callbacks ----------------------------------
     def connection_made(self, transport):
         self.transport = transport
+        self.is_connected = True
         self.connected.set()
         # Optional: log or signal GUI the port opened
 
@@ -111,6 +122,7 @@ class FrameProtocol(asyncio.Protocol):
         # Optional: push a sentinel onto the queue or emit a signal
         if exc:
             logging.warning(f"Serial connection lost: {exc}")
+        self.is_connected = False
         self.disconnected.set()
 
     def send_frame(self, cmd: Commands, payload: bytes = b""):
@@ -201,7 +213,7 @@ class FrameProtocol(asyncio.Protocol):
                     if char == "\n" or len(self.other_rx) > 512:
                         while len(self.other_rx) and self.other_rx[-1] == "\n":
                             self.other_rx.pop(-1)
-                        logging.info("ESP RX: %s", "".join(self.other_rx))
+                        logging.warning("ESP RX: %s", "".join(self.other_rx))
                         self.other_rx = []
                 except UnicodeDecodeError:
                     pass
@@ -226,10 +238,6 @@ class FrameProtocol(asyncio.Protocol):
             if ok:
                 try:
                     cmd = Commands(cmd)
-                    if cmd == Commands.CMD_ERROR:
-                        logging.error(
-                            "Device error: %s", payload.decode(errors="ignore")
-                        )
 
                     if cmd == Commands.CMD_BLE_NOTIFY:
                         logging.debug(
@@ -250,7 +258,9 @@ class FrameProtocol(asyncio.Protocol):
                     logging.warning("Unknown command: %s", cmd)
                     return
             else:
-                logging.warning("CRC mismatch - discarded one frame")
+                logging.warning(
+                    "CRC mismatch - discarded one frame: %s - %s", cmd, payload.hex(" ")
+                )
 
     @staticmethod
     def _decode_frame(frame: bytes):
@@ -263,6 +273,20 @@ class FrameProtocol(asyncio.Protocol):
     async def wait_for_cmd(
         self, wanted: Commands, timeout=SERIAL_TIMEOUT_S
     ) -> typing.Optional[bytes]:
+        # Enforce a single active waiter. Cancel the previous one if present.
+        this_task = asyncio.current_task()
+        if this_task is None:
+            raise RuntimeError(
+                "wait_for_cmd must be called from within an asyncio Task"
+            )
+
+        prev = self._current_waiter
+        if prev is not None and prev is not this_task and not prev.done():
+            prev.cancel()
+            logging.debug("Cancelled previous wait_for_cmd in favor of %s", wanted.name)
+
+        self._current_waiter = this_task
+
         try:
             deadline = self.loop.time() + timeout
 
@@ -277,12 +301,30 @@ class FrameProtocol(asyncio.Protocol):
 
                 if cmd == wanted:
                     return payload
-                elif not cmd == Commands.CMD_ERROR:
-                    logging.warning("Unexpected command: %s", cmd.name)
+                elif (
+                    cmd == Commands.CMD_ERROR
+                    and len(payload) == 1
+                    and payload[0] == wanted
+                ):
+                    logging.warning("Received ERR for command: %s", wanted.name)
+                    return None
+                else:
+                    logging.warning(
+                        "Unexpected command: %s while waiting for %s",
+                        cmd.name,
+                        wanted.name,
+                    )
 
         except asyncio.TimeoutError:
-            logging.debug("Timeout waiting for command: %s", wanted.name)
+            logging.warning("Timeout waiting for command: %s", wanted.name)
             return None
+        except asyncio.CancelledError:
+            logging.debug("wait_for_cmd(%s) cancelled", wanted.name)
+            raise
+        finally:
+            # Only clear if we are still the registered waiter
+            if self._current_waiter is this_task:
+                self._current_waiter = None
 
     async def _wait_for_ack(self, seq: int, timeout: float = SERIAL_TIMEOUT_S) -> bool:
         time = self.loop.time()
@@ -291,13 +333,16 @@ class FrameProtocol(asyncio.Protocol):
         while timeout > 0:
             payload = await self.wait_for_cmd(Commands.CMD_ACK, timeout)
 
+            # Timeout or error waiting for ACK
+            if payload is None:
+                return False
+
             # Correct ACK received
-            if payload is not None and payload[0] == seq:
+            if payload[0] == seq:
                 logging.debug("Received ACK %d", seq)
                 return True
-
             # Incorrect ACK received
-            if payload is not None:
+            else:
                 logging.warning("Incorrect ACK %d (expected %d)", payload[0], seq)
 
             # Keep waiting for ACK
@@ -317,7 +362,7 @@ class FrameProtocol(asyncio.Protocol):
             payload = await self.wait_for_cmd(Commands.CMD_FILE_CHUNK)
 
             if payload is None:
-                logging.error("Timeout waiting for file chunk")
+                logging.error("Waiting for file chunk failed")
                 return None, None
 
             else:
@@ -325,7 +370,7 @@ class FrameProtocol(asyncio.Protocol):
                 chunk = payload[1:]
 
                 if seq == expected_seq:
-                    if seq == 0:
+                    if file_name is None and seq == 0:
                         file_name = chunk.decode()
                         logging.debug("Received file name: %s", file_name)
 
@@ -353,6 +398,74 @@ class FrameProtocol(asyncio.Protocol):
                     return None, None
 
         return file_name, b"".join(file_chunks)
+
+    async def wait_for_dir(self):
+        dir_name = None
+        expected_seq = 0
+        dir_files = {}
+
+        while True:
+            payload = await self.wait_for_cmd(Commands.CMD_DIR_CHUNK)
+
+            if payload is None:
+                logging.error("Waiting for directory chunk failed")
+                return None, None
+
+            else:
+                seq = payload[0]
+                chunk = payload[1:]
+
+                if seq == expected_seq:
+                    self.send_frame(Commands.CMD_ACK, seq.to_bytes(1))
+                    expected_seq = (expected_seq + 1) % 256
+
+                    if seq == 0:
+                        dir_name = chunk.decode()
+                        logging.debug("Received directory name: %s", dir_name)
+
+                    elif len(chunk) > 0:
+                        # We have a chunk of data
+                        file_name = chunk.decode()
+                        logging.debug(
+                            "Received file header %s of directory %s",
+                            file_name,
+                            dir_name,
+                        )
+
+                        rec_name, file_data = await self.wait_for_file()
+
+                        if rec_name is None:
+                            logging.error(
+                                "Failed to retrieve file data for %s", file_name
+                            )
+                            return None, None
+
+                        if rec_name.split("/")[-1] != file_name:
+                            logging.error(
+                                "File name mismatch: expected %s, got %s",
+                                file_name,
+                                rec_name.split("/")[-1],
+                            )
+                            return None, None
+
+                        dir_files[file_name] = file_data
+
+                    if len(chunk) == 0:
+                        logging.debug("Received EOF marker for directory %s", dir_name)
+                        break
+
+                elif seq == (expected_seq - 1) % 256:
+                    # This is a duplicate chunk, ignore it
+                    logging.warning("Duplicate chunk, resending ACK %d ", seq)
+                    self.send_frame(Commands.CMD_ACK, seq.to_bytes(1))
+
+                else:
+                    logging.error(
+                        "Out of order chunk %d (expected %d)", seq, expected_seq
+                    )
+                    return None, None
+
+        return dir_name, dir_files
 
 
 async def _probe(port: str, probe_timeout: float) -> tuple[str, bytes] | None:

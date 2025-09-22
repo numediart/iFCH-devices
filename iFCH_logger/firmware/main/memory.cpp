@@ -12,10 +12,23 @@
 
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
+#include <nvs_flash.h>
 
 #ifdef CONFIG_IDF_TARGET_ESP32S3
 #include <driver/sdmmc_host.h>
 #endif // CONFIG_IDF_TARGET_ESP32S3
+
+static nvs_handle_t nvs_record;
+
+bool isDir(std::string path)
+{
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0)
+    {
+        return false; // Path does not exist
+    }
+    return S_ISDIR(st.st_mode); // Check if it is a directory
+}
 
 bool sendFile(std::string filename)
 {
@@ -34,6 +47,7 @@ bool sendFile(std::string filename)
         memcpy(tx_buffer + 1, filename.c_str(), filename.length());
         if (!sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, filename.length() + 1, seqNum))
         {
+            sendERR(CmdType::CMD_FILE_CHUNK);
             return false;
         }
 
@@ -43,6 +57,7 @@ bool sendFile(std::string filename)
         if (f == NULL)
         {
             logError("sendFile", "Failed to open file for reading");
+            sendERR(CmdType::CMD_FILE_CHUNK);
             errorReset(COLOR_SD);
             return false;
         }
@@ -72,10 +87,7 @@ bool sendFile(std::string filename)
         if (sentOK)
         {
             seqNum++;
-            if (!sendProtectedFrame(CmdType::CMD_FILE_CHUNK, &seqNum, 1, seqNum))
-            {
-                sentOK = false;
-            }
+            sentOK = sendProtectedFrame(CmdType::CMD_FILE_CHUNK, &seqNum, 1, seqNum);
         }
     }
     else
@@ -83,7 +95,95 @@ bool sendFile(std::string filename)
         logError("sendFile", "File not found");
     }
 
+    if (!sentOK)
+    {
+        sendERR(CmdType::CMD_FILE_CHUNK);
+    }
+
     ledWrite(false);
+    return sentOK;
+}
+
+bool sendDir(std::string folderName)
+{
+    if (!exists(folderName))
+    {
+        logError("sendFolder", "Path does not exist: %s", folderName.c_str());
+        sendERR(CmdType::CMD_DIR_CHUNK);
+        return false;
+    }
+
+    else if (!isDir(folderName))
+    {
+        logError("sendFolder", "Path is not a directory: %s", folderName.c_str());
+        sendERR(CmdType::CMD_DIR_CHUNK);
+        return false;
+    }
+
+    DIR *dir = opendir(folderName.c_str());
+    if (dir == NULL)
+    {
+        logError("sendFolder", "Failed to open directory: %s", folderName.c_str());
+        sendERR(CmdType::CMD_DIR_CHUNK);
+        errorReset(COLOR_SD);
+        return false;
+    }
+
+    uint8_t dirSeqNum = 0;
+    uint8_t tx_buffer[MAX_PAYLOAD_SIZE];
+    bool sentOK = true;
+
+    // Send the directory name
+    tx_buffer[0] = dirSeqNum;
+    memcpy(tx_buffer + 1, folderName.c_str(), folderName.length());
+    sendProtectedFrame(CmdType::CMD_DIR_CHUNK, tx_buffer, folderName.length() + 1, dirSeqNum);
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL)
+    {
+        if (entry->d_type == DT_REG)
+        {
+            // Inform that we are sending a file
+            dirSeqNum++;
+            tx_buffer[0] = dirSeqNum;
+            memcpy(tx_buffer + 1, entry->d_name, strlen(entry->d_name));
+            if (!sendProtectedFrame(CmdType::CMD_DIR_CHUNK, tx_buffer, strlen(entry->d_name) + 1, dirSeqNum))
+            {
+                logError("sendFolder", "Failed to send file header for %s/%s", folderName.c_str(), entry->d_name);
+                sentOK = false;
+                break;
+            }
+
+            // Send the file
+            ESP_LOGI("sendFolder", "Sending file: %s/%s", folderName.c_str(), entry->d_name);
+            std::string filePath = folderName + "/" + entry->d_name;
+            if (!sendFile(filePath))
+            {
+                logError("sendFolder", "Failed to send file: %s/%s", folderName.c_str(), entry->d_name);
+                sentOK = false;
+                break;
+            }
+        }
+        else
+        {
+            ESP_LOGW("sendFolder", "Skipping non-regular file: %s/%s", folderName.c_str(), entry->d_name);
+        }
+    }
+
+    closedir(dir);
+
+    if (sentOK)
+    {
+        // Send EOF for the directory
+        dirSeqNum++;
+        sentOK = sendProtectedFrame(CmdType::CMD_DIR_CHUNK, &dirSeqNum, 1, dirSeqNum);
+    }
+
+    if (!sentOK)
+    {
+        sendERR(CmdType::CMD_DIR_CHUNK);
+    }
+
     return sentOK;
 }
 
@@ -259,6 +359,46 @@ void setupSDCard()
         return;
     }
     ESP_LOGI("setupSDCard", "Filesystem mounted");
+
+    if (!exists(LOG_FILE))
+    {
+        // Create the log file if it doesn't exist
+        FILE *f = fopen(LOG_FILE, "w");
+        if (f == nullptr)
+        {
+            ESP_LOGE("setupSDCard", "Failed to create log file");
+            errorReset(COLOR_SD);
+            return;
+        }
+        fclose(f);
+    }
+}
+
+void setupFlash()
+{
+    esp_err_t err;
+    err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        // NVS partition was truncated and needs to be erased
+        // Retry nvs_flash_init
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    if (err != ESP_OK)
+    {
+        logError("setupFlash", "Failed to initialize NVS flash");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return;
+    }
+
+    err = nvs_open("record", NVS_READWRITE, &nvs_record);
+    if (err != ESP_OK)
+    {
+        logError("setupFlash", "Failed to open NVS handle");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return;
+    }
 }
 
 bool loadJsonConfig()
@@ -344,105 +484,95 @@ bool loadJsonConfig()
     return config.initialized;
 }
 
-bool loadJsonRecord()
+bool loadRecordState()
 {
-    // If the record file does not exist, return false
-    if (!exists(RECORD_FILE))
-    {
-        ESP_LOGW("loadJsonRecord", "Record file not found");
-        return false;
-    }
-    FILE *f = fopen(RECORD_FILE, "r");
-    if (f == NULL)
-    {
-        logError("loadJsonRecord", "Failed to open record file");
-        errorReset(COLOR_SD);
-        return false;
-    }
+    esp_err_t ret;
 
-    char buffer[JSON_BUFFER_SIZE];
-    size_t len = fread(buffer, 1, JSON_BUFFER_SIZE, f);
-    fclose(f);
+    uint32_t lastFetch = 0;
+    uint8_t id = 0;
+    uint8_t part = 0;
+    uint8_t logging = 0;
 
-    cJSON *json = cJSON_ParseWithLength(buffer, len);
-
-    cJSON *lastFetch = cJSON_GetObjectItemCaseSensitive(json, "lastFetch");
-    if (lastFetch == NULL || !cJSON_IsNumber(lastFetch))
+    ret = nvs_get_u32(nvs_record, "lastFetch", &lastFetch);
+    if (ret != ESP_OK)
     {
-        logError("loadJsonRecord", "Invalid lastFetch in record file");
-        cJSON_Delete(json);
-        blink(COLOR_RUNTIME_ERROR, 5, 50);
+        ESP_LOGW("loadRecordState", "Failed to get lastFetch from NVS");
         return false;
     }
 
-    cJSON *logging = cJSON_GetObjectItemCaseSensitive(json, "logging");
-    if (logging == NULL || !cJSON_IsBool(logging))
+    ret = nvs_get_u8(nvs_record, "id", &id);
+    if (ret != ESP_OK)
     {
-        logError("loadJsonRecord", "Invalid logging in record file");
-        cJSON_Delete(json);
-        blink(COLOR_RUNTIME_ERROR, 5, 50);
+        ESP_LOGW("loadRecordState", "Failed to get id from NVS");
         return false;
     }
 
-    cJSON *id = cJSON_GetObjectItemCaseSensitive(json, "id");
-    if (id == NULL || !cJSON_IsNumber(id))
+    ret = nvs_get_u8(nvs_record, "part", &part);
+    if (ret != ESP_OK)
     {
-        logError("loadJsonRecord", "Invalid id in record file");
-        cJSON_Delete(json);
-        blink(COLOR_RUNTIME_ERROR, 5, 50);
+        ESP_LOGW("loadRecordState", "Failed to get part from NVS");
         return false;
     }
 
-    record.lastFetch = lastFetch->valueint;
-    record.logging = cJSON_IsTrue(logging);
-    record.id = id->valueint;
+    ret = nvs_get_u8(nvs_record, "logging", &logging);
+    if (ret != ESP_OK)
+    {
+        ESP_LOGW("loadRecordState", "Failed to get logging from NVS");
+        return false;
+    }
 
-    ESP_LOGI("loadJsonRecord", "Record file loaded");
+    record.lastFetch = lastFetch;
+    record.logging = logging != 0;
+    record.id = id;
+    record.part = part;
 
-    cJSON_Delete(json);
+    ESP_LOGI("loadRecordState", "Record state loaded: lastFetch=%lu, logging=%s, id=%u, part=%u",
+             record.lastFetch, record.logging ? "true" : "false", record.id, record.part);
+
     return true;
 }
 
-bool saveJsonRecord()
+bool saveRecordState()
 {
-    // Create a JSON object and add the record data
-    cJSON *json = cJSON_CreateObject();
-    cJSON_AddNumberToObject(json, "lastFetch", record.lastFetch);
-    cJSON_AddBoolToObject(json, "logging", record.logging);
-    cJSON_AddNumberToObject(json, "id", record.id);
-
-    // Open the file for writing
-    FILE *f = fopen(RECORD_FILE, "w");
-    if (f == NULL)
+    esp_err_t ret;
+    ret = nvs_set_u32(nvs_record, "lastFetch", record.lastFetch);
+    if (ret != ESP_OK)
     {
-        logError("saveJsonRecord", "Failed to open record file");
-        errorReset(COLOR_SD);
+        logError("saveRecordState", "Failed to save lastFetch to NVS");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return false;
+    }
+    ret = nvs_set_u8(nvs_record, "id", record.id);
+    if (ret != ESP_OK)
+    {
+        logError("saveRecordState", "Failed to save id to NVS");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return false;
+    }
+    ret = nvs_set_u8(nvs_record, "part", record.part);
+    if (ret != ESP_OK)
+    {
+        logError("saveRecordState", "Failed to save part to NVS");
+        errorReset(COLOR_RUNTIME_ERROR);
+        return false;
+    }
+    ret = nvs_set_u8(nvs_record, "logging", record.logging ? 1 : 0);
+    if (ret != ESP_OK)
+    {
+        logError("saveRecordState", "Failed to save logging to NVS");
+        errorReset(COLOR_RUNTIME_ERROR);
         return false;
     }
 
-    char *json_str = cJSON_PrintUnformatted(json);
-
-    int ret = fputs(json_str, f);
-
-    if (ret > 0)
+    ret = nvs_commit(nvs_record);
+    if (ret != ESP_OK)
     {
-        logError("saveJsonRecord", "Failed to write record file");
-        errorReset(COLOR_SD);
-
-        fclose(f);
-        cJSON_free(json_str);
-        cJSON_Delete(json);
+        logError("saveRecordState", "Failed to commit NVS changes");
+        errorReset(COLOR_RUNTIME_ERROR);
         return false;
     }
 
-    fflush(f);
-    fclose(f);
-    cJSON_free(json_str);
-    cJSON_Delete(json);
-
-    blink(COLOR_SD, 1, 150);
-
-    ESP_LOGI("saveJsonRecord", "Record file saved");
+    ESP_LOGI("saveRecordState", "Record state saved");
 
     return true;
 }
@@ -609,6 +739,38 @@ bool move(std::string oldName, std::string newName)
     return true;
 }
 
+bool wipeSD()
+{
+    DIR *root = opendir(MOUNT_POINT);
+    if (root == NULL)
+    {
+        logError("wipeSD", "Failed to open root directory: %s", MOUNT_POINT);
+        errorReset(COLOR_SD);
+        return false;
+    }
+
+    bool done = true;
+
+    struct dirent *entry;
+    while ((entry = readdir(root)) != NULL)
+    {
+        bool success = rremove(std::string(MOUNT_POINT) + "/" + entry->d_name);
+        if (!success)
+        {
+            logError("wipeSD", "Failed to remove entry: %s/%s", MOUNT_POINT, entry->d_name);
+            done = false;
+        }
+    }
+    closedir(root);
+
+    if (done)
+    {
+        logError("wipeSD", "SD card wiped successfully");
+    }
+
+    return done;
+}
+
 uint32_t getFreeSpace()
 {
     FATFS *fs;
@@ -627,4 +789,50 @@ uint32_t getFreeSpace()
     ESP_LOGI("getFreeSpace", "Free space: %lukiB", free_space);
 
     return free_space;
+}
+
+bool listLogs()
+{
+    DIR *dir = opendir(MOUNT_POINT);
+    if (dir == NULL)
+    {
+        logError("listLogs", "Failed to open mount point directory");
+        errorReset(COLOR_SD);
+        return false;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL)
+    {
+        if (entry->d_type == DT_DIR)
+        {
+            sendFrame(CmdType::CMD_LIST_LOG, (uint8_t *)entry->d_name, strlen(entry->d_name));
+        }
+    }
+    closedir(dir);
+
+    return true;
+}
+
+// Write a message to the log file
+void writeToLogFile(const char *tag, const char *message)
+{
+    FILE *log_file = fopen(LOG_FILE, "a");
+    if (log_file == NULL)
+    {
+        ESP_LOGE("writeToLogFile", "Failed to open log file");
+        return;
+    }
+
+    // Write the message to the log file
+    if (fprintf(log_file, " %s: %s\n", tag, message) < 0)
+    {
+        ESP_LOGE("writeToLogFile", "Failed to write to log file");
+        return;
+    }
+
+    // Flush the file to ensure the message is written
+    fflush(log_file);
+    fclose(log_file);
+    return;
 }

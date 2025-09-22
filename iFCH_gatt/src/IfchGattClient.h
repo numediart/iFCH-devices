@@ -5,7 +5,7 @@
 #include <queue>
 
 #define MAX_PATH_LEN 32
-#define MTU 161
+#define MTU 158
 
 struct IndicateRequest
 {
@@ -86,6 +86,7 @@ private:
 
     wb::TimerId mShutdownTimer;
     wb::TimerId mIndicateTimer;
+    wb::TimerId mIndicateTimeoutTimer;
     uint32_t mCounter;
     bool mLeadsConnected;
     uint8_t mDataLoggerState;
@@ -116,6 +117,7 @@ private:
     uint8_t mLogListReference;
     uint8_t mDataloggerStateReference;
     uint8_t mGetTimeReference;
+    uint8_t mGetBatteryReference;
     uint8_t mGetLoggingReference;
 
     // Data subscriptions
@@ -156,8 +158,8 @@ private:
     LogSub *getFreeLogSubSlot();
 
     // Buffer for outgoing data messages
+    // TODO check if this avoids fragmentation
     static constexpr size_t PAYLOAD_SIZE = MTU - 3;
-    static constexpr size_t MAX_DATA_SIZE = PAYLOAD_SIZE - 8;
     uint8_t mDataMsgBuffer[PAYLOAD_SIZE];
 
     DataSub *findDataSub(const wb::ResourceId resourceId);

@@ -76,8 +76,8 @@ bool stopRTCTimer()
     }
 
     ext_val &= ~(1 << 4); // Clear the countdown enable bit (bit 4)
-    // ext_val |= 0b11;      // Set the countdown timer frequency bits to 11 (1/60 Hz)
-    ext_val &= 0x00;
+    ext_val |= 0b11;      // Set the countdown timer frequency bits to 11 (1/60 Hz)
+    // ext_val &= 0x00; // For debug only, set frequency to 1 Hz
     ext_val |= 0b10; // Set the countdown timer frequency bits to 10
 
     rc = i2c_master_transmit(rv8803_handle, (uint8_t[]){EXT_REG_ADDR, ext_val}, 2, I2C_TIMEOUT_MS);
@@ -104,7 +104,7 @@ bool stopRTCTimer()
     return true;
 }
 
-bool startRTCTimer()
+bool startRTCTimer(uint16_t timerMin)
 {
     if (!stopRTCTimer())
     {
@@ -114,8 +114,8 @@ bool startRTCTimer()
 
     esp_err_t rc;
 
-    uint8_t ctrl1_val = config.fetchIntervalMin & 0xFF;        // Use the lower byte of the fetch interval
-    uint8_t ctrl2_val = (config.fetchIntervalMin >> 8) & 0x0F; // Use the upper half-byte of the fetch interval
+    uint8_t ctrl1_val = timerMin & 0xFF;        // Use the lower byte of the fetch interval
+    uint8_t ctrl2_val = (timerMin >> 8) & 0x0F; // Use the upper half-byte of the fetch interval
 
     rc = i2c_master_transmit(rv8803_handle, (uint8_t[]){CT_CTRL_REG_ADDR, ctrl1_val, ctrl2_val}, 3, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
@@ -178,7 +178,7 @@ uint32_t getUNIXTime()
         .tm_year = bcd_to_dec(raw_data[6]) + 100,
     };
 
-    ESP_LOGI("getUNIXTime", "RTC time read: %02d:%02d:%02d %02d/%02d/%04d",
+    ESP_LOGD("getUNIXTime", "RTC time read: %02d:%02d:%02d %02d/%02d/%04d",
              t.tm_hour, t.tm_min, t.tm_sec, t.tm_mday, t.tm_mon + 1, t.tm_year + 1900);
 
     time_t now = mktime(&t);
@@ -260,4 +260,24 @@ bool timerIsOver()
 
     // Check if the countdown flag is set (bit 4)
     return flag_val & (1 << 4);
+}
+
+uint16_t getFetchDelayMin()
+{
+    uint32_t currentEpoch = getUNIXTime();
+    if (currentEpoch == 0)
+    {
+        logError("getFetchDelayMin", "Failed to get current time");
+        errorReset(COLOR_RTC);
+        return 1;
+    }
+    uint32_t lastFetchDelayMin = (currentEpoch - record.lastFetch) / 60;
+    if (lastFetchDelayMin > config.fetchIntervalMin)
+    {
+        lastFetchDelayMin = config.fetchIntervalMin - 1;
+    }
+
+    uint16_t fetchDelayMin = config.fetchIntervalMin - lastFetchDelayMin;
+
+    return fetchDelayMin;
 }

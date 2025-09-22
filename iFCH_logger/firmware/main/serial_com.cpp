@@ -92,6 +92,12 @@ void sendCMD(CmdType type)
     sendFrame(type, nullptr, 0);
 }
 
+void sendERR(CmdType type)
+{
+    uint8_t cmd = static_cast<uint8_t>(type);
+    sendFrame(CmdType::CMD_ERROR, &cmd, 1);
+}
+
 bool isSerialConnected()
 {
     // Check if the USB serial driver is installed and connected

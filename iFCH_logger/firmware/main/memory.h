@@ -6,6 +6,7 @@
 #define MOUNT_POINT "/sdcard"
 #define CONFIG_FILE MOUNT_POINT "/config.jsn"
 #define RECORD_FILE MOUNT_POINT "/record.jsn"
+#define LOG_FILE MOUNT_POINT "/log.txt"
 
 #ifdef CONFIG_IDF_TARGET_ESP32S3
 #define SD_CMD_PIN (gpio_num_t)34
@@ -27,9 +28,13 @@
 #endif // CONFIG_IDF_TARGET
 
 #define JSON_BUFFER_SIZE 512
+#define SD_WRITE_BUFFER 4096
 
 // Send a file over the serial port
 bool sendFile(std::string filename);
+
+// Send a folder over the serial port
+bool sendDir(std::string folderName);
 
 // Receive a file over the serial port
 std::string receiveFile(std::string filename);
@@ -37,14 +42,17 @@ std::string receiveFile(std::string filename);
 // Setup the SD card and mount it
 void setupSDCard();
 
+// Setup NVS flash storage
+void setupFlash();
+
 // Load the JSON configuration file
 bool loadJsonConfig();
 
-// Load the JSON record file
-bool loadJsonRecord();
+// Load the record state
+bool loadRecordState();
 
-// Save the record state to the JSON file
-bool saveJsonRecord();
+// Save the record state
+bool saveRecordState();
 
 // Check if a file or directory exists
 bool exists(std::string path);
@@ -61,7 +69,16 @@ bool rremove(std::string path);
 // Move a file
 bool move(std::string oldName, std::string newName);
 
+// Delete all files on the SD card
+bool wipeSD();
+
 // Get the available space on the SD card in kiB
 uint32_t getFreeSpace();
+
+// List the saved logs on the SD card
+bool listLogs();
+
+// Write a message to the log file
+void writeToLogFile(const char *tag, const char *message);
 
 #endif // MEMORY_H

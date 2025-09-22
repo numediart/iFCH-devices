@@ -1,6 +1,7 @@
 #include "ble_com.h"
 #include "utils.h"
 #include "serial_com.h"
+#include "memory.h"
 
 #include <nvs_flash.h>
 
@@ -22,11 +23,12 @@ volatile bool isMovesenseConnected = false;
 
 static uint16_t movesense_handle;
 
-static uint16_t bat_char_handle;
 static uint16_t command_char_handle;
 static uint16_t data_char_handle;
 static uint16_t response_char_handle;
 static uint16_t log_char_handle;
+
+uint8_t sbemBuffer[SD_WRITE_BUFFER]; // Buffer for writing data to file
 
 #define REF_OFFSET_COMMAND 10
 
@@ -46,6 +48,7 @@ enum Commands
     RESET = 11,
     UNSUBSCRIBE_ALL = 12,
     GET_LOGGING_STATUS = 13,
+    GET_BATTERY = 14,
 };
 
 enum Responses
@@ -78,7 +81,7 @@ enum Codes
 std::string
 addr_to_str(const void *addr)
 {
-    char buf[6 * 2 + 5 + 1];
+    char buf[6 * 2 + 5 + 1] = {0};
     const uint8_t *u8p;
 
     u8p = (uint8_t *)addr;
@@ -132,14 +135,6 @@ static int disc_chr_cb(uint16_t conn_handle,
             log_char_handle = chr->val_handle;
             *registered += 1;
             ESP_LOGI("disc_chr_cb", "Discovered log characteristic");
-        }
-        else if (ble_uuid_cmp(
-                     (ble_uuid_t *)&chr->uuid.u,
-                     (ble_uuid_t *)&bat_chr_uuid) == 0)
-        {
-            bat_char_handle = chr->val_handle;
-            *registered += 1;
-            ESP_LOGI("disc_chr_cb", "Discovered battery characteristic");
         }
     }
 
@@ -281,28 +276,11 @@ static bool unsubscribeCharacteristic(uint16_t char_handle)
     return true;
 }
 
-// Register the characteristics for the battery service and ifch service
+// Register the characteristics for the ifch service
 static int registerCharacteristics()
 {
     uint8_t registered = 0;
-
-    // Discover the battery service
-    esp_err_t rc = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&bat_svc_uuid, disc_svc_cb, &registered);
-    if (rc != ESP_OK)
-    {
-        logError("registerCharacteristics", "Failed to discover battery service: %d", rc);
-        return rc;
-    }
-
-    // Wait for the characteristics to be registered
-    if (bleConnectSemaphore != NULL)
-    {
-        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
-        {
-            logError("registerCharacteristics", "Battery registration timed out");
-            return BLE_HS_ETIMEOUT;
-        }
-    }
+    esp_err_t rc;
 
     // Discover the ifch service
     rc = ble_gattc_disc_svc_by_uuid(movesense_handle, (ble_uuid_t *)&ifch_svc_uuid, disc_svc_cb, &registered);
@@ -331,6 +309,7 @@ static int registerCharacteristics()
     return 0;
 }
 
+// Write a Movesense command without waiting for a response
 bool writeMovesenseCommandNowait(uint8_t command, uint8_t reference, uint8_t *data, uint8_t length)
 {
     const uint8_t payload_length = 2 + length; // 2 bytes for command and reference, plus data length
@@ -339,71 +318,75 @@ bool writeMovesenseCommandNowait(uint8_t command, uint8_t reference, uint8_t *da
     payload[1] = reference;            // Reference byte
     memcpy(payload + 2, data, length); // Copy the data
 
+    // Initiate the GATT write operation
     esp_err_t rc = ble_gattc_write_flat(movesense_handle, command_char_handle,
                                         payload, payload_length, gatt_write_cb, NULL);
     if (rc != 0)
     {
-        logError("writeMovesenseCommand", "Failed to initiate GATT write; rc=%d", rc);
+        logError("writeMovesenseCommandNowait", "Failed to initiate GATT write; rc=%d", rc);
         return false;
+    }
+
+    // Wait for the GATT write to complete
+    if (bleGattSemaphore != NULL)
+    {
+        if (xSemaphoreTake(bleGattSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
+        {
+            logError("writeMovesenseCommandNowait", "GATT write timed out");
+            return false;
+        }
     }
 
     return true;
 }
 
-bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, uint8_t length, uint8_t *response_data = NULL, uint8_t *response_length = NULL)
+bool waitForMovesenseResponse(uint8_t reference, uint8_t *response_data = NULL, uint8_t *response_length = NULL, uint16_t timeout_ms = BLE_TIMEOUT)
 {
-
-    bool success = writeMovesenseCommandNowait(command, reference, data, length);
-    if (!success)
-    {
-        return false;
-    }
-
-    uint32_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(BLE_TIMEOUT);
-
-    if (bleGattSemaphore != NULL)
-    {
-        if (xSemaphoreTake(bleGattSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
-        {
-            logError("writeMovesenseCommand", "GATT write timed out");
-            return false;
-        }
-    }
-
+    // Compute the deadline for the timeout
+    uint32_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
     uint32_t current_tick;
 
+    // Wait for the response from the Movesense device
     do
     {
+        // Compute the remaining ticks until the deadline
         current_tick = xTaskGetTickCount();
         uint32_t remaining_ticks = deadline - current_tick;
 
+        // Avoid overflow
         if (current_tick >= deadline)
         {
             remaining_ticks = 0;
         }
 
+        // Wait for a response notification from the queue
         uint8_t responseNotif[NOTIF_LEN];
         if (xQueueReceive(responseQueue, responseNotif, remaining_ticks) == pdTRUE)
         {
             uint8_t len = responseNotif[0];
+
+            // Check if the response length is valid, ignore if not
             if (len < 4)
             {
-                logError("writeMovesenseCommand", "Invalid response length: %d", len);
+                logError("waitForMovesenseResponse", "Invalid response length: %d", len);
             }
+
+            // Check if the header matches the expected format and process it
             else if (responseNotif[1] == Responses::COMMAND_RESULT && responseNotif[2] == reference)
             {
                 uint8_t status = responseNotif[3];
-                ESP_LOGI("writeMovesenseCommand", "Command response received: Type %d, Reference %d, Status %d, Code 0x%02x",
+                ESP_LOGI("waitForMovesenseResponse", "Command response received: Type %d, Reference %d, Status %d, Code 0x%02x",
                          responseNotif[1], responseNotif[2], status, responseNotif[4]);
 
+                // The response contains data
                 if (len > 4)
                 {
-                    ESP_LOGI("writeMovesenseCommand", "Additional data of length %d", len - 4);
+                    ESP_LOGI("waitForMovesenseResponse", "Additional data of length %d", len - 4);
 
                     // Copy the response data if provided
                     if (response_data == NULL || response_length == NULL || *response_length < len - 4)
                     {
-                        logError("writeMovesenseCommand", "Response buffer too small: %d bytes received", len - 4);
+                        logError("waitForMovesenseResponse", "Response buffer too small: %d bytes received", len - 4);
                         return false;
                     }
                     else
@@ -412,13 +395,18 @@ bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, ui
                         memcpy(response_data, responseNotif + 5, *response_length);
                     }
                 }
+
+                // No additional data
                 else if (response_length != NULL)
                 {
-                    response_length = 0; // No additional data
+                    response_length = 0;
                 }
 
+                // Return true if the response was successful
                 return status == Status::SUCCESS;
             }
+
+            // Incorrect response, ignore
             else
             {
                 logError("writeMovesenseCommand", "Unexpected response: Type %d, Reference %d -- Expected %d, %d", responseNotif[1], responseNotif[2], Responses::COMMAND_RESULT, reference);
@@ -426,7 +414,7 @@ bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, ui
         }
         else
         {
-            break;
+            break; // No response received, exit the loop
         }
 
     } while (current_tick < deadline);
@@ -435,45 +423,18 @@ bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, ui
     return false;
 }
 
-// Callback for GATT read operation, extracts a uint8_t from the response
-static int gatt_read_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
-                        struct ble_gatt_attr *attr, void *arg)
+// Write a Movesense command and wait for the corresponding response
+bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, uint8_t length, uint8_t *response_data = NULL, uint8_t *response_length = NULL, uint16_t timeout_ms = BLE_TIMEOUT)
 {
-
-    if (error != NULL && error->status != 0)
+    // Write the Movesense command
+    bool success = writeMovesenseCommandNowait(command, reference, data, length);
+    if (!success)
     {
-        logError("gatt_read_cb", "Read failed; status=%d", error->status);
-    }
-    else if (attr != NULL && attr->om != NULL)
-    {
-        if (OS_MBUF_PKTLEN(attr->om) == 1)
-        {
-            // Pull up the response to get a uint8_t
-            os_mbuf *data = os_mbuf_pullup(attr->om, 1);
-
-            if (data == NULL)
-            {
-                logError("gatt_read_cb", "Failed to pull up uint8_t");
-            }
-            else
-            {
-                uint8_t *pResponse = (uint8_t *)arg;
-                *pResponse = *OS_MBUF_DATA(data, uint8_t *);
-                ESP_LOGI("gatt_read_cb", "Read uint8_t: %d", *pResponse);
-
-                if (bleGattSemaphore != NULL)
-                {
-                    xSemaphoreGive(bleGattSemaphore);
-                }
-            }
-        }
-        else
-        {
-            logError("gatt_read_cb", "Invalid read response for uint8_t");
-        }
+        return false;
     }
 
-    return 0;
+    // Wait for the Movesense response
+    return waitForMovesenseResponse(reference, response_data, response_length, timeout_ms);
 }
 
 // Callback for GAP events
@@ -504,12 +465,6 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
 
             logError("BLE_GAP_EVENT_CONNECT", "Error: Connection failed; status=%d",
                      event->connect.status);
-        }
-
-        // Signal that connection procedure is over
-        if (bleConnectSemaphore != NULL)
-        {
-            xSemaphoreGive(bleConnectSemaphore);
         }
 
         return 0;
@@ -559,7 +514,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_NOTIFY_RX:
     { /* Peer sent us a notification or indication. */
-        ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "received %s; conn_handle=%d attr_handle=%d "
+        ESP_LOGD("BLE_GAP_EVENT_NOTIFY_RX", "received %s; conn_handle=%d attr_handle=%d "
                                             "attr_len=%d",
                  event->notify_rx.indication ? "indication" : "notification",
                  event->notify_rx.conn_handle,
@@ -575,45 +530,43 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             return BLE_HS_EBADDATA;
         }
 
-        blink(COLOR_BLE, 1, 10); // TODO make this asynchronous or remove
-
         uint8_t rxNotify[NOTIF_LEN];
         rxNotify[0] = len; // First byte is the length of the notification
         os_mbuf_copydata(event->notify_rx.om, 0, len, rxNotify + 1);
 
         if (event->notify_rx.attr_handle == response_char_handle)
         {
-            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received response notification");
+            ESP_LOGD("BLE_GAP_EVENT_NOTIFY_RX", "Received response notification");
             BaseType_t result = xQueueSendToBack(responseQueue, rxNotify, 0);
             if (result == pdFALSE)
             {
                 logError("BLE_GAP_EVENT_NOTIFY_RX", "Queue send failed for responseQueue, data lost (queue full?)");
-                blink(COLOR_RUNTIME_ERROR, 2, 10); // TODO make this asynchronous or remove
+                blink(COLOR_RUNTIME_ERROR, 1, 1);
             }
         }
         else if (event->notify_rx.attr_handle == data_char_handle)
         {
-            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received data notification");
+            ESP_LOGD("BLE_GAP_EVENT_NOTIFY_RX", "Received data notification");
             BaseType_t result = xQueueSendToBack(dataQueue, rxNotify, 0);
             if (result == pdFALSE)
             {
                 logError("BLE_GAP_EVENT_NOTIFY_RX", "Queue send failed for dataQueue, data lost (queue full?)");
-                blink(COLOR_RUNTIME_ERROR, 2, 10); // TODO make this asynchronous or remove
+                blink(COLOR_RUNTIME_ERROR, 1, 1);
             }
         }
         else if (event->notify_rx.attr_handle == log_char_handle)
         {
-            ESP_LOGI("BLE_GAP_EVENT_NOTIFY_RX", "Received log notification");
+            ESP_LOGD("BLE_GAP_EVENT_NOTIFY_RX", "Received log notification");
             BaseType_t result = xQueueSendToBack(logQueue, rxNotify, 0);
             if (result == pdFALSE)
             {
                 logError("BLE_GAP_EVENT_NOTIFY_RX", "Queue send failed for logQueue, data lost (queue full?)");
-                blink(COLOR_RUNTIME_ERROR, 2, 10); // TODO make this asynchronous or remove
+                blink(COLOR_RUNTIME_ERROR, 1, 1);
             }
         }
         else
         {
-            ESP_LOGE("BLE_GAP_EVENT_NOTIFY_RX", "Received notification on unknown handle: %d",
+            logError("BLE_GAP_EVENT_NOTIFY_RX", "Received notification on unknown handle: %d",
                      event->notify_rx.attr_handle);
             return BLE_HS_EBADDATA;
         }
@@ -707,7 +660,6 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
 
     // Physical link establishment event
     // In very noisy environments the connection may succeed but the link establishment fails
-    // TODO should we give the semaphore here instead?
     case BLE_GAP_EVENT_LINK_ESTAB:
     {
         if (event->link_estab.status != 0)
@@ -720,6 +672,13 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
         {
             ESP_LOGI("BLE_GAP_EVENT_LINK_ESTAB", "Link established");
         }
+
+        // Signal that connection procedure is over
+        if (bleConnectSemaphore != NULL)
+        {
+            xSemaphoreGive(bleConnectSemaphore);
+        }
+
         return 0;
     }
 
@@ -931,7 +890,7 @@ bool connectMovesense()
     {
         logError("connectMovesense", "Error: Failed to connect to device; addr_type=%d "
                                      "addr=%s; rc=%d\n",
-                 peer_addr.type, addr_to_str(peer_addr.val), rc);
+                 peer_addr.type, config.address.c_str(), rc);
         return false;
     }
 
@@ -940,12 +899,19 @@ bool connectMovesense()
     // Wait for the connection to be established
     if (bleConnectSemaphore != NULL)
     {
-        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(2 * BLE_CONNECT_TIMEOUT)) != pdTRUE)
+        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(BLE_CONNECT_TIMEOUT + BLE_TIMEOUT)) != pdTRUE)
         {
             logError("connectMovesense", "Connection timed out");
             return false;
         }
+        else if (!isMovesenseConnected)
+        {
+            logError("connectMovesense", "Warning: Failed to connect to device; addr=%s", config.address.c_str());
+            return false;
+        }
     }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY)); // Give some time for the connection to stabilize
 
     ESP_LOGI("connectMovesense", "Registering characteristics...");
 
@@ -959,6 +925,8 @@ bool connectMovesense()
         return false;
     }
 
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
     // Subscribe to the response characteristic
     ESP_LOGI("connectMovesense", "Subscribing to response characteristic...");
     if (!subscribeCharacteristic(response_char_handle, true))
@@ -968,7 +936,7 @@ bool connectMovesense()
         return false;
     }
 
-    ESP_LOGI("connectMovesense", "Connected to Movesense");
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Subscribe to the log characteristic
     ESP_LOGI("connectMovesense", "Subscribing to log characteristic...");
@@ -984,39 +952,57 @@ bool connectMovesense()
     return isMovesenseConnected;
 }
 
-void disconnectMovesense()
+bool disconnectMovesense()
 {
     int rc = ble_gap_terminate(movesense_handle, BLE_ERR_REM_USER_CONN_TERM);
-    if (rc != 0)
+    if (rc == 7)
+    {
+        // BLE_ERR_REM_USER_CONN_TERM is 7, which means the Movesense device is already disconnected
+        if (isMovesenseConnected)
+        {
+            logError("disconnectMovesense", "Warning: Movesense was already disconnected but isMovesenseConnected was true");
+            isMovesenseConnected = false;
+        }
+        else
+        {
+            ESP_LOGI("disconnectMovesense", "Movesense already disconnected");
+        }
+        return true;
+    }
+    else if (rc != 0)
     {
         logError("disconnectMovesense", "Error: Failed to disconnect; rc=%d\n", rc);
+        return false;
     }
     else
     {
         ESP_LOGI("disconnectMovesense", "Disconnected from Movesense");
+        return true;
     }
 }
 
 bool getMovesenseBattery(uint8_t &batteryLevel)
 {
+    uint8_t responseBuffer[1];
+    uint8_t responseLength = sizeof(responseBuffer);
 
-    int rc = ble_gattc_read(movesense_handle, bat_char_handle, gatt_read_cb, &batteryLevel);
-    if (rc != 0)
+    bool success = writeMovesenseCommand(Commands::GET_BATTERY, Commands::GET_BATTERY + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength, BLE_CONNECT_TIMEOUT);
+
+    if (!success)
     {
-        logError("getMovesenseBattery", "Error initiating GATT read; rc=%d", rc);
+        logError("getMovesenseBattery", "Failed to send get battery command");
+        return false;
     }
 
-    if (bleGattSemaphore != NULL)
+    if (responseLength != 1)
     {
-        if (xSemaphoreTake(bleGattSemaphore, pdMS_TO_TICKS(BLE_TIMEOUT)) != pdTRUE)
-        {
-            logError("getMovesenseBattery", "GATT read timed out");
-            return false;
-        }
+        logError("getMovesenseBattery", "Unexpected response length: %d", responseLength);
+        return false;
     }
 
-    ESP_LOGI("getMovesenseBattery", "Battery level read");
-    ESP_LOGI("getMovesenseBattery", "Battery level: %d%%", batteryLevel);
+    batteryLevel = responseBuffer[0];
+
+    ESP_LOGI("getMovesenseBattery", "Battery level: %u%%", batteryLevel);
     return true;
 }
 
@@ -1115,6 +1101,8 @@ bool movSubscribe()
             logError("movSubscribe", "Failed to send subscribe command for path: %s", path.c_str());
             return false;
         }
+
+        vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
     }
 
     bool success = subscribeCharacteristic(data_char_handle, false);
@@ -1158,6 +1146,8 @@ bool movSubLogs()
             logError("movSubLogs", "Failed to send log subscribe command for path: %s", path.c_str());
             return false;
         }
+
+        vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
     }
 
     return true;
@@ -1242,4 +1232,232 @@ bool movListLogs(std::vector<uint32_t> &logIds)
     ESP_LOGI("movListLogs", "Received %d log IDs", logIds.size());
 
     return true;
+}
+
+bool _movFetchLog(FILE *f, uint32_t logId)
+{
+    uint8_t fetchReference = Commands::FETCH_LOG + REF_OFFSET_COMMAND;
+    uint8_t logIdBytes[] = {
+        static_cast<uint8_t>(logId & 0xFF),
+        static_cast<uint8_t>((logId >> 8) & 0xFF),
+        static_cast<uint8_t>((logId >> 16) & 0xFF),
+        static_cast<uint8_t>((logId >> 24) & 0xFF)};
+
+    // Send the fetch log command, we will wait for the answer at the end
+    bool success = writeMovesenseCommandNowait(Commands::FETCH_LOG, fetchReference, logIdBytes, sizeof(logIdBytes));
+    if (!success)
+    {
+        logError("_movFetchLog", "Failed to send fetch log command for log ID: %" PRId32, logId);
+        return false;
+    }
+
+    // Start receiving the log data
+    uint32_t deadline;
+    uint32_t current_tick;
+    uint32_t receivedAmount = 0;
+    bool complete = false;
+
+    size_t bufferLen = 0; // Current length of data in the buffer
+    uint32_t bufferOffset = 0;
+
+    // Define the timeout deadline for the next message
+    deadline = xTaskGetTickCount() + pdMS_TO_TICKS(BLE_TIMEOUT);
+
+    do
+    {
+        // Calculate the remaining ticks until the deadline
+        current_tick = xTaskGetTickCount();
+        uint32_t remaining_ticks = deadline - current_tick;
+
+        // Avoid overflow
+        if (current_tick >= deadline)
+        {
+            remaining_ticks = 0;
+        }
+
+        // Wait for the next log notification
+        uint8_t logNotif[NOTIF_LEN];
+        if (xQueueReceive(logQueue, logNotif, remaining_ticks) == pdTRUE)
+        {
+            uint8_t len = logNotif[0];
+
+            // Message too short, ignore
+            if (len < 6)
+            {
+                logError("_movFetchLog", "Invalid log response length: %d", len);
+            }
+
+            // Correct header, process
+            else if ((logNotif[1] == Responses::DATA || logNotif[1] == Responses::DATA_PART2) && logNotif[2] == fetchReference)
+            {
+                receivedAmount++;
+
+                // Read the offset: 4 first bytes, little endian
+                uint32_t offset = (logNotif[6] << 24) | (logNotif[5] << 16) |
+                                  (logNotif[4] << 8) | logNotif[3];
+
+                // Compute the length of the data
+                size_t dataLength = len - 6; // 6 bytes are the payload header
+
+                if (dataLength == 0)
+                {
+                    // No data -> last part of the log
+                    // Exit the loop
+
+                    // Write the buffer if not empty
+                    if (bufferLen > 0)
+                    {
+                        size_t written = fwrite(sbemBuffer, 1, bufferLen, f);
+                        if (written != bufferLen)
+                        {
+                            logError("_movFetchLog", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
+                            errorReset(COLOR_SD);
+                            return false;
+                        }
+                    }
+
+                    complete = true;
+                    break;
+                }
+
+                bool sequentialWrite = (offset == bufferOffset + bufferLen);
+
+                // If not sequential write, flush the buffer to file
+                // Then create a new buffer at the correct offset
+                if (!sequentialWrite)
+                {
+                    logError("_movFetchLog", "Non-sequential log data received. Expected offset %d, got %d. Flushing buffer.", bufferOffset + bufferLen, offset);
+
+                    size_t written = fwrite(sbemBuffer, 1, bufferLen, f);
+
+                    if (written != bufferLen)
+                    {
+                        logError("_movFetchLog", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
+                        errorReset(COLOR_SD);
+                        return false;
+                    }
+
+                    bufferLen = 0;
+
+                    // Seek to the new offset in the file
+                    int ret = fseek(f, offset, SEEK_SET);
+                    if (ret != 0)
+                    {
+                        logError("_movFetchLog", "Failed to seek to offset %lu in file: %d", offset, ret);
+                        errorReset(COLOR_SD);
+                        return false;
+                    }
+
+                    // Align the buffer offset to the new location
+                    bufferOffset = offset;
+                }
+
+                // Compute the free space left in the buffer
+                size_t spaceLeft = SD_WRITE_BUFFER - bufferLen;
+                size_t toCopy = (dataLength < spaceLeft) ? dataLength : spaceLeft;
+
+                // Start reading at 7 because the firt bytes are the length and the header
+                memcpy(sbemBuffer + bufferLen, logNotif + 7, toCopy);
+                bufferLen += toCopy;
+
+                // If the buffer is full, write it to the file immediately
+                if (bufferLen == SD_WRITE_BUFFER)
+                {
+                    size_t written = fwrite(sbemBuffer, 1, bufferLen, f);
+
+                    if (written != bufferLen)
+                    {
+                        logError("_movFetchLog", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
+                        errorReset(COLOR_SD);
+                        return false;
+                    }
+
+                    bufferOffset += bufferLen;
+                    bufferLen = 0;
+
+                    // If there is still remaining data, copy it to the buffer
+                    if (toCopy < dataLength)
+                    {
+                        size_t remaining = dataLength - toCopy;
+
+                        memcpy(sbemBuffer, logNotif + 7 + toCopy, remaining);
+                        bufferLen += remaining;
+                    }
+                }
+
+                // We will now wait for the next part of the log
+                // Reset the deadline for the next part
+                deadline = current_tick + pdMS_TO_TICKS(BLE_TIMEOUT);
+            }
+
+            // Unexpected log response, ignore
+            else
+            {
+                logError("_movFetchLog", "Unexpected log response: Type %d, Reference %d -- Expected !%d, %d", logNotif[1], logNotif[2], Responses::COMMAND_RESULT, fetchReference);
+            }
+        }
+        else
+        {
+            // No response received, exit the loop for timeout
+            break;
+        }
+    } while (current_tick < deadline);
+
+    if (!complete)
+    {
+        logError("_movFetchLog", "Log response timed out");
+        return false;
+    }
+
+    // The transmission is complete, the Movesense should now send a final response
+    uint8_t responseBuffer[4];
+    uint8_t responseLength = sizeof(responseBuffer);
+
+    success = waitForMovesenseResponse(fetchReference, responseBuffer, &responseLength);
+    if (!success || responseLength != 4)
+    {
+        logError("_movFetchLog", "Failed to wait for final response after fetching log");
+        return false;
+    }
+
+    uint32_t sentAmount = (responseBuffer[3] << 24) | (responseBuffer[2] << 16) |
+                          (responseBuffer[1] << 8) | responseBuffer[0];
+
+    if (receivedAmount != sentAmount)
+    {
+        logError("_movFetchLog", "Received amount of log data (%d) does not match sent amount (%d)", receivedAmount, sentAmount);
+        return false;
+    }
+
+    ESP_LOGI("_movFetchLog", "Successfully fetched log ID: %" PRId32 ", %" PRId32 " chunks", logId, receivedAmount);
+    return true;
+}
+
+bool movFetchLog(std::string filename, uint32_t logId)
+{
+    // Open the file for writing
+    FILE *f = fopen(filename.c_str(), "w");
+    if (f == NULL)
+    {
+        logError("movFetchLog", "Failed to open file for writing: %s", filename.c_str());
+        errorReset(COLOR_SD);
+        return false;
+    }
+
+    bool success = _movFetchLog(f, logId);
+
+    // Close the file
+    if (f != NULL)
+    {
+        fflush(f);
+        fclose(f);
+    }
+
+    // If the fetch was not successful, remove the written file
+    if (!success)
+    {
+        rremove(filename);
+    }
+
+    return success;
 }

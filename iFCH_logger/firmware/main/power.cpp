@@ -97,35 +97,17 @@ float getBattery()
     return batteryLevel;
 }
 
-void enterHibernation(bool waketimer)
+void enterHibernation(uint16_t wakeDelayMin)
 {
     ESP_LOGI("enterHibernation", "Preparing to enter hibernation");
-    // Save the current state of the record to SD card
-    saveJsonRecord();
 
-    blink(COLOR_POWER, 1, 300); // Blink blue to indicate hibernation
+    shutdownBlinkTask(SHUTDOWN_TIMEOUT_MS);
 
     esp_err_t result;
 
-    if (waketimer)
+    if (wakeDelayMin)
     {
-
-        // Compute time since last data fetch
-        uint32_t currentEpoch = getUNIXTime();
-        if (currentEpoch == 0)
-        {
-            logError("enterHibernation", "Failed to get current time");
-            errorReset(COLOR_RTC);
-            return;
-        }
-        uint32_t lastFetchDelayMin = (currentEpoch - record.lastFetch) / 60;
-        if (lastFetchDelayMin > config.fetchIntervalMin)
-        {
-            lastFetchDelayMin = config.fetchIntervalMin - 1;
-        }
-        uint16_t waketimer_minutes = config.fetchIntervalMin - lastFetchDelayMin;
-
-        result = esp_sleep_enable_timer_wakeup((uint64_t)60000000 * waketimer_minutes);
+        result = esp_sleep_enable_timer_wakeup((uint64_t)60000000 * (uint64_t)wakeDelayMin);
         if (result != ESP_OK)
         {
             logError("enterHibernation", "Failed to set waketimer");
@@ -145,6 +127,8 @@ void enterHibernation(bool waketimer)
     }
 
     ESP_LOGI("enterHibernation", "Entering hibernation");
+
+    shutdownLogTask(SHUTDOWN_TIMEOUT_MS);
 
     // Enter hibernation
     esp_deep_sleep_start();

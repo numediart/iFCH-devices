@@ -24,6 +24,8 @@ enum class CmdType : uint8_t
     CMD_ERROR = 0x04,
     CMD_STATUS = 0x05,
     CMD_GET_FREE_SPACE = 0x06,
+    CMD_RESET_STATE = 0x07,
+    CMD_GET_RECORD_ID = 0x08,
     // BLE
     CMD_SCAN = 0x11,
     CMD_CONNECT = 0x12,
@@ -34,6 +36,12 @@ enum class CmdType : uint8_t
     CMD_FILE_CHUNK = 0x20,
     CMD_CONFIG_GET = 0x21,
     CMD_CONFIG_PUT = 0x22,
+    CMD_LIST_LOG = 0x23,
+    CMD_GET_LOG = 0x24,
+    CMD_DIR_CHUNK = 0x25,
+    CMD_ARCHIVE_LOG = 0x26,
+    CMD_GET_ERROR_LOG = 0x27,
+    CMD_DELETE_ERROR_LOG = 0x28,
     // Peripherals
     CMD_TIME_GET = 0x31,
     CMD_TIME_PUT = 0x32,
@@ -45,7 +53,7 @@ enum class CmdType : uint8_t
     CMD_MOV_LOG_START = 0x44,
     CMD_MOV_LOG_END = 0x45,
     CMD_MOV_GET_LOGGING_STATUS = 0x46,
-    CMD_MOV_FULL_RESET = 0x48,
+    CMD_MOV_FULL_RESET = 0x47,
     // Errors
     CMD_TIMEOUT = 0xFE,
     CMD_INVALID = 0xFF,
@@ -72,6 +80,9 @@ void sendFrame(CmdType cmd, uint8_t *payload, uint16_t len);
 // Send a command to the serial port
 // This is a wrapper for sendFrame with no payload
 void sendCMD(CmdType type);
+
+// Send an error for a specific command type
+void sendERR(CmdType type);
 
 // Check if the serial port is connected
 bool isSerialConnected();

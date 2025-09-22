@@ -23,7 +23,8 @@ def decode_stream(data, references: dict):
             )
 
         data_type = references[reference].decode()
-        data_type = "/".join(data_type.split("/")[:-1])
+        data_split = data_type.split("/")
+        data_type = "/".join(data_split[:3])
 
         data_type = DataTypes(data_type)
 
@@ -34,14 +35,20 @@ def decode_stream(data, references: dict):
 
             timestamp = int.from_bytes(packet[2:6], byteorder="little")
 
-            ecg_data = [
-                struct.unpack("<i", packet[i : i + 4])[0] * 0.38147e-6
-                for i in range(6, len(packet), 4)
-            ]
+            if data_split[-1] == "mV":
+                ecg_data = [
+                    struct.unpack("<f", packet[i : i + 4])[0]
+                    for i in range(6, len(packet), 4)
+                ]
+            else:
+                ecg_data = [
+                    struct.unpack("<i", packet[i : i + 4])[0] * 0.38147e-6
+                    for i in range(6, len(packet), 4)
+                ]
 
             print(f"ECG stream: {timestamp}, {ecg_data}")
 
-        if data_type == DataTypes.ACC:
+        elif data_type == DataTypes.ACC:
             if packet_type != Responses.DATA:
                 logging.error(f"Invalid packet type for {data_type}: {packet_type}")
                 continue
@@ -110,6 +117,8 @@ class Commands(enum.Enum):
     GET_TIME = 10
     RESET = 11
     UNSUBSCRIBE_ALL = 12
+    GET_LOGGING_STATE = 13
+    GET_BATTERY = 14
     INVALID = 0xFF
 
 
@@ -132,11 +141,12 @@ class MovesenseController:
     DATA_CHAR_UUID = "34800002-7185-4d5d-b431-630e7050e8f0"
     RESPONSE_CHAR_UUID = "34800003-7185-4d5d-b431-630e7050e8f0"
     LOG_CHAR_UUID = "34800004-7185-4d5d-b431-630e7050e8f0"
-    BATTERY_CHAR_UUID = "00002a19-0000-1000-8000-00805f9b34fb"
 
     ECG_128 = bytearray("/Meas/ECG/128", "utf-8")
+    ECG_200 = bytearray("/Meas/ECG/200", "utf-8")
+    ECG_128_mV = bytearray("/Meas/ECG/128/mV", "utf-8")
     IMU_104 = bytearray("/Meas/IMU9/104", "utf-8")
-    ACC_13 = bytearray("/Meas/Acc/26", "utf-8")
+    ACC_13 = bytearray("/Meas/Acc/13", "utf-8")
 
     def __init__(self):
         self.command_responses = []
@@ -150,7 +160,7 @@ class MovesenseController:
         logging.debug("Notification: %s", data)
         self.data_responses.append(data)
         if self.printing:
-            logging.info(f"Dat Notif: {Responses(data[0])}:{data[1]}-{data[2:]}")
+            logging.debug(f"Dat Notif: {Responses(data[0])}:{data[1]}-{data[2:]}")
 
     def command_notification_handler(self, _, data):
         logging.debug("Notification: %s", data)
@@ -162,13 +172,14 @@ class MovesenseController:
         logging.debug("Notification: %s", data)
         self.log_responses.append(data)
         if self.printing:
-            logging.info(f"Log Notif: {Responses(data[0])}:{data[1]}-{data[2:]}")
+            logging.debug(f"Log Notif: {Responses(data[0])}:{data[1]}-{data[2:]}")
 
     async def send_command(
         self,
         command,
         client_ref=None,
         data=None,
+        wait=0.5,
     ):
         self.client_ref += 1
 
@@ -187,7 +198,7 @@ class MovesenseController:
 
         try:
             await self.client.write_gatt_char(self.COMMAND_CHAR_UUID, command_bytes)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(wait)
         except Exception as e:
             logging.error(f"Sending {command} failed: Exception {e}")
 
@@ -237,12 +248,13 @@ class MovesenseController:
             self.printing = False
 
     async def main(self):
-        try:
-            battery_level = await self.client.read_gatt_char(self.BATTERY_CHAR_UUID)
-            battery_percentage = int.from_bytes(battery_level, byteorder="little")
+        await self.send_command(Commands.GET_BATTERY, wait=3)
+        if not self.command_responses:
+            logging.error("No response for GET_BATTERY")
+            return
+        else:
+            battery_percentage = self.command_responses[-1][-1]
             logging.info(f"Battery Level: {battery_percentage}%")
-        except Exception as e:
-            logging.error(f"Failed to read battery level: {e}")
 
         host_time = time.time()
         await self.send_command(Commands.GET_TIME)
@@ -257,8 +269,8 @@ class MovesenseController:
 
         await self.send_command(Commands.RESET)
         await self.send_command(Commands.CLEAR_LOGS)
-        await self.send_command(Commands.SUB_LOG, client_ref=1, data=self.ECG_128)
-        await self.send_command(Commands.SUB_LOG, client_ref=2, data=self.IMU_104)
+        await self.send_command(Commands.SUB_LOG, client_ref=1, data=self.ECG_200)
+        await self.send_command(Commands.SUB_LOG, client_ref=2, data=self.ACC_13)
         await self.send_command(Commands.START_LOG)
         await asyncio.sleep(1)
         await self.send_command(Commands.STOP_LOG)
@@ -276,12 +288,14 @@ class MovesenseController:
 
         # await self.send_command(Commands.SUBSCRIBE, client_ref=1, data=self.ACC_13)
         await self.send_command(Commands.SUBSCRIBE, client_ref=1, data=self.ECG_128)
+        # await self.send_command(Commands.SUBSCRIBE, client_ref=1, data=self.ECG_128_mV)
 
         await asyncio.sleep(1)
 
         await self.send_command(Commands.UNSUBSCRIBE, client_ref=1)
 
         # decode_stream(self.data_responses, {1: self.ACC_13})
+        # decode_stream(self.data_responses, {1: self.ECG_128_mV})
         decode_stream(self.data_responses, {1: self.ECG_128})
 
         host_time = time.time()
