@@ -116,7 +116,6 @@ void fetchLogic()
 
         if (isMovesenseConnected)
         {
-            // TODO there should be some timeout here to avoid spamming serial? Or just silent error?
             logError("fetchStep", "Movesense already connected at fetch step start, aborting");
             return;
         }
@@ -834,7 +833,7 @@ void loop()
     // The clock interrupt is active, fetch data
     // Give some time after boot to let serial commands be processed first
     // Do not fetch if we reached the maximum number of connection failures
-    if (timerIsOver() && (getUNIXTime() - bootTime > BOOT_RTC_DELAY_S) && connectFailureCount < MAX_CONNECT_FAILURES)
+    if (!isMovesenseConnected && timerIsOver() && (getUNIXTime() - bootTime > BOOT_RTC_DELAY_S) && connectFailureCount < MAX_CONNECT_FAILURES)
     {
         ESP_LOGI("loop", "Clock interrupt active, fetching");
         fetchLogic();
