@@ -1229,6 +1229,9 @@ class Backend:
     async def stop_logging(self):
         await self.queue_command(CmdStopLogging())
 
+    async def force_stop_logging(self):
+        await self.queue_command(CmdForceStopLogging())
+
     async def save_record(self, form_data: dict):
         self.ui.update_info_status("Saving record", "Saving data to computer...")
         self.ui.update_ui_state(GUIState.INFO)
@@ -1450,16 +1453,18 @@ class CmdLogging:
         if not await back.svc.connect():
             logging.warning("Auto BLE connect failed")
 
-            # TODO get Movesense ID for error message
             config = await back.svc.get_config()
 
-            # TODO force end logging screen instead of disconnect
-            # TODO check why after this the movesense connects but iFCH returns an error
+            if config is None:
+                logging.warning("Failed to get config")
+                await back.show_error()
+                return
+
             back.ui.update_warning_status(
                 "Movesense not found",
-                "The associated Movesense device could not be found. Please ensure it is powered on and in range. Press 'CANCEL' to retry scanning.\n\nYou may force the end of the recording by pressing 'IGNORE', but any data left on the Movesense will be lost.",
+                f"The associated Movesense device ({config['MovesenseID']}) could not be found. Please ensure it is powered on and in range. Press 'CANCEL' to retry scanning.\n\nYou may force the end of the recording by pressing 'IGNORE', but any data left on the Movesense will be lost.",
                 ok_text="IGNORE",
-                ok_cb=back.disconnect,
+                ok_cb=back.force_stop_logging,
                 show_cancel=True,
             )
             back.ui.update_ui_state(GUIState.WARNING)
@@ -1547,8 +1552,8 @@ class CmdStreamDevice:
         )
         back.ui.update_ui_state(GUIState.INFO)
 
-        addr = self.device.split(";")[-1]
-        back.svc.set_address(addr)
+        parts = self.device.split(";")
+        back.svc.set_address(parts[-1], parts[0])
 
         if not await back.svc.put_config():
             logging.warning("Config PUT failed")
@@ -1609,7 +1614,7 @@ class CmdBatteryTick:
 
         status = await back.svc.get_status()
         if not status:
-            logging.error("Status check failed")
+            logging.warning("Status check failed")
             await back.show_error()
 
         if status["connected"]:
@@ -1643,7 +1648,7 @@ class CmdStartLogging:
 
         success = await back.svc.unsub_stream()
         if not success:
-            logging.error("Unsubscribe stream failed")
+            logging.warning("Unsubscribe stream failed")
             await back.show_error(
                 "Failed to start recording",
                 "Device will reset, please reconnect to try again",
@@ -1652,7 +1657,7 @@ class CmdStartLogging:
 
         success = await back.svc.start_movesense_logging()
         if not success:
-            logging.error("Start logging failed")
+            logging.warning("Start logging failed")
             await back.show_error(
                 "Failed to start recording",
                 "Device will reset, please reconnect to try again",
@@ -1697,7 +1702,46 @@ class CmdStopLogging:
 
         log_id = await back.svc.stop_movesense_logging()
         if log_id is None:
-            logging.error("Stop Movesense logging failed")
+            logging.warning("Stop Movesense logging failed")
+            await back.show_error()
+            return
+
+        await back.queue_command(CmdDownloadLog(log_id=log_id))
+
+
+class CmdForceStopLogging:
+    async def handle(self, back: Backend):
+        if not back.svc:
+            logging.error("Force stop logging called without USB service")
+            await back.disconnect()
+            return
+
+        status = await back.svc.get_status()
+        if not status["logging"]:
+            logging.error("Force stop logging called when not logging")
+            await back.disconnect()
+            return
+
+        if status["connected"]:
+            logging.error("Movesense connected when force stopping logging")
+            await back.show_error()
+            return
+
+        back.ui.update_info_status(
+            "Force ending recording", "Resetting device state..."
+        )
+        back.ui.update_ui_state(GUIState.INFO)
+
+        back.ui.prevent_close = True
+
+        if not await back.svc.force_reset_state():
+            logging.warning("Force reset state failed")
+            await back.show_error()
+            return
+
+        log_id = await back.svc.get_record_id()
+        if log_id is None:
+            logging.warning("Get record ID failed")
             await back.show_error()
             return
 
@@ -1724,7 +1768,7 @@ class CmdDownloadLog:
 
         record_list = await retry(back.svc.list_logs)
         if record_list is None:
-            logging.error("Get log list failed")
+            logging.warning("Get log list failed")
             await back.show_error()
             return
 

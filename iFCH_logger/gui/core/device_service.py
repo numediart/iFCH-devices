@@ -38,14 +38,16 @@ class DeviceService:
                 "/Meas/Acc/13",
             ],
             "fetchIntervalMin": 1,  # TODO set this accordingly
+            "MovesenseID": None,
         }
 
         self.subscriptions = {}
         for index, path in enumerate(self.config["sensorPaths"]):
             self.subscriptions[index + 1] = path
 
-    def set_address(self, address: str):
+    def set_address(self, address: str, movesense_id: str):
         self.config["address"] = address
+        self.config["MovesenseID"] = movesense_id
 
     async def start(self):
         self.proto = await open_connection(self._port)
@@ -123,6 +125,8 @@ class DeviceService:
 
         if self.config["address"] is None:
             raise RuntimeError("No address set in config")
+        elif self.config["MovesenseID"] is None:
+            raise RuntimeError("No MovesenseID set in config")
 
         # Step 1 – tell the ESP32 a config upload is starting
         self.proto.send_frame(Commands.CMD_CONFIG_PUT)
