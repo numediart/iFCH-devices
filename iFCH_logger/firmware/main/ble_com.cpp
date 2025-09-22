@@ -899,7 +899,7 @@ bool connectMovesense()
     // Wait for the connection to be established
     if (bleConnectSemaphore != NULL)
     {
-        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(BLE_CONNECT_TIMEOUT)) != pdTRUE)
+        if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(BLE_CONNECT_TIMEOUT + BLE_TIMEOUT)) != pdTRUE)
         {
             logError("connectMovesense", "Connection timed out");
             return false;
@@ -926,8 +926,6 @@ bool connectMovesense()
     }
 
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-
-    // TODO wait for link to be fully established!
 
     // Subscribe to the response characteristic
     ESP_LOGI("connectMovesense", "Subscribing to response characteristic...");
