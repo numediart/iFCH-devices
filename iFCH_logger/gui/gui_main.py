@@ -1260,10 +1260,13 @@ class Backend:
                         self.svc.proto.disconnected.wait()
                     )
 
-                    _, pending = await asyncio.wait(
+                    done, pending = await asyncio.wait(
                         {disconnect_task, cmd_task},
                         return_when=asyncio.FIRST_COMPLETED,
                     )
+
+                    for future in done:
+                        _ = future.result()
 
                     # Cancel pending tasks first
                     for task in pending:
