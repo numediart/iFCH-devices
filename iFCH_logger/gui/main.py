@@ -14,10 +14,11 @@ import qasync
 from core.device_service import DeviceService
 from core.serial_async import detect_device
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PySide6.QtCore import Qt, QTimer, Slot
+from PySide6.QtCore import QSettings, Qt, QTimer, Slot
 from PySide6.QtGui import QFont, QPainter
 from PySide6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -293,6 +294,87 @@ class WarningView(QWidget):
         layout.addLayout(button_layout)
 
 
+class SettingsView(QWidget):
+    def __init__(self):
+        super().__init__()
+        over_layout = QVBoxLayout(self)
+        over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main = QWidget()
+        over_layout.addWidget(main)
+        main.setMaximumWidth(800)
+
+        layout = QVBoxLayout(main)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Main message
+        self.message = QLabel("Settings")
+        self.message.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 28px;
+                font-weight: bold;
+                color: {GREY_L};
+            }}
+        """
+        )
+        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.message)
+        layout.addSpacing(30)
+
+        dir_layout = QHBoxLayout()
+        dir_label = QLabel("Output directory:")
+        dir_label.setStyleSheet(f"font-size: 16px; color: {GREY_D};")
+
+        self.dir_edit = QLineEdit()
+        self.dir_edit.setReadOnly(True)
+        self.browse_btn = QPushButton("Browse…")
+        self.browse_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                font-size: 16px;
+                padding: 8px 15px;
+                background-color: {GREY_L};
+                border: none;
+                border-radius: 4px;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {GREY_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {GREY_D};
+            }}
+            """
+        )
+        dir_layout.addWidget(dir_label)
+        dir_layout.addWidget(self.dir_edit, stretch=1)
+        dir_layout.addWidget(self.browse_btn)
+        layout.addLayout(dir_layout)
+
+        self.close_button = QPushButton("Close")
+        self.close_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                font-size: 16px;
+                padding: 8px 15px;
+                background-color: {GREY_L};
+                border: none;
+                border-radius: 4px;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {GREY_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {GREY_D};
+            }}
+        """
+        )
+
+        layout.addSpacing(30)
+        layout.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignCenter)
+
+
 # ----------------------------------------------------------------------
 class InfoView(QWidget):
     def __init__(self):
@@ -403,7 +485,23 @@ class FormView(QWidget):
         self.notes_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         form_layout.addRow("Notes:", self.notes_input)
 
+        self.save_path = QLineEdit()
+        self.save_path.setReadOnly(True)
+        form_layout.addRow("Save path:", self.save_path)
+
         layout.addWidget(form_widget)
+
+        info_label = QLabel("You can change the output directory in Settings.")
+        info_label.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+        """
+        )
+        info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(info_label)
 
         layout.addSpacing(20)
 
@@ -776,13 +874,28 @@ class MonitoringView(QWidget):
 
         # Device information form
         form_widget = QWidget()
+        form_widget.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+            """
+        )
         form_layout = QFormLayout(form_widget)
 
         self.fields = {}
         for field in self.STATE_FIELDS:
             key, label = field
             value_label = QLabel("N/A")
-            value_label.setStyleSheet("font-weight: bold;")
+            value_label.setStyleSheet(
+                f"""
+                QLabel {{
+                    font-size: 16px;
+                    color: {GREY_D};
+                }}
+                """
+            )
             value_label.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextSelectableByMouse
             )
@@ -867,6 +980,10 @@ class MainWindow(QWidget):
 
         self.prevent_close = False
 
+        self.settings_stack = QStackedWidget(self)
+        self.settings_view = SettingsView()
+        self.settings_stack.addWidget(self.settings_view)
+
         # Create stacked widget to hold different views
         self.stacked_widget = QStackedWidget(self)
 
@@ -891,8 +1008,37 @@ class MainWindow(QWidget):
         self.stacked_widget.addWidget(self.warning_view)
 
         # Set main layout
+        views_widget = QWidget(self)
+        views_layout = QVBoxLayout(views_widget)
+
+        settings_button = QPushButton("Settings")
+        settings_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                font-size: 16px;
+                padding: 8px 15px;
+                background-color: {GREY_L};
+                border: none;
+                border-radius: 4px;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {GREY_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {GREY_D};
+            }}
+        """
+        )
+
+        views_layout.addWidget(settings_button, alignment=Qt.AlignmentFlag.AlignRight)
+        views_layout.addWidget(self.stacked_widget)
+
+        self.settings_stack.addWidget(views_widget)
+        self.settings_stack.setCurrentIndex(1)
+
         main_layout = QVBoxLayout(self)
-        main_layout.addWidget(self.stacked_widget)
+        main_layout.addWidget(self.settings_stack)
 
         # Connect signals
         self.logging_view.stop_button.clicked.connect(self.handle_stop_logging)
@@ -909,7 +1055,15 @@ class MainWindow(QWidget):
         self.warning_view.cancel_button.clicked.connect(self.handle_error_ok)
         self.warning_view.ok_button.clicked.connect(self.handle_warning_ok)
 
+        settings_button.clicked.connect(self.handle_settings)
+        self.settings_view.close_button.clicked.connect(self.handle_settings_close)
+        self.settings_view.browse_btn.clicked.connect(self.select_output_dir)
+
         self._warning_ok_cb = None
+
+        # Load settings
+        self.settings = QSettings("UMONS", "iFCH-logger")
+        self.update_settings()
 
         # Timer to update the live plot (only active in monitoring view)
         self.plot_timer = QTimer(self)
@@ -920,10 +1074,6 @@ class MainWindow(QWidget):
         self._tasks = []
         self.backend = Backend(self)
         self._tasks.append(loop.create_task(self.backend.run()))
-
-        # TODO enhancement: use QSetting here
-        self.output_dir = pathlib.Path(__file__).parent / "iFCH_records"
-        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Set initial state
         self.update_ui_state(GUIState.DISCONNECTED)
@@ -966,6 +1116,25 @@ class MainWindow(QWidget):
         elif new_state == GUIState.WARNING:
             self.warning_view.ok_button.setEnabled(True)
             self.stacked_widget.setCurrentIndex(7)  # Show warning view
+
+    @Slot()
+    def select_output_dir(self):
+        path = QFileDialog.getExistingDirectory(
+            self, "Select output directory", self.settings_view.dir_edit.text()
+        )
+        if path:
+            self.settings.setValue("output_dir", path)
+        self.update_settings()
+
+    @Slot()
+    def handle_settings(self):
+        """Handle settings button"""
+        self.settings_stack.setCurrentIndex(0)
+
+    @Slot()
+    def handle_settings_close(self):
+        """Handle settings close button"""
+        self.settings_stack.setCurrentIndex(1)
 
     @Slot()
     def handle_error_ok(self):
@@ -1026,6 +1195,15 @@ class MainWindow(QWidget):
             asyncio.create_task(self._warning_ok_cb())
         else:
             asyncio.create_task(self.backend.disconnect())
+
+    def update_settings(self):
+        output_dir = self.settings.value("output_dir", "", type=str)
+        if output_dir == "":
+            output_dir = str(pathlib.Path(".", "iFCH_records").absolute())
+            self.settings.setValue("output_dir", output_dir)
+
+        self.settings_view.dir_edit.setText(output_dir)
+        self.form_view.save_path.setText(output_dir)
 
     async def cleanup(self):
         logging.debug("Cleaning up...")
@@ -1834,11 +2012,23 @@ class CmdSaveRecord:
 
         self.metadata.update(back.record_meta)
 
-        record_dir = back.ui.output_dir / self.metadata["ID"]
+        output_dir = back.ui.settings_view.settings.value(
+            "output_dir",
+            "",
+            type=str,
+        )
+
+        if output_dir == "":
+            raise RuntimeError("Output directory not set in settings")
+
+        output_dir = pathlib.Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        record_dir = output_dir / self.metadata["ID"]
         if record_dir.exists():
             logging.warning("Record directory already exists: %s", record_dir)
             for i in range(1, 100):
-                new_dir = back.ui.output_dir / f"{self.metadata['ID']}_b{i:02d}"
+                new_dir = output_dir / f"{self.metadata['ID']}_b{i:02d}"
                 if not new_dir.exists():
                     record_dir = new_dir
                     break
@@ -1898,4 +2088,3 @@ if __name__ == "__main__":
     main()
 
     # TODO enhancement: have an interface for advanced manual download
-    # TODO enhancement: have settings using QSettings
