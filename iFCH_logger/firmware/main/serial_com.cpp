@@ -72,20 +72,6 @@ bool sendProtectedFrame(CmdType cmd, uint8_t *payload, uint16_t len, uint8_t id)
     return false;
 }
 
-void sendFastFrame(CmdType cmd, uint8_t *payload, uint16_t len)
-{
-    if (!writeBytes((uint8_t *)&START_BYTE_FAST, 1))
-        return;
-
-    uint8_t txBuf[3] = {(uint8_t)cmd, (uint8_t)(len >> 8), (uint8_t)(len & 0xFF)};
-
-    if (!writeBytes(txBuf, 3))
-        return;
-
-    if (len > 0 && !writeBytes(payload, len))
-        return;
-}
-
 void sendFrame(CmdType cmd, uint8_t *payload, uint16_t len)
 {
     if (!writeBytes((uint8_t *)&START_BYTE, 1))
