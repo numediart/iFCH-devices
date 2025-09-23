@@ -77,7 +77,7 @@ class DeviceService:
 
             timestamps, samples, ref = decode_stream_packet(payload, self.subscriptions)
 
-            if self.time_start == -1:
+            if self.time_start == -1 and timestamps is not None:
                 self.time_start = time.time() - timestamps[0]
 
             if ref == 1:
