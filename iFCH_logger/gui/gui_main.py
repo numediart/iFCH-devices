@@ -164,6 +164,9 @@ class ErrorView(QWidget):
         )
         self.status_label.setWordWrap(True)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.status_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         layout.addWidget(self.status_label)
 
         ok_layout = QHBoxLayout()
@@ -235,6 +238,9 @@ class WarningView(QWidget):
         )
         self.status_label.setWordWrap(True)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.status_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         layout.addWidget(self.status_label)
 
         button_layout = QHBoxLayout()
@@ -322,6 +328,9 @@ class InfoView(QWidget):
         """
         )
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         layout.addWidget(self.status_label)
 
 
@@ -774,6 +783,9 @@ class MonitoringView(QWidget):
             key, label = field
             value_label = QLabel("N/A")
             value_label.setStyleSheet("font-weight: bold;")
+            value_label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
             form_layout.addRow(f"{label}:", value_label)
             self.fields[key] = value_label
 
@@ -1764,7 +1776,10 @@ class CmdDownloadLog:
         if not self.log_id:
             raise RuntimeError("Download log called without log ID")
 
-        back.ui.update_info_status("Saving record", "Saving data to computer...")
+        back.ui.update_info_status(
+            "Saving record",
+            "Saving data to computer...\nThis might take up to 1 hour for 10 days of recording. Please do not disconnect the device.",
+        )
 
         record_list = await retry(back.svc.list_logs)
         if record_list is None:
