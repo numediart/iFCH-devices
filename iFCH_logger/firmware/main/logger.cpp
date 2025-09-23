@@ -12,7 +12,7 @@
 static TaskHandle_t stream_dump_task = nullptr;
 static TaskHandle_t stream_dump_control = nullptr;
 
-uint8_t binBuffer[SD_WRITE_BUFFER]; // Buffer for writing data to file
+uint8_t binBuffer[SD_RW_BUFFER_SIZE]; // Buffer for writing data to file
 
 bool backupIfExists(std::string &filename)
 {
@@ -127,13 +127,13 @@ void streamDumpTask(void *params)
             {
                 size_t notifLen = dataBuffer[0] + 1; // First byte is the length of the notification
 
-                size_t spaceLeft = SD_WRITE_BUFFER - bufferLen;
+                size_t spaceLeft = SD_RW_BUFFER_SIZE - bufferLen;
                 size_t toCopy = (notifLen < spaceLeft) ? notifLen : spaceLeft;
 
                 memcpy(binBuffer + bufferLen, dataBuffer, toCopy);
                 bufferLen += toCopy;
 
-                if (bufferLen == SD_WRITE_BUFFER)
+                if (bufferLen == SD_RW_BUFFER_SIZE)
                 {
                     size_t written = fwrite(binBuffer, 1, bufferLen, f);
                     if (written != bufferLen)
