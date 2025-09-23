@@ -5,6 +5,7 @@
 #include <rom/crc.h>
 
 uint8_t rx_payload[MAX_PAYLOAD_SIZE];
+uint8_t tx_buffer[MAX_TX_PAYLOAD_SIZE];
 uint16_t rx_payload_len = 0;
 
 size_t readBytes(uint8_t *buf, uint32_t length)

@@ -20,6 +20,8 @@
 
 static nvs_handle_t nvs_record;
 
+uint8_t file_buffer[SD_RW_BUFFER_SIZE];
+
 bool isDir(std::string path)
 {
     struct stat st;
@@ -40,7 +42,6 @@ bool sendFile(std::string filename)
         sentOK = true;
 
         uint8_t seqNum = 0;
-        uint8_t tx_buffer[MAX_PAYLOAD_SIZE];
 
         // Start by sending the filename
         tx_buffer[0] = seqNum;
@@ -64,20 +65,30 @@ bool sendFile(std::string filename)
 
         while (!feof(f))
         {
-            size_t len = fread(tx_buffer + 1, 1, MAX_PAYLOAD_SIZE - 1, f);
-            if (len == 0)
+            size_t file_read = fread(file_buffer, 1, SD_RW_BUFFER_SIZE, f);
+            if (file_read == 0)
             {
                 // Already reached EOF
                 break;
             }
 
-            seqNum += 1;
-            tx_buffer[0] = seqNum;
-
-            sentOK = sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, len + 1, seqNum);
-            if (!sentOK)
+            // Send chunks
+            size_t offset = 0;
+            while (offset < file_read && sentOK)
             {
-                break;
+                size_t chunk_size = std::min((size_t)(MAX_TX_PAYLOAD_SIZE - 1), file_read - offset);
+                seqNum += 1;
+                tx_buffer[0] = seqNum;
+
+                memcpy(tx_buffer + 1, file_buffer + offset, chunk_size);
+
+                sentOK = sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, chunk_size + 1, seqNum);
+                if (!sentOK)
+                {
+                    break;
+                }
+
+                offset += chunk_size;
             }
         }
 

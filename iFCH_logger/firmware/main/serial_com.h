@@ -4,6 +4,7 @@
 #include "globals.h"
 
 #define MAX_PAYLOAD_SIZE 512
+#define MAX_TX_PAYLOAD_SIZE 1024
 #define SERIAL_TIMEOUT 500
 #define SERIAL_SEND_RETRIES 3
 #define SERIAL_BUF_SIZE 2048
@@ -12,6 +13,7 @@
 
 const uint8_t START_BYTE = 0xFA;
 extern uint8_t rx_payload[MAX_PAYLOAD_SIZE];
+extern uint8_t tx_buffer[MAX_TX_PAYLOAD_SIZE];
 extern uint16_t rx_payload_len;
 
 enum class CmdType : uint8_t

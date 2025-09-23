@@ -28,7 +28,7 @@
 #endif // CONFIG_IDF_TARGET
 
 #define JSON_BUFFER_SIZE 512
-#define SD_WRITE_BUFFER 4096
+#define SD_RW_BUFFER_SIZE 4096
 
 // Send a file over the serial port
 bool sendFile(std::string filename);

@@ -28,7 +28,7 @@ static uint16_t data_char_handle;
 static uint16_t response_char_handle;
 static uint16_t log_char_handle;
 
-uint8_t sbemBuffer[SD_WRITE_BUFFER]; // Buffer for writing data to file
+uint8_t sbemBuffer[SD_RW_BUFFER_SIZE]; // Buffer for writing data to file
 
 #define REF_OFFSET_COMMAND 10
 
@@ -1358,7 +1358,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
                 }
 
                 // Compute the free space left in the buffer
-                size_t spaceLeft = SD_WRITE_BUFFER - bufferLen;
+                size_t spaceLeft = SD_RW_BUFFER_SIZE - bufferLen;
                 size_t toCopy = (dataLength < spaceLeft) ? dataLength : spaceLeft;
 
                 // Start reading at 7 because the firt bytes are the length and the header
@@ -1366,7 +1366,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
                 bufferLen += toCopy;
 
                 // If the buffer is full, write it to the file immediately
-                if (bufferLen == SD_WRITE_BUFFER)
+                if (bufferLen == SD_RW_BUFFER_SIZE)
                 {
                     size_t written = fwrite(sbemBuffer, 1, bufferLen, f);
 
