@@ -82,11 +82,7 @@ bool sendFile(std::string filename)
 
                 memcpy(tx_buffer + 1, file_buffer + offset, chunk_size);
 
-                sentOK = sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, chunk_size + 1, seqNum);
-                if (!sentOK)
-                {
-                    break;
-                }
+                sendFastFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, chunk_size + 1);
 
                 offset += chunk_size;
             }

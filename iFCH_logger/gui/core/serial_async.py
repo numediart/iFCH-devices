@@ -9,6 +9,7 @@ import serial.tools.list_ports
 import serial_asyncio
 
 START_BYTE = 0xFA
+START_BYTE_FAST = 0xAF
 MAX_PAYLOAD_SIZE = 512
 BAUD = 921_600
 SERIAL_TIMEOUT_S = 1
@@ -203,7 +204,7 @@ class FrameProtocol(asyncio.Protocol):
                 return
 
             # Synchronise on START_BYTE
-            if self.buffer[0] != START_BYTE:
+            if self.buffer[0] != START_BYTE and self.buffer[0] != START_BYTE_FAST:
                 # discard until next possible start byte
 
                 try:
@@ -228,12 +229,19 @@ class FrameProtocol(asyncio.Protocol):
                 return  # not enough bytes yet for a full header
 
             frame_len = 1 + 3 + length + 4
+            if self.buffer[0] == START_BYTE_FAST:
+                frame_len -= 4  # no CRC for FAST frames
+
             if len(self.buffer) < frame_len:
                 return  # wait for more data
 
             # We have a full frame – validate CRC
             frame, self.buffer = self.buffer[:frame_len], self.buffer[frame_len:]
-            cmd, payload, ok = self._decode_frame(frame)
+
+            if frame[0] == START_BYTE_FAST:
+                cmd, payload, ok = self._decode_fast_frame(frame)
+            else:
+                cmd, payload, ok = self._decode_frame(frame)
 
             if ok:
                 try:
@@ -269,6 +277,12 @@ class FrameProtocol(asyncio.Protocol):
         crc_recv = struct.unpack("<I", frame[-4:])[0]
         crc_calc = zlib.crc32(frame[1:-4])
         return cmd, payload, (crc_recv == crc_calc)
+
+    @staticmethod
+    def _decode_fast_frame(frame: bytes):
+        cmd, length = struct.unpack(">B H", frame[1:4])
+        payload = frame[4 : 4 + length]
+        return cmd, payload, True
 
     async def wait_for_cmd(
         self, wanted: Commands, timeout=SERIAL_TIMEOUT_S
@@ -372,18 +386,20 @@ class FrameProtocol(asyncio.Protocol):
                 if seq == expected_seq:
                     if file_name is None and seq == 0:
                         file_name = chunk.decode()
-                        logging.debug("Received file name: %s", file_name)
+                        self.send_frame(Commands.CMD_ACK, seq.to_bytes(1))
+                        logging.debug(" Received file name: %s", file_name)
 
                     elif len(chunk) > 0:
                         # We have a chunk of data
                         logging.debug("Received chunk %d of file %s", seq, file_name)
                         file_chunks.append(chunk)
 
-                    self.send_frame(Commands.CMD_ACK, seq.to_bytes(1))
+                    # TODO send intermediate ACKs only every N chunks
                     expected_seq = (expected_seq + 1) % 256
 
                     if len(chunk) == 0:
                         logging.debug("Received EOF marker for file %s", file_name)
+                        self.send_frame(Commands.CMD_ACK, seq.to_bytes(1))
                         break
 
                 elif seq == (expected_seq - 1) % 256:

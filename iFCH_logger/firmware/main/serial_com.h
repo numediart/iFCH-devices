@@ -12,6 +12,7 @@
 #define ERROR_BUFFER_SIZE 256
 
 const uint8_t START_BYTE = 0xFA;
+const uint8_t START_BYTE_FAST = 0xAF;
 extern uint8_t rx_payload[MAX_PAYLOAD_SIZE];
 extern uint8_t tx_buffer[MAX_TX_PAYLOAD_SIZE];
 extern uint16_t rx_payload_len;
@@ -78,6 +79,9 @@ bool sendProtectedFrame(CmdType cmd, uint8_t *payload, uint16_t len, uint8_t id)
 
 // Send a frame to the serial port, with payload of length len
 void sendFrame(CmdType cmd, uint8_t *payload, uint16_t len);
+
+// Send a frame to the serial port, with payload of length len, no CRC
+void sendFastFrame(CmdType cmd, uint8_t *payload, uint16_t len);
 
 // Send a command to the serial port
 // This is a wrapper for sendFrame with no payload
