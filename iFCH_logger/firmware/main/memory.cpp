@@ -108,14 +108,14 @@ bool sendDir(std::string folderName)
 {
     if (!exists(folderName))
     {
-        logError("sendFolder", "Path does not exist: %s", folderName.c_str());
+        logError("sendDir", "Path does not exist: %s", folderName.c_str());
         sendERR(CmdType::CMD_DIR_CHUNK);
         return false;
     }
 
     else if (!isDir(folderName))
     {
-        logError("sendFolder", "Path is not a directory: %s", folderName.c_str());
+        logError("sendDir", "Path is not a directory: %s", folderName.c_str());
         sendERR(CmdType::CMD_DIR_CHUNK);
         return false;
     }
@@ -123,7 +123,7 @@ bool sendDir(std::string folderName)
     DIR *dir = opendir(folderName.c_str());
     if (dir == NULL)
     {
-        logError("sendFolder", "Failed to open directory: %s", folderName.c_str());
+        logError("sendDir", "Failed to open directory: %s", folderName.c_str());
         sendERR(CmdType::CMD_DIR_CHUNK);
         errorReset(COLOR_SD);
         return false;
@@ -149,24 +149,24 @@ bool sendDir(std::string folderName)
             memcpy(tx_buffer + 1, entry->d_name, strlen(entry->d_name));
             if (!sendProtectedFrame(CmdType::CMD_DIR_CHUNK, tx_buffer, strlen(entry->d_name) + 1, dirSeqNum))
             {
-                logError("sendFolder", "Failed to send file header for %s/%s", folderName.c_str(), entry->d_name);
+                logError("sendDir", "Failed to send file header for %s/%s", folderName.c_str(), entry->d_name);
                 sentOK = false;
                 break;
             }
 
             // Send the file
-            ESP_LOGI("sendFolder", "Sending file: %s/%s", folderName.c_str(), entry->d_name);
+            ESP_LOGI("sendDir", "Sending file: %s/%s", folderName.c_str(), entry->d_name);
             std::string filePath = folderName + "/" + entry->d_name;
             if (!sendFile(filePath))
             {
-                logError("sendFolder", "Failed to send file: %s/%s", folderName.c_str(), entry->d_name);
+                logError("sendDir", "Failed to send file: %s/%s", folderName.c_str(), entry->d_name);
                 sentOK = false;
                 break;
             }
         }
         else
         {
-            ESP_LOGW("sendFolder", "Skipping non-regular file: %s/%s", folderName.c_str(), entry->d_name);
+            ESP_LOGW("sendDir", "Skipping non-regular file: %s/%s", folderName.c_str(), entry->d_name);
         }
     }
 
