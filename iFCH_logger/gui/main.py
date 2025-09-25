@@ -2012,7 +2012,7 @@ class CmdSaveRecord:
 
         self.metadata.update(back.record_meta)
 
-        output_dir = back.ui.settings_view.settings.value(
+        output_dir = back.ui.settings.value(
             "output_dir",
             "",
             type=str,
