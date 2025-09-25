@@ -12,7 +12,7 @@ import zlib
 import serial.tools.list_ports
 import serial_asyncio
 
-from .common.movesense_stream_decoder import decode_stream_packet
+from .common.movesense_stream_decoder import StreamDecoder
 from .common.utils import BoundedQueue
 
 START_BYTE = 0xFA
@@ -556,9 +556,11 @@ class ESPLogger:
             "MovesenseID": None,
         }
 
-        self.subscriptions = {}
+        subscriptions = {}
         for index, path in enumerate(self.config["sensorPaths"]):
-            self.subscriptions[index + 1] = path
+            subscriptions[index + 1] = path
+
+        self.decoder = StreamDecoder(subscriptions)
 
     def set_address(self, address: str, movesense_id: str):
         self.config["address"] = address
@@ -566,6 +568,9 @@ class ESPLogger:
 
     async def start(self):
         self.proto = await open_connection(self._port)
+        if self.proto is None:
+            raise RuntimeError(f"Failed to open serial port {self._port}")
+
         task = asyncio.create_task(self.process_notifications())
         self._tasks.append(task)
 
@@ -590,7 +595,7 @@ class ESPLogger:
             # await next notification from the queue
             payload = await self.proto.notif_queue.get()
 
-            timestamps, samples, ref = decode_stream_packet(payload, self.subscriptions)
+            timestamps, samples, ref = self.decoder.decode_stream_packet(payload)
 
             if self.time_start == -1 and timestamps is not None:
                 self.time_start = time.time() - timestamps[0]

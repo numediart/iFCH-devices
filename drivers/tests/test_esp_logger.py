@@ -10,7 +10,7 @@ import asyncio
 import datetime
 import logging
 
-from drivers.ifch_drivers.esp_logger import ESPLogger, detect_device
+from ifch_drivers.esp_logger import ESPLogger, detect_device
 
 
 async def test_device(port):
