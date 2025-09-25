@@ -1,3 +1,9 @@
+# /// script
+# dependencies = [
+#   "bleak",
+# ]
+# ///
+
 import asyncio
 import enum
 import logging
@@ -482,4 +488,4 @@ class MovesenseTester:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     tester = MovesenseTester()
-    asyncio.run(tester.run_tests(address="0C:8C:DC:1B:64:D2"))
+    asyncio.run(tester.run_tests())

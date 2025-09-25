@@ -1,5 +1,4 @@
-iFCH_records/
-uv.lock
 *.bin
+*.exe
 pysidedeploy.spec
 deployment/

@@ -1,13 +1,20 @@
+# /// script
+# dependencies = [
+#   "ifch_drivers[esp_logger]",
+# ]
+# [tool.uv.sources]
+# ifch_drivers = { path = "../", editable = true }
+# ///
+
 import asyncio
 import datetime
 import logging
 
-from core.device_service import DeviceService
-from core.serial_async import detect_device
+from drivers.ifch_drivers.esp_logger import ESPLogger, detect_device
 
 
 async def test_device(port):
-    device = DeviceService(port)
+    device = ESPLogger(port)
 
     await device.start()
     logging.info("Device started")

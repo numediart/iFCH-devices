@@ -1,3 +1,10 @@
+# /// script
+# dependencies = [
+#   "bleak",
+# ]
+# ///
+
+
 import asyncio
 import enum
 import logging
@@ -313,4 +320,4 @@ class MovesenseController:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     controller = MovesenseController()
-    asyncio.run(controller.run(address="0C:8C:DC:1B:64:D2", print=True))
+    asyncio.run(controller.run(print=True))

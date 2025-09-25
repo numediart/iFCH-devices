@@ -1,4 +1,3 @@
 build*/
 __pycache__/
-dependencies.lock
-sdkconfig
+uv.lock

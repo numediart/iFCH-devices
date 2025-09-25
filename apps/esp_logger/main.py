@@ -11,8 +11,7 @@ from typing import Any, Optional
 
 import numpy as np
 import qasync
-from core.device_service import DeviceService
-from core.serial_async import detect_device
+from ifch_drivers.esp_logger import ESPLogger, detect_device
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QSettings, Qt, QTimer, Slot
 from PySide6.QtGui import QFont, QPainter
@@ -1212,7 +1211,7 @@ class MainWindow(QWidget):
         if hasattr(self, "plot_timer") and self.plot_timer.isActive():
             self.plot_timer.stop()
 
-        # Cleanup the backend service first (this will stop DeviceService tasks)
+        # Cleanup the backend first (this will stop ESPLogger tasks)
         if hasattr(self, "backend"):
             await self.backend.quit()
 
@@ -1235,14 +1234,14 @@ class MainWindow(QWidget):
         # Only update plot if we're in monitoring view
         if (
             self.current_state != GUIState.MONITORING
-            or self.backend.svc is None
-            or len(self.backend.svc.plot_x) == 0
+            or self.backend.device is None
+            or len(self.backend.device.plot_x) == 0
         ):
             return
 
         t = time.time()
-        x_time = np.asarray(self.backend.svc.plot_x) - t
-        y_ecg = np.asarray(self.backend.svc.plot_y)
+        x_time = np.asarray(self.backend.device.plot_x) - t
+        y_ecg = np.asarray(self.backend.device.plot_y)
         self.monitoring_view.series.replaceNp(x_time.astype(float), y_ecg.astype(float))
 
         maxY = np.max(np.abs(y_ecg))
@@ -1375,7 +1374,7 @@ class MainWindow(QWidget):
 class Backend:
     def __init__(self, ui: "MainWindow"):
         self.ui = ui
-        self.svc: DeviceService | None = None
+        self.device: ESPLogger | None = None
         self.available_devices: list[str] = []
 
         # Actor machinery
@@ -1417,10 +1416,10 @@ class Backend:
                 await self._actor_task
             self._actor_task = None
 
-        # Stop service
-        if self.svc:
-            await self.svc.stop()
-            self.svc = None
+        # Stop device
+        if self.device:
+            await self.device.stop()
+            self.device = None
 
     # ---- Public API (GUI calls) -> commands enqueued -------------------
 
@@ -1458,10 +1457,10 @@ class Backend:
             cmd = await self._cmd_q.get()
             try:
                 # If USB is connected, cancel current task on disconnect
-                if self.svc:
+                if self.device:
                     cmd_task = asyncio.create_task(cmd.handle(self))
                     disconnect_task = asyncio.create_task(
-                        self.svc.proto.disconnected.wait()
+                        self.device.proto.disconnected.wait()
                     )
 
                     done, pending = await asyncio.wait(
@@ -1498,14 +1497,14 @@ class Backend:
                     "Internal error", f"Exception in {str(cmd)}: {str(e)}"
                 )
 
-    async def start_service(self, port: str):
+    async def start_device(self, port: str):
         """Open serial, start notification processing, start disconnect watcher."""
         try:
-            self.svc = DeviceService(port)
-            await self.svc.start()
+            self.device = ESPLogger(port)
+            await self.device.start()
         except Exception as e:
-            logging.warning("Failed to start service on %s: %s", port, e)
-            self.svc = None
+            logging.warning("Failed to start device on %s: %s", port, e)
+            self.device = None
             # Retry probing later
             self.schedule_after(0, CmdProbeUSB())
             return
@@ -1516,7 +1515,7 @@ class Backend:
 
         async def _watch_disconnect():
             try:
-                await self.svc.proto.disconnected.wait()
+                await self.device.proto.disconnected.wait()
             except Exception:
                 pass
 
@@ -1548,11 +1547,11 @@ class Backend:
             t.cancel()
         self._timers.clear()
 
-        if self.svc:
+        if self.device:
             with contextlib.suppress(Exception):
-                await self.svc.stop()
+                await self.device.stop()
 
-        self.svc = None
+        self.device = None
         self.ui.prevent_close = False
         self.record_files = None
         self.record_meta = {}
@@ -1598,7 +1597,7 @@ class CmdProbeUSB:
         """One-shot USB probe; schedule next probe only if still disconnected."""
         back.ui.update_ui_state(GUIState.DISCONNECTED)
 
-        if back.svc is None:
+        if back.device is None:
             try:
                 found = await detect_device(reset_ports=False)
             except Exception as e:
@@ -1608,12 +1607,12 @@ class CmdProbeUSB:
             if found:
                 port, *_ = found[0]
                 logging.debug("Found iFCH-logger on %s", port)
-                await back.start_service(port)
+                await back.start_device(port)
 
-                # After service starts, move to scanning
+                # After device starts, move to scanning
 
                 # If so, attempt to connect to corresponding Movesense
-                status = await back.svc.get_status()
+                status = await back.device.get_status()
 
                 if status["logging"]:
                     await back.queue_command(CmdLogging())
@@ -1638,14 +1637,14 @@ class CmdProbeUSB:
                 back.schedule_after(self.SCAN_PERIOD_S, CmdProbeUSB())
         else:
             # We should not be here
-            raise RuntimeError("USB probe called while service already running")
+            raise RuntimeError("USB probe called while device already running")
 
 
 @dataclass
 class CmdLogging:
     async def handle(self, back: Backend):
-        if not back.svc:
-            raise RuntimeError("CmdLogging called without USB service")
+        if not back.device:
+            raise RuntimeError("CmdLogging called without USB device")
 
         back.ui.update_info_status(
             "Device found",
@@ -1653,10 +1652,10 @@ class CmdLogging:
         )
         back.ui.update_ui_state(GUIState.INFO)
 
-        if not await back.svc.connect():
+        if not await back.device.connect():
             logging.warning("Auto BLE connect failed")
 
-            config = await back.svc.get_config()
+            config = await back.device.get_config()
 
             if config is None:
                 logging.warning("Failed to get config")
@@ -1676,7 +1675,7 @@ class CmdLogging:
 
         back.ui.update_info_status("Device found", "Fetching Movesense info...")
 
-        mov_status = await back.svc.get_mov_islogging()
+        mov_status = await back.device.get_mov_islogging()
 
         if mov_status is None:
             await back.show_error()
@@ -1699,7 +1698,7 @@ class CmdLogging:
 @dataclass
 class CmdOnDisconnected:
     async def handle(self, back: Backend):
-        """Serial disconnected; stop service and schedule next probe."""
+        """Serial disconnected; stop device and schedule next probe."""
         back.ui.update_ui_state(GUIState.DISCONNECTED)
         back.ui.update_disconnected_status("Disconnected, waiting for device...")
 
@@ -1714,8 +1713,8 @@ class CmdBLEScan:
     SCAN_DELAY_S = 1.0  # Delay before next scan if no devices found
 
     async def handle(self, back: Backend):
-        if not back.svc:
-            raise RuntimeError("CmdBLEScan called without USB service")
+        if not back.device:
+            raise RuntimeError("CmdBLEScan called without USB device")
 
         back.ui.update_ui_state(GUIState.INFO)
         back.ui.update_info_status(
@@ -1723,7 +1722,7 @@ class CmdBLEScan:
             "Make sure your Movesense device is powered on and in range.",
         )
 
-        devices = await back.svc.scan()
+        devices = await back.device.scan()
 
         if devices is None:
             raise RuntimeError("BLE scan failed")
@@ -1741,8 +1740,8 @@ class CmdStreamDevice:
     device: str
 
     async def handle(self, back: Backend):
-        if not back.svc:
-            raise RuntimeError("Connect called without USB service")
+        if not back.device:
+            raise RuntimeError("Connect called without USB device")
 
         back.ui.update_info_status(
             "Connecting to Movesense",
@@ -1751,19 +1750,19 @@ class CmdStreamDevice:
         back.ui.update_ui_state(GUIState.INFO)
 
         parts = self.device.split(";")
-        back.svc.set_address(parts[-1], parts[0])
+        back.device.set_address(parts[-1], parts[0])
 
-        if not await back.svc.put_config():
+        if not await back.device.put_config():
             logging.warning("Config PUT failed")
             await back.show_error()
             return
 
-        if not await back.svc.connect():
+        if not await back.device.connect():
             logging.warning("BLE connect failed")
             await back.show_error()
             return
 
-        is_logging = await back.svc.get_mov_islogging()
+        is_logging = await back.device.get_mov_islogging()
 
         if is_logging is None:
             logging.warning("Failed to get Movesense logging status")
@@ -1778,7 +1777,7 @@ class CmdStreamDevice:
             )
             return
 
-        mov_bat = await back.svc.get_mov_battery()
+        mov_bat = await back.device.get_mov_battery()
         if mov_bat is not None:
             back.ui.update_device_info(mov_bat=f"{mov_bat}%")
 
@@ -1787,7 +1786,7 @@ class CmdStreamDevice:
             await back.show_error()
             return
 
-        if not await back.svc.sub_stream():
+        if not await back.device.sub_stream():
             logging.warning("Stream subscribe failed")
             await back.show_error()
             return
@@ -1805,10 +1804,10 @@ class CmdBatteryTick:
 
     async def handle(self, back: Backend):
         """Only runs when connected/streaming. Schedules itback again."""
-        if not back.svc:
-            raise RuntimeError("Battery tick called without USB service")
+        if not back.device:
+            raise RuntimeError("Battery tick called without USB device")
 
-        status = await back.svc.get_status()
+        status = await back.device.get_status()
         if not status:
             logging.warning("Status check failed")
             await back.show_error()
@@ -1816,7 +1815,7 @@ class CmdBatteryTick:
         if status["connected"]:
             # Update device info
 
-            dev_bat = await back.svc.get_battery()
+            dev_bat = await back.device.get_battery()
             if dev_bat is not None:
                 back.ui.update_device_info(bat=f"{dev_bat:.0f}%")
             else:
@@ -1837,10 +1836,10 @@ class CmdBatteryTick:
 @dataclass
 class CmdStartLogging:
     async def handle(self, back: Backend):
-        if not back.svc:
-            raise RuntimeError("Start logging called without USB service")
+        if not back.device:
+            raise RuntimeError("Start logging called without USB device")
 
-        success = await back.svc.unsub_stream()
+        success = await back.device.unsub_stream()
         if not success:
             logging.warning("Unsubscribe stream failed")
             await back.show_error(
@@ -1849,7 +1848,7 @@ class CmdStartLogging:
             )
             return
 
-        success = await back.svc.put_epoch()
+        success = await back.device.put_epoch()
         if not success:
             logging.warning("PUT epoch failed")
             await back.show_error(
@@ -1858,7 +1857,7 @@ class CmdStartLogging:
             )
             return
 
-        success = await back.svc.start_movesense_logging()
+        success = await back.device.start_movesense_logging()
         if not success:
             logging.warning("Start logging failed")
             await back.show_error(
@@ -1879,10 +1878,10 @@ class CmdStartLogging:
 @dataclass
 class CmdStopLogging:
     async def handle(self, back: Backend):
-        if not back.svc:
-            raise RuntimeError("Stop logging called without USB service")
+        if not back.device:
+            raise RuntimeError("Stop logging called without USB device")
 
-        status = await back.svc.get_status()
+        status = await back.device.get_status()
         if not status["logging"]:
             raise RuntimeError("Stop logging called when not logging")
 
@@ -1899,7 +1898,7 @@ class CmdStopLogging:
 
         back.ui.prevent_close = True
 
-        log_id = await back.svc.stop_movesense_logging()
+        log_id = await back.device.stop_movesense_logging()
         if log_id is None:
             logging.warning("Stop Movesense logging failed")
             await back.show_error()
@@ -1910,10 +1909,10 @@ class CmdStopLogging:
 
 class CmdForceStopLogging:
     async def handle(self, back: Backend):
-        if not back.svc:
-            raise RuntimeError("Force stop logging called without USB service")
+        if not back.device:
+            raise RuntimeError("Force stop logging called without USB device")
 
-        status = await back.svc.get_status()
+        status = await back.device.get_status()
         if not status["logging"]:
             raise RuntimeError("Force stop logging called when not logging")
 
@@ -1929,12 +1928,12 @@ class CmdForceStopLogging:
 
         back.ui.prevent_close = True
 
-        if not await back.svc.force_reset_state():
+        if not await back.device.force_reset_state():
             logging.warning("Force reset state failed")
             await back.show_error()
             return
 
-        log_id = await back.svc.get_record_id()
+        log_id = await back.device.get_record_id()
         if log_id is None:
             logging.warning("Get record ID failed")
             await back.show_error()
@@ -1948,8 +1947,8 @@ class CmdDownloadLog:
     log_id: int | str
 
     async def handle(self, back: Backend):
-        if not back.svc:
-            raise RuntimeError("Download log called without USB service")
+        if not back.device:
+            raise RuntimeError("Download log called without USB device")
 
         if not self.log_id:
             raise RuntimeError("Download log called without log ID")
@@ -1959,7 +1958,7 @@ class CmdDownloadLog:
             "Saving data to computer...\nThis might take up to 1 hour for 10 days of recording. Please do not disconnect the device.",
         )
 
-        record_list = await retry(back.svc.list_logs)
+        record_list = await retry(back.device.list_logs)
         if record_list is None:
             logging.warning("Get log list failed")
             await back.show_error()
@@ -1982,7 +1981,7 @@ class CmdDownloadLog:
 
         back.ui.update_ui_state(GUIState.FORM)
 
-        dir_files = await back.svc.get_log(self.log_id)
+        dir_files = await back.device.get_log(self.log_id)
         if dir_files is None:
             logging.warning("Get log data failed")
             await back.show_error()
@@ -1991,13 +1990,13 @@ class CmdDownloadLog:
         back.record_files = dir_files
         back.record_meta = {"ID": self.log_id}
 
-        error_log = await back.svc.get_error_log()
+        error_log = await back.device.get_error_log()
         if error_log is None:
             logging.warning("Get error log failed")
         else:
             back.record_files["log.txt"] = error_log.encode("utf-8")
 
-            deleted = await back.svc.delete_error_log()
+            deleted = await back.device.delete_error_log()
             if not deleted:
                 logging.warning("Delete error log failed")
 
@@ -2052,7 +2051,7 @@ class CmdSaveRecord:
         with open(record_dir / METADATA_FILENAME, "w") as f:
             json.dump(self.metadata, f, indent=4)
 
-        archived = await back.svc.archive_log(self.metadata["ID"])
+        archived = await back.device.archive_log(self.metadata["ID"])
         if not archived:
             logging.warning("Archive log failed for ID %s", self.metadata["ID"])
             # Not critical, continue
