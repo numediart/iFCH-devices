@@ -1356,6 +1356,12 @@ class MainWindow(QWidget):
             # Start cleanup asynchronously
             asyncio.create_task(self._finish_shutdown())
 
+            self.update_info_status(
+                "Shutting down...",
+                "Please wait while we clean up resources. This may take a few seconds.",
+            )
+            self.update_ui_state(GUIState.INFO)
+
         self._shutdown_attempts += 1
 
     async def _finish_shutdown(self):
