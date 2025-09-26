@@ -19,3 +19,10 @@ class BoundedQueue(asyncio.Queue):
                 pass
 
         await super().put(item)
+
+    def clear(self):
+        while not self.empty():
+            try:
+                self.get_nowait()
+            except asyncio.QueueEmpty:
+                pass

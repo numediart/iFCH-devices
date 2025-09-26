@@ -1464,7 +1464,7 @@ class Backend:
                     )
 
                     done, pending = await asyncio.wait(
-                        {disconnect_task, cmd_task},
+                        (disconnect_task, cmd_task),
                         return_when=asyncio.FIRST_COMPLETED,
                     )
 

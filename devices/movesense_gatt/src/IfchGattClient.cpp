@@ -391,6 +391,8 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::HELLO. reference: %d", reference);
         // Hello response
+        // TODO make this compatible with default Movesense Hello response?
+        // bytearray(b'\x01\n\x01220330000081\x00Movesense MD\x00C1:5F:91:65:8F:FD\x00Default Firmware\x001.0.1\x00')
         uint8_t helloMsg[] = {Responses::COMMAND_RESULT, reference, Status::SUCCESS, Codes::OK, 'H', 'e', 'l', 'l', 'o'};
 
         asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), helloMsg, sizeof(helloMsg));

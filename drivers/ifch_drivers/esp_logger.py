@@ -15,14 +15,6 @@ import serial_asyncio
 from .common.movesense_stream_decoder import StreamDecoder
 from .common.utils import BoundedQueue
 
-START_BYTE = 0xFA
-MAX_PAYLOAD_SIZE = 512
-BAUD = 921_600
-SERIAL_TIMEOUT_S = 1
-SERIAL_RETRIES = 3
-NOTIF_QUEUE_SIZE = 64
-RX_QUEUE_SIZE = 32
-
 
 class Commands(enum.IntEnum):
     # General
@@ -81,11 +73,19 @@ class Commands(enum.IntEnum):
 
 
 class FrameProtocol(asyncio.Protocol):
+    START_BYTE = 0xFA
+    MAX_PAYLOAD_SIZE = 512
+    BAUD = 921_600
+    SERIAL_TIMEOUT_S = 1
+    SERIAL_RETRIES = 3
+    NOTIF_QUEUE_SIZE = 64
+    RX_QUEUE_SIZE = 32
+
     def __init__(self, loop: asyncio.AbstractEventLoop):
         self.transport = None
         self.buffer = bytearray()
-        self.rx_queue = BoundedQueue(RX_QUEUE_SIZE)
-        self.notif_queue = BoundedQueue(NOTIF_QUEUE_SIZE, logging.DEBUG)
+        self.rx_queue = BoundedQueue(self.RX_QUEUE_SIZE)
+        self.notif_queue = BoundedQueue(self.NOTIF_QUEUE_SIZE, logging.DEBUG)
         self.loop = loop
 
         self.connected = asyncio.Event()
@@ -117,7 +117,7 @@ class FrameProtocol(asyncio.Protocol):
         logging.debug("Sending command: %s, payload: %s", cmd.name, payload.hex(" "))
         header = struct.pack(">B H", cmd, len(payload))
         crc = zlib.crc32(header + payload)
-        frame = bytes((START_BYTE,)) + header + payload + struct.pack("<I", crc)
+        frame = bytes((self.START_BYTE,)) + header + payload + struct.pack("<I", crc)
         self.transport.write(frame)
 
     async def send_protected_frame(
@@ -154,7 +154,7 @@ class FrameProtocol(asyncio.Protocol):
         logging.debug("sent file name: %s", file_name)
 
         chunk_seq = (chunk_seq + 1) % 256
-        CHUNK_SIZE = MAX_PAYLOAD_SIZE - 1  # minus seq byte
+        CHUNK_SIZE = self.MAX_PAYLOAD_SIZE - 1  # minus seq byte
 
         # Step 2 – stream file data
         offset = 0
@@ -191,7 +191,7 @@ class FrameProtocol(asyncio.Protocol):
                 return
 
             # Synchronise on START_BYTE
-            if self.buffer[0] != START_BYTE:
+            if self.buffer[0] != self.START_BYTE:
                 # discard until next possible start byte
 
                 try:
@@ -471,7 +471,9 @@ async def _probe(port: str, probe_timeout: float) -> tuple[str, bytes] | None:
 
 
 async def detect_device(
-    baud: int = BAUD, probe_timeout: float = SERIAL_TIMEOUT_S, reset_ports=False
+    baud: int = FrameProtocol.BAUD,
+    probe_timeout: float = FrameProtocol.SERIAL_TIMEOUT_S,
+    reset_ports=False,
 ) -> list[tuple[str, str]]:
     ports = [p.device for p in serial.tools.list_ports.comports()]
 
@@ -495,7 +497,7 @@ async def detect_device(
     return found
 
 
-async def _reset_port(port: str, baud: int = BAUD):
+async def _reset_port(port: str, baud: int = FrameProtocol.BAUD):
     logging.warning("RESET DTR on %s", port)
     try:
         with serial.Serial(port, baud) as s:
@@ -508,7 +510,7 @@ async def _reset_port(port: str, baud: int = BAUD):
         return None
 
 
-async def open_connection(port: str, baud: int = BAUD):
+async def open_connection(port: str, baud: int = FrameProtocol.BAUD):
     loop = asyncio.get_running_loop()
     try:
         _, protocol = await serial_asyncio.create_serial_connection(
@@ -516,7 +518,7 @@ async def open_connection(port: str, baud: int = BAUD):
             lambda: FrameProtocol(loop),
             port,
             baudrate=baud,
-            timeout=SERIAL_TIMEOUT_S,
+            timeout=FrameProtocol.SERIAL_TIMEOUT_S,
         )
         await protocol.connected.wait()
     except serial.SerialException as e:
@@ -578,6 +580,8 @@ class ESPLogger:
         logging.debug("Stopping device service")
         for t in self._tasks:
             t.cancel()
+        asyncio.gather(*self._tasks, return_exceptions=True)
+        self._tasks.clear()
 
         if self.proto:
             if self.proto.is_connected:
