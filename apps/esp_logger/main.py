@@ -1269,8 +1269,8 @@ class MainWindow(QWidget):
         self.warning_view.ok_button.setText(ok_text)
         self.warning_view.cancel_button.setVisible(show_cancel)
 
-    def show_device_selection(self, devices):
-        self.device_selection_view.set_devices(devices)
+    def show_device_selection(self):
+        self.device_selection_view.set_devices(self.backend.available_devices)
         self.update_ui_state(GUIState.DEVICE_SELECTION)
 
     def update_info_status(self, title, status):
@@ -1732,7 +1732,7 @@ class CmdBLEScan:
             back.schedule_after(self.SCAN_DELAY_S, CmdBLEScan())
         else:
             back.available_devices = devices
-            back.ui.show_device_selection(devices)
+            back.ui.show_device_selection()
 
 
 @dataclass
