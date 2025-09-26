@@ -365,7 +365,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     if (commandData.size() < 2)
     {
         // Return an error message
-        uint8_t respError[] = {Responses::COMMAND_RESULT, 0x00, Status::ERROR, Codes::BAD_REQUEST};
+        uint8_t respError[] = {Responses::COMMAND_RESULT, 0x00, Codes::BAD_REQUEST, Status::ERROR};
         asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), respError, sizeof(respError));
         return;
     }
@@ -380,7 +380,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         DEBUGLOG("Error: reference == 0");
 
         // 403: forbidden
-        uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::FORBIDDEN};
+        uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::FORBIDDEN, Status::ERROR};
         asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
         return;
     }
@@ -393,7 +393,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         // Hello response
         // TODO make this compatible with default Movesense Hello response?
         // bytearray(b'\x01\n\x01220330000081\x00Movesense MD\x00C1:5F:91:65:8F:FD\x00Default Firmware\x001.0.1\x00')
-        uint8_t helloMsg[] = {Responses::COMMAND_RESULT, reference, Status::SUCCESS, Codes::OK, 'H', 'e', 'l', 'l', 'o'};
+        uint8_t helloMsg[] = {Responses::COMMAND_RESULT, reference, Codes::OK, Status::SUCCESS, 'H', 'e', 'l', 'l', 'o'};
 
         asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), helloMsg, sizeof(helloMsg));
         return;
@@ -407,7 +407,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             DEBUGLOG("Existing datasub slot");
             // 403: forbidden
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::FORBIDDEN};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::FORBIDDEN, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
@@ -418,7 +418,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             DEBUGLOG("No free datasub slot");
             // 507: HTTP_CODE_INSUFFICIENT_STORAGE
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::INSUFFICIENT_STORAGE};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::INSUFFICIENT_STORAGE, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
@@ -434,7 +434,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             DEBUGLOG("Error: dataLen exceeds pathBuffer size");
 
             // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::INTERNAL_ERROR};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::INTERNAL_ERROR, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             return;
@@ -447,7 +447,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         if (result >= 400)
         {
             // 404: not found
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::NOT_FOUND};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::NOT_FOUND, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             dataSub.clean();
@@ -473,13 +473,13 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             asyncUnsubscribe(pDataSub->resourceId);
             pDataSub->clean();
 
-            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Status::SUCCESS, Codes::OK};
+            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Codes::OK, Status::SUCCESS};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
         }
         else
         {
             // 404: not found
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::NOT_FOUND};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::NOT_FOUND, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
         }
         return;
@@ -491,7 +491,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         if (pData == nullptr || dataLen != sizeof(uint32_t))
         {
             // 400: Bad request
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::BAD_REQUEST};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::BAD_REQUEST, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
@@ -511,7 +511,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
         {
             // 409: Conflict
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::CONFLICT};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
@@ -522,13 +522,13 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         if (result >= 400)
         {
             // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::INTERNAL_ERROR};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::INTERNAL_ERROR, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
         // Send OK response
-        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Status::SUCCESS, Codes::OK};
+        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Codes::OK, Status::SUCCESS};
         asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
         return;
     }
@@ -541,7 +541,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             DEBUGLOG("Existing logsub slot");
             // 403: forbidden
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::FORBIDDEN};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::FORBIDDEN, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
@@ -551,7 +551,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             DEBUGLOG("No free logsub slot");
             // 507: HTTP_CODE_INSUFFICIENT_STORAGE
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::INSUFFICIENT_STORAGE};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::INSUFFICIENT_STORAGE, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
@@ -564,7 +564,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             DEBUGLOG("Error: dataLen exceeds pathBuffer size");
 
             // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::INTERNAL_ERROR};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::INTERNAL_ERROR, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             return;
@@ -580,7 +580,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         if (result >= 400)
         {
             // 404: not found
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::NOT_FOUND};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::NOT_FOUND, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             logSub.clean();
@@ -589,7 +589,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
         logSub.clientReference = reference;
 
-        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Status::SUCCESS, Codes::OK};
+        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Codes::OK, Status::SUCCESS};
         asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
 
         return;
@@ -603,13 +603,13 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             pLogSub->clean();
 
-            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Status::SUCCESS, Codes::OK};
+            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Codes::OK, Status::SUCCESS};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
         }
         else
         {
             // 404: not found
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::NOT_FOUND};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::NOT_FOUND, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
         }
         return;
@@ -622,7 +622,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             DEBUGLOG("Logbook is full");
             // 507: HTTP_CODE_INSUFFICIENT_STORAGE
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::INSUFFICIENT_STORAGE};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::INSUFFICIENT_STORAGE, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
@@ -646,7 +646,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         if (count == 0)
         {
             // 403: forbidden
-            uint8_t respError[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::FORBIDDEN};
+            uint8_t respError[] = {Responses::COMMAND_RESULT, reference, Codes::FORBIDDEN, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), respError, sizeof(respError));
 
             // We return here to avoid starting logging with no subscriptions
@@ -656,7 +656,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
         {
             // 409: Conflict
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::CONFLICT};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
@@ -682,7 +682,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         {
             // There is already no logging in progress, so we can return immediately
             // 202: Accepted
-            uint8_t rspMsg[] = {Responses::COMMAND_RESULT, reference, Status::SUCCESS, Codes::ACCEPTED};
+            uint8_t rspMsg[] = {Responses::COMMAND_RESULT, reference, Codes::ACCEPTED, Status::SUCCESS};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), rspMsg, sizeof(rspMsg));
             return;
         }
@@ -727,7 +727,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
         {
             // 409: Conflict
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::CONFLICT};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
@@ -743,13 +743,13 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         if (result >= 400)
         {
             // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::INTERNAL_ERROR};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::INTERNAL_ERROR, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
 
         // Send OK response
-        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Status::SUCCESS, Codes::OK};
+        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Codes::OK, Status::SUCCESS};
         asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
 
         return;
@@ -762,7 +762,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         unsubscribeAllStreams();
 
         // Send OK response
-        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Status::SUCCESS, Codes::OK};
+        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Codes::OK, Status::SUCCESS};
         asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
 
         return;
@@ -789,7 +789,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     default:
     {
         // Return an error message
-        uint8_t respError[] = {Responses::COMMAND_RESULT, reference, Status::ERROR, Codes::BAD_REQUEST};
+        uint8_t respError[] = {Responses::COMMAND_RESULT, reference, Codes::BAD_REQUEST, Status::ERROR};
         asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), respError, sizeof(respError));
 
         return;
@@ -869,7 +869,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         if (resultCode >= 400)
         {
             // 404: Not found
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogFetchReference, Status::ERROR, Codes::NOT_FOUND};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogFetchReference, Codes::NOT_FOUND, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mLogFetchReference = 0;
@@ -929,7 +929,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
             DEBUGLOG("Error fetching datalogger state: %d", resultCode);
 
             // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetLoggingReference, Status::ERROR, Codes::INTERNAL_ERROR};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetLoggingReference, Codes::INTERNAL_ERROR, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mGetLoggingReference = 0;
@@ -967,7 +967,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
             DEBUGLOG("Error fetching log entries: %d", resultCode);
 
             // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogListReference, Status::ERROR, Codes::INTERNAL_ERROR};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogListReference, Codes::INTERNAL_ERROR, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mLogListReference = 0;
@@ -1030,7 +1030,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
             DEBUGLOG("Error fetching time: %d", resultCode);
 
             // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetTimeReference, Status::ERROR, Codes::INTERNAL_ERROR};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetTimeReference, Codes::INTERNAL_ERROR, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mGetTimeReference = 0;
@@ -1066,7 +1066,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
             DEBUGLOG("Error fetching battery: %d", resultCode);
 
             // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetBatteryReference, Status::ERROR, Codes::INTERNAL_ERROR};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetBatteryReference, Codes::INTERNAL_ERROR, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mGetBatteryReference = 0;
@@ -1132,7 +1132,7 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
             DEBUGLOG("subStarted not set: %u", resourceId);
 
             // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, Status::ERROR, Codes::INTERNAL_ERROR};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, Codes::INTERNAL_ERROR, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             ds->clean();
@@ -1143,7 +1143,7 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
             DEBUGLOG("subCompleted already: %u", resourceId);
 
             // 202: Accepted
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, Status::SUCCESS, Codes::ACCEPTED};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, Codes::ACCEPTED, Status::SUCCESS};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             return;
@@ -1154,7 +1154,7 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
             DEBUGLOG("Error subscribing to resource: %u", resourceId);
 
             // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, Status::ERROR, Codes::INTERNAL_ERROR};
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, Codes::INTERNAL_ERROR, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             ds->clean();
@@ -1164,7 +1164,7 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
             ds->subCompleted = true;
 
             // 201: Created
-            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, Status::SUCCESS, Codes::CREATED};
+            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, Codes::CREATED, Status::SUCCESS};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
         }
     }
@@ -1519,7 +1519,7 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
             if (mDataloggerStateReference != 0)
             {
                 // 200: OK
-                uint8_t ackMsg[] = {Responses::COMMAND_RESULT, mDataloggerStateReference, Status::SUCCESS, Codes::OK};
+                uint8_t ackMsg[] = {Responses::COMMAND_RESULT, mDataloggerStateReference, Codes::OK, Status::SUCCESS};
                 asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
 
                 mDataloggerStateReference = 0;
@@ -1532,7 +1532,7 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
             if (mDataloggerStateReference != 0)
             {
                 // 500: Internal server error
-                uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mDataloggerStateReference, Status::ERROR, Codes::INTERNAL_ERROR};
+                uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mDataloggerStateReference, Codes::INTERNAL_ERROR, Status::ERROR};
                 asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
                 mDataloggerStateReference = 0;

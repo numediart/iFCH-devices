@@ -374,9 +374,9 @@ bool waitForMovesenseResponse(uint8_t reference, uint8_t *response_data = NULL, 
             // Check if the header matches the expected format and process it
             else if (responseNotif[1] == Responses::COMMAND_RESULT && responseNotif[2] == reference)
             {
-                uint8_t status = responseNotif[3];
+                uint8_t status = responseNotif[4];
                 ESP_LOGI("waitForMovesenseResponse", "Command response received: Type %d, Reference %d, Status %d, Code 0x%02x",
-                         responseNotif[1], responseNotif[2], status, responseNotif[4]);
+                         responseNotif[1], responseNotif[2], responseNotif[3], status);
 
                 // The response contains data
                 if (len > 4)

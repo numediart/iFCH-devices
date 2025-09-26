@@ -37,17 +37,17 @@ class Commands(enum.Enum):
 
 
 class StatusCodes(enum.Enum):
-    OK_200 = (200).to_bytes(2)
-    OK_201 = (201).to_bytes(2)
-    OK_202 = (202).to_bytes(2)
+    OK_200 = (200).to_bytes(2, "little")
+    OK_201 = (201).to_bytes(2, "little")
+    OK_202 = (202).to_bytes(2, "little")
 
-    ERROR_400 = (400).to_bytes(2)
-    ERROR_403 = (403).to_bytes(2)
-    ERROR_404 = (404).to_bytes(2)
-    ERROR_409 = (409).to_bytes(2)
+    ERROR_400 = (400).to_bytes(2, "little")
+    ERROR_403 = (403).to_bytes(2, "little")
+    ERROR_404 = (404).to_bytes(2, "little")
+    ERROR_409 = (409).to_bytes(2, "little")
 
-    ERROR_500 = (500).to_bytes(2)
-    ERROR_507 = (507).to_bytes(2)
+    ERROR_500 = (500).to_bytes(2, "little")
+    ERROR_507 = (507).to_bytes(2, "little")
 
 
 class MovesenseTester:
