@@ -11,10 +11,10 @@ class Responses(enum.IntEnum):
 
 
 class DataTypes(enum.Enum):
-    ECG = "/Meas/ECG"
-    IMU6 = "/Meas/IMU6"
-    IMU9 = "/Meas/IMU9"
-    ACC = "/Meas/Acc"
+    ECG = "/Meas/ECG".upper()
+    IMU6 = "/Meas/IMU6".upper()
+    IMU9 = "/Meas/IMU9".upper()
+    ACC = "/Meas/Acc".upper()
 
 
 class StreamDecoder:
@@ -33,6 +33,9 @@ class StreamDecoder:
         ]
         return samples
 
+    def __call__(self, packet):
+        return self.decode_stream_packet(packet)
+
     def decode_stream_packet(self, packet):
         packet_type = Responses(packet[0])
         if packet_type == Responses.COMMAND_RESULT:
@@ -46,10 +49,12 @@ class StreamDecoder:
                 reference,
                 self.subscriptions,
             )
+            return None, None, None
 
         data_type = self.subscriptions[reference]
         split_path = data_type.split("/")
         data_type = "/".join(split_path[:-1])
+        data_type = data_type.upper()
         sampling = int(split_path[-1])
         data_type = DataTypes(data_type)
 
@@ -94,7 +99,7 @@ class StreamDecoder:
                         data_type,
                         reference,
                     )
-                self._partial_data[reference]
+                self._partial_data[reference] = packet
                 return None, None, reference
 
             elif packet_type == Responses.DATA_PART2:
@@ -112,7 +117,12 @@ class StreamDecoder:
                 self._partial_data[reference] = None
 
                 timestamp = int.from_bytes(packet[2:6], byteorder="little")
-                samples = self._unpack_vectors(packet[6:], size=6, stride=4)
+                packet = packet[6:]
+                extent = len(packet) // 2
+                acc_samples = self._unpack_vectors(packet[:extent], size=3, stride=4)
+                gyr_samples = self._unpack_vectors(packet[extent:], size=3, stride=4)
+
+                samples = list(zip(acc_samples, gyr_samples))
 
             else:
                 logging.error("Invalid packet type for %s: %s", data_type, packet_type)
