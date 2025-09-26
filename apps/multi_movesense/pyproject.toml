@@ -1,0 +1,14 @@
+[project]
+name = "multi_movesense"
+version = "0.1"
+description = "GUI for iFCH multi-Movesense recorder"
+requires-python = ">=3.12"
+dependencies = [
+    "qasync",
+    "PySide6>=6.9.2",
+    "numpy",
+    "ifch_drivers[movesense_gatt]",
+]
+
+[tool.uv.sources]
+ifch_drivers = { path = "../../drivers/", editable = true }
