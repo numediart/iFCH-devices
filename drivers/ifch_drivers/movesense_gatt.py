@@ -87,7 +87,7 @@ class MovesenseGatt:
 
     HELLO_REF = 0xFF
 
-    def __init__(self, address: str, movesense_id: str = None):
+    def __init__(self, address: str, movesense_id: str, stream_callback=None):
         self.address = address
         self.movesense_id = movesense_id
 
@@ -105,6 +105,7 @@ class MovesenseGatt:
 
         self._stream_subscribtions = {}
         self._stream_decoder = StreamDecoder(self._stream_subscribtions)
+        self._stream_callback = stream_callback
 
     async def start(self):
         self.connected.clear()
@@ -139,8 +140,6 @@ class MovesenseGatt:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
-
-        # TODO clear saved data
 
     async def _ble_loop(self):
         try:
@@ -206,12 +205,8 @@ class MovesenseGatt:
             self.connected.clear()
             self.disconnected.set()
 
-            logging.info("Disconnected from Movesense device %s", self.address)
-
     def _disconnect_handler(self, _):
-        logging.warning("Device %s disconnected", self.address)
-        self.connected.clear()
-        self.disconnected.set()
+        logging.info("Disconnected from Movesense device %s", self.address)
 
         for task in self._tasks:
             task.cancel()
@@ -228,9 +223,9 @@ class MovesenseGatt:
                 self._decode_response(data)
                 return
 
-        # TODO
-        time, samples, reference = self._stream_decoder(data)
-        logging.info((time, reference, samples))
+        if self._stream_callback:
+            decoded = self._stream_decoder(data)
+            self._stream_callback(self, decoded)
 
     def _log_notification_handler(self, _, data):
         logging.info("Log notification from %s: %s", self.address, data)

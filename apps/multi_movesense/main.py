@@ -1,5 +1,7 @@
 import asyncio
+import collections
 import contextlib
+import datetime
 import json
 import logging
 import pathlib
@@ -14,7 +16,7 @@ import qasync
 from ifch_drivers.movesense_gatt import MovesenseGatt, detect_device
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QSettings, Qt, QTimer, Slot
-from PySide6.QtGui import QFont, QPainter
+from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -39,14 +41,11 @@ class GUIState(Enum):
     DISCONNECTED = "disconnected"
     INFO = "info"
     DEVICE_SELECTION = "connected_device_selection"
-    LOGGING = "connected_logging"
     MONITORING = "connected_available"
     FORM = "form"
     WARNING = "warning"
     SUCCESS = "success"
 
-
-METADATA_FILENAME = "metadata.json"
 
 GREEN_L = "#4caf50"
 GREEN_M = "#45a148"
@@ -71,6 +70,9 @@ BLUE_D = "#3f6c91"
 GREY_L = "#b0b0b0"
 GREY_M = "#a1a1a1"
 GREY_D = "#919191"
+
+ECG_COLOR = "#CC3311"
+ACC_COLOR = "#0077BB"
 
 
 # ----------------------------------------------------------------------
@@ -345,9 +347,13 @@ class SuccessView(QWidget):
             QPushButton:pressed {{
                 background-color: {ORANGE_D};
             }}
+            QPushButton:disabled {{
+                background-color: {GREY_L};
+                color: {GREY_D};
+            }}
         """
         )
-        self.more_button.setFixedWidth(150)
+        self.more_button.setMinimumWidth(150)
         button_layout.addStretch()
         button_layout.addWidget(self.more_button)
 
@@ -368,8 +374,13 @@ class SuccessView(QWidget):
             QPushButton:pressed {{
                 background-color: {GREEN_D};
             }}
+            QPushButton:disabled {{
+                background-color: {GREY_L};
+                color: {GREY_D};
+            }}
         """
         )
+        self.monitor_button.setMinimumWidth(150)
         button_layout.addWidget(self.monitor_button)
 
         layout.addSpacing(20)
@@ -506,7 +517,7 @@ class FormView(QWidget):
         over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main = QWidget()
         over_layout.addWidget(main)
-        main.setMaximumWidth(700)
+        main.setMaximumWidth(800)
 
         layout = QVBoxLayout(main)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -551,27 +562,28 @@ class FormView(QWidget):
             """
         )
 
-        form_layout = QFormLayout(form_widget, verticalSpacing=20)
+        self.form_layout = QFormLayout(form_widget, verticalSpacing=20)
+        self.form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         # Name
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Enter name")
-        self.name_input.setStyleSheet("font-size: 16px;")
-        form_layout.addRow("Name:", self.name_input)
+        self.form_layout.addRow("Name:", self.name_input)
 
         # Notes
         self.notes_input = QTextEdit()
         self.notes_input.setPlaceholderText("Optional notes")
-        self.notes_input.setStyleSheet("font-size: 16px;")
         self.notes_input.setMaximumHeight(300)
         self.notes_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        form_layout.addRow("Notes:", self.notes_input)
+        self.form_layout.addRow("Notes:", self.notes_input)
 
         self.save_path = QLineEdit()
         self.save_path.setReadOnly(True)
-        form_layout.addRow("Save path:", self.save_path)
+        self.form_layout.addRow("Save path:", self.save_path)
 
         layout.addWidget(form_widget)
+
+        self.position_inputs = {}
 
         info_label = QLabel("You can change the output directory in Settings.")
         info_label.setStyleSheet(
@@ -628,10 +640,17 @@ class FormView(QWidget):
 
     def get_data(self) -> dict:
         """Return the current form contents as a dict."""
-        return {
+        form_data = {
             "name": self.name_input.text(),
             "notes": self.notes_input.toPlainText(),
         }
+        devices = {}
+        for movesense_id, pos_input in self.position_inputs.items():
+            pos_text = pos_input.text().strip()
+            devices[movesense_id] = pos_text
+
+        form_data["devices"] = devices
+        return form_data
 
     def clear(self):
         """Reset all fields to defaults."""
@@ -899,13 +918,75 @@ class LoggingView(QWidget):
         layout.addWidget(self.stop_button)
 
 
+class MovesenseChart(QWidget):
+    PLOT_DURATION = 10
+
+    def __init__(self, movesense_id: str):
+        super().__init__()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Create ECG line series
+        self.series_ecg = QLineSeries()
+        self.series_ecg.setName("ECG")
+        pen = self.series_ecg.pen()
+        pen.setWidth(1.5)
+        pen.setColor(QColor(ECG_COLOR))
+        self.series_ecg.setPen(pen)
+
+        chart = QChart()
+        chart.addSeries(self.series_ecg)
+        chart.setTitle(movesense_id)
+        axis_x = QValueAxis()
+        axis_x.setRange(-self.PLOT_DURATION, 0)
+        axis_x.setVisible(False)
+        self.axis_ecg = QValueAxis()
+        self.axis_ecg.setRange(-1, 1)
+        self.axis_ecg.setVisible(False)
+        self.axis_ecg.setTitleText("ECG")
+        chart.addAxis(axis_x, Qt.AlignBottom)
+        chart.addAxis(self.axis_ecg, Qt.AlignLeft)
+        chart.legend().setVisible(False)
+        self.series_ecg.attachAxis(axis_x)
+        self.series_ecg.attachAxis(self.axis_ecg)
+        chart_view = QChartView(chart)
+        chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        chart_view.setMinimumWidth(500)
+        layout.addWidget(chart_view)
+
+        # Create Acc line series
+        self.series_acc = QLineSeries()
+        self.series_acc.setName("Acc")
+        pen = self.series_acc.pen()
+        pen.setWidth(1.5)
+        pen.setColor(QColor(ACC_COLOR))
+        self.series_acc.setPen(pen)
+
+        chart = QChart()
+        chart.addSeries(self.series_acc)
+        axis_x = QValueAxis()
+        axis_x.setRange(-self.PLOT_DURATION, 0)
+        axis_x.setVisible(False)
+        self.axis_acc = QValueAxis()
+        self.axis_acc.setRange(-1, 1)  # Match your random data range
+        self.axis_acc.setVisible(False)
+        self.axis_acc.setTitleText("Acc")
+        chart.addAxis(axis_x, Qt.AlignBottom)
+        chart.addAxis(self.axis_acc, Qt.AlignLeft)
+        chart.legend().setVisible(False)
+        self.series_acc.attachAxis(axis_x)
+        self.series_acc.attachAxis(self.axis_acc)
+        chart_view = QChartView(chart)
+        chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        chart_view.setMinimumWidth(500)
+        layout.addWidget(chart_view)
+
+
 # ----------------------------------------------------------------------
 class MonitoringView(QWidget):
-    STATE_FIELDS = [
-        ("bat", "Controller battery"),
-        ("mov", "Movesense id"),
-        ("mov_bat", "Movesense battery"),
-    ]
+    # signals_selection_changed = Signal(dict)
 
     def __init__(self):
         super().__init__()
@@ -914,51 +995,11 @@ class MonitoringView(QWidget):
 
         # Left zone: live ECG plot
         self.plot_frame = QWidget()
-        plot_layout = QVBoxLayout(self.plot_frame)
+        self.plot_layout = QVBoxLayout(self.plot_frame)
 
-        # Create a line series
-        self.series = QLineSeries()
-        self.series.setName("ECG")
+        self.charts = {}
 
-        pen = self.series.pen()
-        pen.setWidth(1.5)
-        pen.setColor(Qt.red)
-        self.series.setPen(pen)
-
-        # Create chart and add series
-        self.chart = QChart()
-        self.chart.addSeries(self.series)
-
-        # Create axes with fixed ranges
-        self.axis_x = QValueAxis()
-        self.axis_x.setTitleText("Time (seconds)")
-        self.axis_x.setRange(0, 9)  # For 10 data points (0-9)
-        self.axis_x.setGridLineVisible(False)  # Hide X-axis grid lines
-        self.axis_x.setVisible(False)
-
-        self.axis_y = QValueAxis()
-        self.axis_y.setTitleText("ECG (V)")
-        self.axis_y.setRange(0, 10)  # Match your random data range
-        self.axis_y.setGridLineVisible(False)  # Hide Y-axis grid lines
-
-        # Add axes to chart
-        self.chart.addAxis(self.axis_x, Qt.AlignBottom)
-        self.chart.addAxis(self.axis_y, Qt.AlignLeft)
-
-        self.chart.legend().setVisible(False)  # Hide the legend
-
-        # Attach series to axes
-        self.series.attachAxis(self.axis_x)
-        self.series.attachAxis(self.axis_y)
-
-        # Create chart view and set as central widget
-        self.chart_view = QChartView(self.chart)
-        self.chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.chart_view.setMinimumWidth(500)
-
-        plot_layout.addWidget(self.chart_view)
-
-        # Right zone: form with fixed labels and value fields
+        # Right zone
         self.info_widget = QWidget()
         self.info_widget.setMaximumWidth(500)
         info_layout = QVBoxLayout(self.info_widget)
@@ -978,40 +1019,6 @@ class MonitoringView(QWidget):
         )
         message.setAlignment(Qt.AlignmentFlag.AlignCenter)
         info_layout.addWidget(message)
-        info_layout.addSpacing(20)
-
-        # Device information form
-        form_widget = QWidget()
-        form_widget.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 16px;
-                color: {GREY_D};
-            }}
-            """
-        )
-        form_layout = QFormLayout(form_widget)
-
-        self.fields = {}
-        for field in self.STATE_FIELDS:
-            key, label = field
-            value_label = QLabel("N/A")
-            value_label.setStyleSheet(
-                f"""
-                QLabel {{
-                    font-size: 16px;
-                    color: {GREY_D};
-                }}
-                """
-            )
-            value_label.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextSelectableByMouse
-            )
-            form_layout.addRow(f"{label}:", value_label)
-            self.fields[key] = value_label
-
-        info_layout.addWidget(form_widget)
-
         info_layout.addSpacing(20)
 
         # Start recording button
@@ -1040,6 +1047,33 @@ class MonitoringView(QWidget):
         """
         )
         info_layout.addWidget(self.start_button)
+
+        # Stop recording button
+        self.stop_button = QPushButton("STOP RECORDING")
+        self.stop_button.setMinimumHeight(60)
+        self.stop_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                font-size: 18px;
+                font-weight: bold;
+                background-color: {RED_L};
+                color: white;
+                border: none;
+                border-radius: 8px;
+            }}
+            QPushButton:hover {{
+                background-color: {RED_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {RED_D};
+            }}
+            QPushButton:disabled {{
+                background-color: {GREY_L};
+                color: {GREY_D};
+            }}
+        """
+        )
+        info_layout.addWidget(self.stop_button)
 
         info_layout.addStretch(1)
 
@@ -1072,6 +1106,20 @@ class MonitoringView(QWidget):
         main_layout.addWidget(self.plot_frame, 2.5)
         main_layout.addWidget(self.info_widget, 1)
 
+    def set_charts(self, movesense_ids):
+        """Set up the charts for the given movesense IDs."""
+        # Clear existing charts
+        for chart in self.charts.values():
+            self.plot_layout.removeWidget(chart)
+            chart.deleteLater()
+        self.charts.clear()
+
+        # Create new charts
+        for ms_id in movesense_ids:
+            chart = MovesenseChart(ms_id)
+            self.plot_layout.addWidget(chart)
+            self.charts[ms_id] = chart
+
 
 # ----------------------------------------------------------------------
 class MainWindow(QWidget):
@@ -1079,7 +1127,7 @@ class MainWindow(QWidget):
 
     def __init__(self, loop):
         super().__init__()
-        self.setWindowTitle("iFCH Holter Control")
+        self.setWindowTitle("iFCH Multi-Movesense Control")
         self.resize(1200, 675)
 
         self.current_state = GUIState.DISCONNECTED
@@ -1100,7 +1148,6 @@ class MainWindow(QWidget):
         self.disconnected_view = DisconnectedView()
         self.info_view = InfoView()
         self.device_selection_view = DeviceSelectionView()
-        self.logging_view = LoggingView()
         self.monitoring_view = MonitoringView()
         self.form_view = FormView()
         self.warning_view = WarningView()
@@ -1111,7 +1158,6 @@ class MainWindow(QWidget):
         self.stacked_widget.addWidget(self.disconnected_view)
         self.stacked_widget.addWidget(self.info_view)
         self.stacked_widget.addWidget(self.device_selection_view)
-        self.stacked_widget.addWidget(self.logging_view)
         self.stacked_widget.addWidget(self.monitoring_view)
         self.stacked_widget.addWidget(self.form_view)
         self.stacked_widget.addWidget(self.warning_view)
@@ -1151,8 +1197,8 @@ class MainWindow(QWidget):
         main_layout.addWidget(self.settings_stack)
 
         # Connect signals
-        self.logging_view.stop_button.clicked.connect(self.handle_stop_logging)
         self.monitoring_view.start_button.clicked.connect(self.handle_start_logging)
+        self.monitoring_view.stop_button.clicked.connect(self.handle_stop_logging)
         self.monitoring_view.switch_button.clicked.connect(self.handle_device_switch)
         self.device_selection_view.connect_button.clicked.connect(
             self.handle_device_connect
@@ -1167,22 +1213,24 @@ class MainWindow(QWidget):
         self.warning_view.cancel_button.clicked.connect(self.handle_error_ok)
         self.warning_view.ok_button.clicked.connect(self.handle_warning_ok)
 
-        self.success_view.more_button.clicked.connect(self.handle_device_refresh)
-        self.success_view.monitor_button.clicked.connect(self.handle_monitor)
+        self.success_view.more_button.clicked.connect(self.handle_success_more)
+        self.success_view.monitor_button.clicked.connect(self.handle_success_monitor)
 
         settings_button.clicked.connect(self.handle_settings)
         self.settings_view.close_button.clicked.connect(self.handle_settings_close)
         self.settings_view.browse_btn.clicked.connect(self.select_output_dir)
 
         self._warning_ok_cb = None
+        self._success_monitor_cb = None
+        self._success_more_cb = None
 
         # Load settings
-        self.settings = QSettings("UMONS", "iFCH-logger")
+        self.settings = QSettings("UMONS", "iFCH-multi-movesense")
         self.update_settings()
 
         # Timer to update the live plot (only active in monitoring view)
         self.plot_timer = QTimer(self)
-        self.plot_timer.timeout.connect(self.poll_ecg_data)
+        self.plot_timer.timeout.connect(self.poll_stream_data)
         self.plot_timer.start(30)
 
         # Non UI related stuff
@@ -1216,31 +1264,43 @@ class MainWindow(QWidget):
             self.device_selection_view.refresh_button.setEnabled(True)
             self.stacked_widget.setCurrentIndex(3)  # Show device selection view
 
-        elif new_state == GUIState.LOGGING:
-            self.logging_view.stop_button.setEnabled(True)
-            self.stacked_widget.setCurrentIndex(4)  # Show logging view
-
         elif new_state == GUIState.MONITORING:
-            self.reset_graph()
+            self.monitoring_view.stop_button.setEnabled(False)
+            self.monitoring_view.stop_button.setVisible(False)
             self.monitoring_view.start_button.setEnabled(True)
+            self.monitoring_view.start_button.setVisible(True)
             self.monitoring_view.switch_button.setEnabled(True)
-            self.stacked_widget.setCurrentIndex(5)  # Show monitoring view
+            self.stacked_widget.setCurrentIndex(4)  # Show monitoring view
 
         elif new_state == GUIState.FORM:
             self.form_view.clear()
+
+            # First remove all existing position input fields
+            for inform in self.form_view.position_inputs:
+                self.form_view.form_layout.removeRow(inform)
+            self.form_view.position_inputs.clear()
+
+            for device in self.backend.devices:
+                pos_input = QLineEdit()
+                pos_input.setPlaceholderText("Position")
+                self.form_view.form_layout.insertRow(
+                    1, f"{device.movesense_id}:", pos_input
+                )
+                self.form_view.position_inputs[device.movesense_id] = pos_input
+
             self.form_view.save_button.setEnabled(False)
             self.form_view.name_input.setEnabled(True)
             self.form_view.notes_input.setEnabled(True)
-            self.stacked_widget.setCurrentIndex(6)  # Show form view
+            self.stacked_widget.setCurrentIndex(5)  # Show form view
 
         elif new_state == GUIState.WARNING:
             self.warning_view.ok_button.setEnabled(True)
-            self.stacked_widget.setCurrentIndex(7)  # Show warning view
+            self.stacked_widget.setCurrentIndex(6)  # Show warning view
 
         elif new_state == GUIState.SUCCESS:
             self.success_view.more_button.setEnabled(True)
             self.success_view.monitor_button.setEnabled(True)
-            self.stacked_widget.setCurrentIndex(8)  # Show success view
+            self.stacked_widget.setCurrentIndex(7)  # Show success view
 
     @Slot()
     def select_output_dir(self):
@@ -1284,22 +1344,36 @@ class MainWindow(QWidget):
         self.device_selection_view.monitor_button.setEnabled(False)
         self.device_selection_view.refresh_button.setEnabled(False)
 
-        self.success_view.more_button.setEnabled(False)
-        self.success_view.monitor_button.setEnabled(False)
-
         asyncio.create_task(self.backend.refresh_devices())
 
     @Slot()
     def handle_monitor(self):
         """Handle monitor button in success view or selection view"""
-        self.success_view.more_button.setEnabled(False)
-        self.success_view.monitor_button.setEnabled(False)
-
         self.device_selection_view.connect_button.setEnabled(False)
         self.device_selection_view.monitor_button.setEnabled(False)
         self.device_selection_view.refresh_button.setEnabled(False)
 
         asyncio.create_task(self.backend.start_monitoring())
+
+    @Slot()
+    def handle_success_more(self):
+        self.success_view.more_button.setEnabled(False)
+        self.success_view.monitor_button.setEnabled(False)
+
+        if self._success_more_cb:
+            asyncio.create_task(self._success_more_cb())
+        else:
+            asyncio.create_task(self.backend.refresh_devices())
+
+    @Slot()
+    def handle_success_monitor(self):
+        self.success_view.more_button.setEnabled(False)
+        self.success_view.monitor_button.setEnabled(False)
+
+        if self._success_monitor_cb:
+            asyncio.create_task(self._success_monitor_cb())
+        else:
+            asyncio.create_task(self.backend.start_monitoring())
 
     @Slot()
     def handle_device_switch(self):
@@ -1318,7 +1392,7 @@ class MainWindow(QWidget):
     @Slot()
     def handle_stop_logging(self):
         """Handle stop logging button"""
-        self.logging_view.stop_button.setEnabled(False)
+        self.monitoring_view.stop_button.setEnabled(False)
         asyncio.create_task(self.backend.stop_logging())
 
     @Slot()
@@ -1374,26 +1448,33 @@ class MainWindow(QWidget):
                 logging.warning("Some tasks did not cancel within timeout")
 
     @Slot()
-    def poll_ecg_data(self):
+    def poll_stream_data(self):
         # Only update plot if we're in monitoring view
-        if (
-            self.current_state != GUIState.MONITORING
-            or self.backend.device is None
-            or len(self.backend.device.plot_x) == 0
-        ):
+        if self.current_state != GUIState.MONITORING:
             return
 
         t = time.time()
-        x_time = np.asarray(self.backend.device.plot_x) - t
-        y_ecg = np.asarray(self.backend.device.plot_y)
-        self.monitoring_view.series.replaceNp(x_time.astype(float), y_ecg.astype(float))
 
-        maxY = np.max(np.abs(y_ecg))
-        self.monitoring_view.axis_y.setRange(-maxY, maxY)
-        self.monitoring_view.axis_x.setRange(-10, 0)
+        for ms_id, chart in self.monitoring_view.charts.items():
+            ecg_data = np.asarray(self.backend.ecg_data[ms_id])
+            if len(ecg_data) != 0:
+                x_time = ecg_data[:, 0] - t
+                samples = ecg_data[:, 1]
+                chart.series_ecg.replaceNp(x_time.astype(float), samples.astype(float))
+                max_ecg = np.abs(samples).max()
+                chart.axis_ecg.setRange(-max_ecg, max_ecg)
 
-    def reset_graph(self):
-        self.monitoring_view.series.clear()
+            imu_data = [
+                (time, *acc) for time, (acc, gyro) in self.backend.imu_data[ms_id]
+            ]
+            imu_data = np.asarray(imu_data)
+
+            if len(imu_data) != 0:
+                x_time = imu_data[:, 0] - t
+                y_acc = imu_data[:, 3]
+
+                chart.series_acc.replaceNp(x_time.astype(float), y_acc.astype(float))
+                chart.axis_acc.setRange(y_acc.min(), y_acc.max())
 
     def update_error_status(self, title, message):
         """Update the error view with a title and message"""
@@ -1409,6 +1490,23 @@ class MainWindow(QWidget):
         self.warning_view.status_label.setText(message)
         self.warning_view.ok_button.setText(ok_text)
         self.warning_view.cancel_button.setVisible(show_cancel)
+
+    def update_success_status(
+        self,
+        title,
+        message,
+        left_text="Add devices",
+        left_cb=None,
+        right_text="Start monitoring",
+        right_cb=None,
+    ):
+        """Update the warning view with a title and message"""
+        self._success_more_cb = left_cb
+        self._success_monitor_cb = right_cb
+        self.success_view.message.setText(title)
+        self.success_view.status_label.setText(message)
+        self.success_view.more_button.setText(left_text)
+        self.success_view.monitor_button.setText(right_text)
 
     def show_device_selection(self):
         self.device_selection_view.set_devices(self.backend.available_devices)
@@ -1499,7 +1597,7 @@ class MainWindow(QWidget):
 
             self.update_info_status(
                 "Shutting down...",
-                "Please wait while we clean up resources. This may take a few seconds.",
+                "Disconnecting all devices, this may take a few seconds.",
             )
             self.update_ui_state(GUIState.INFO)
 
@@ -1519,11 +1617,15 @@ class MainWindow(QWidget):
 
 # ----------------------------------------------------------------------
 class Backend:
+    SENSOR_PATHS = ["/Meas/ECG/200", "/Meas/IMU6/208"]
+    PLOT_DURATION = 10
+
     def __init__(self, ui: "MainWindow"):
         self.ui = ui
         self.available_devices: list[str] = []
 
         self.devices: list[MovesenseGatt] = []
+        self._logging = False
 
         # Actor machinery
         self._cmd_q: asyncio.Queue[Any] = asyncio.Queue()
@@ -1532,6 +1634,69 @@ class Backend:
         # Timers/watchers that only enqueue messages (no I/O)
         self._timers: set[asyncio.Task] = set()
         self._disconnect_watchers: list[asyncio.Task] = []
+
+        self.ecg_data = {}
+        self.imu_data = {}
+        self.time_origins = {}
+
+        self.ecg_log = {}
+        self.acc_log = {}
+        self.gyro_log = {}
+
+    def stream_callback(self, device: MovesenseGatt, data):
+        timestamps, samples, path = data
+        if timestamps is not None and samples is not None:
+            if device.movesense_id not in self.time_origins:
+                self.time_origins[device.movesense_id] = time.time() - timestamps[0]
+
+            origin = self.time_origins[device.movesense_id]
+
+            sensor = path.split("/")[2]
+
+            if self._logging:
+                if sensor == "ECG":
+                    s_array = np.asarray(samples)
+                    s_array = np.round(s_array / 0.38147e-6)
+                    s_array = s_array.astype(int).tolist()
+                    ecg_sample = {
+                        "ecg": {
+                            "Timestamp": int(timestamps[0] * 1000),
+                            "Samples": s_array,
+                        }
+                    }
+                    self.ecg_log[device.movesense_id].append(ecg_sample)
+
+                elif sensor == "IMU6":
+                    gyro_sample = {
+                        "gyroscope": {
+                            "Timestamp": int(timestamps[0] * 1000),
+                            "ArrayGyro": [],
+                        }
+                    }
+                    acc_sample = {
+                        "acc": {
+                            "Timestamp": int(timestamps[0] * 1000),
+                            "ArrayAcc": [],
+                        }
+                    }
+
+                    for acc, gyro in samples:
+                        acc_sample["acc"]["ArrayAcc"].append(
+                            {"x": acc[0], "y": acc[1], "z": acc[2]}
+                        )
+                        gyro_sample["gyroscope"]["ArrayGyro"].append(
+                            {"x": gyro[0], "y": gyro[1], "z": gyro[2]}
+                        )
+
+                    self.acc_log[device.movesense_id].append(acc_sample)
+                    self.gyro_log[device.movesense_id].append(gyro_sample)
+
+            timestamps = [t + origin for t in timestamps]
+
+            if sensor == "ECG":
+                self.ecg_data[device.movesense_id].extend(zip(timestamps, samples))
+            elif sensor == "IMU6":
+                self.imu_data[device.movesense_id].extend(zip(timestamps, samples))
 
     async def run(self):
         """Start the actor and bootstrap probing."""
@@ -1568,6 +1733,10 @@ class Backend:
         if self.devices:
             await asyncio.gather(*[device.stop() for device in self.devices])
             self.devices = None
+
+        self.ecg_data.clear()
+        self.imu_data.clear()
+        self.time_origins.clear()
 
     # ---- Public API (GUI calls) -> commands enqueued -------------------
 
@@ -1631,37 +1800,6 @@ class Backend:
                     "Internal error", f"Exception in {str(cmd)}: {str(e)}"
                 )
 
-    async def add_device(self, address: str, device_id: str):
-        device = MovesenseGatt(address, device_id)
-        success = await device.start()
-
-        if not success:
-            logging.warning("Failed to connect to device %s (%s)", device_id, address)
-            return False
-
-        self.devices.append(device)
-
-        # Watch for physical disconnect; only enqueues CmdOnDisconnected
-
-        async def _watch_disconnect():
-            try:
-                await device.disconnected.wait()
-            except Exception:
-                pass
-
-            await self.disconnect()
-
-        disconnect_watch = asyncio.create_task(_watch_disconnect())
-        self._disconnect_watchers.append(disconnect_watch)
-
-        return True
-
-    async def disconnect(self):
-        """Disconnect from the device and reset state."""
-
-        self.clear_commands()
-        await self.queue_command(CmdOnDisconnected())
-
     async def queue_command(self, cmd: Any):
         """Enqueue a command to be processed by the actor."""
         await self._cmd_q.put(cmd)
@@ -1691,6 +1829,11 @@ class Backend:
         self.devices = []
         self.ui.prevent_close = False
 
+        self.ecg_data.clear()
+        self.imu_data.clear()
+        self.time_origins.clear()
+        self._logging = False
+
     def schedule_after(self, delay: float, cmd: Any):
         """Schedule a one-shot task that enqueues cmd after delay."""
 
@@ -1719,6 +1862,66 @@ class Backend:
 
         await self.clear_state()
         self.clear_commands()
+
+    async def add_device(self, address: str, device_id: str):
+        device = MovesenseGatt(address, device_id, self.stream_callback)
+        success = await device.start()
+
+        if not success:
+            logging.warning("Failed to connect to device %s (%s)", device_id, address)
+            return False
+
+        self.devices.append(device)
+
+        # Watch for physical disconnect; only enqueues CmdOnDisconnected
+
+        async def _watch_disconnect():
+            try:
+                await device.disconnected.wait()
+            except Exception:
+                pass
+
+            await self.disconnect()
+
+        disconnect_watch = asyncio.create_task(_watch_disconnect())
+        self._disconnect_watchers.append(disconnect_watch)
+
+        self.ecg_data[device_id] = collections.deque(maxlen=self.PLOT_DURATION * 200)
+        self.imu_data[device_id] = collections.deque(maxlen=self.PLOT_DURATION * 208)
+
+        return True
+
+    async def disconnect(self):
+        """Disconnect from the device and reset state."""
+
+        self.clear_commands()
+        await self.queue_command(CmdOnDisconnected())
+
+    async def start_monitoring(self):
+        await self.queue_command(CmdMonitor())
+
+    async def start_logging(self):
+        # Prepare logs
+        self.acc_log = {}
+        for device in self.devices:
+            self.acc_log[device.movesense_id] = []
+        self.gyro_log = {}
+        for device in self.devices:
+            self.gyro_log[device.movesense_id] = []
+        self.ecg_log = {}
+        for device in self.devices:
+            self.ecg_log[device.movesense_id] = []
+
+        await self.queue_command(CmdStartLogging())
+
+    async def stop_logging(self):
+        await self.queue_command(CmdStopLogging())
+
+    async def save_record(self, form_data: dict):
+        await self.queue_command(CmdSaveRecord(metadata=form_data))
+
+    async def resume_monitoring(self):
+        self.ui.update_ui_state(GUIState.MONITORING)
 
 
 # Internal command types
@@ -1780,6 +1983,112 @@ class CmdConnect:
             back.ui.update_ui_state(GUIState.WARNING)
             return
 
+        back.ui.update_success_status(
+            "Connection successful!",
+            "You can add more devices or start monitoring.",
+            "Add devices",
+            back.refresh_devices,
+            "Start monitoring",
+            back.start_monitoring,
+        )
+        back.ui.update_ui_state(GUIState.SUCCESS)
+
+
+@dataclass
+class CmdMonitor:
+    async def handle(self, back: Backend):
+        if not back.devices:
+            raise RuntimeError("CmdMonitor: No device connected")
+
+        for device in back.devices:
+            for path in back.SENSOR_PATHS:
+                success = await device.subscribe(path)
+                if not success:
+                    await back.show_error(
+                        "Subscription error",
+                        f"Failed to subscribe to {path} on device {device.address}.",
+                    )
+                    return
+
+        back.ui.monitoring_view.set_charts(
+            [device.movesense_id for device in back.devices]
+        )
+        back.ui.update_ui_state(GUIState.MONITORING)
+
+
+@dataclass
+class CmdStartLogging:
+    async def handle(self, back: Backend):
+        if not back.devices:
+            raise RuntimeError("CmdStartLogging: No device connected")
+
+        back.ui.prevent_close = True
+        back._logging = True
+
+        back.ui.monitoring_view.stop_button.setEnabled(True)
+        back.ui.monitoring_view.start_button.setVisible(False)
+        back.ui.monitoring_view.stop_button.setVisible(True)
+
+
+@dataclass
+class CmdStopLogging:
+    async def handle(self, back: Backend):
+        if not back.devices:
+            raise RuntimeError("CmdStopLogging: No device connected")
+        if not back._logging:
+            raise RuntimeError("CmdStopLogging: Not currently logging")
+
+        back._logging = False
+
+        back.ui.update_ui_state(GUIState.FORM)
+
+
+@dataclass
+class CmdSaveRecord:
+    metadata: dict
+
+    async def handle(self, back: Backend):
+        if back._logging:
+            raise RuntimeError("CmdSaveRecord: Still logging")
+
+        back.ui.update_info_status("Saving record", "Please wait...")
+        back.ui.update_ui_state(GUIState.INFO)
+
+        # Save data to files
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        output_dir = (
+            pathlib.Path(back.ui.settings.value("output_dir", type=str)).absolute()
+            / timestamp
+        )
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        with open(output_dir / "metadata.json", "w") as f:
+            json.dump(self.metadata, f, indent=4)
+
+        for device in back.devices:
+            with open(output_dir / f"{device.movesense_id}_ecg_stream.json", "w") as f:
+                data_dict = {"data": back.ecg_log[device.movesense_id]}
+                json.dump(data_dict, f)
+
+            with open(output_dir / f"{device.movesense_id}_acc_stream.json", "w") as f:
+                data_dict = {"data": back.acc_log[device.movesense_id]}
+                json.dump(data_dict, f)
+
+            with open(output_dir / f"{device.movesense_id}_gyro_stream.json", "w") as f:
+                data_dict = {"data": back.gyro_log[device.movesense_id]}
+                json.dump(data_dict, f)
+
+        back.ui.prevent_close = False
+
+        back.ui.update_success_status(
+            "Record saved",
+            "You can connect other devices or go back to monitoring.",
+            "Switch devices",
+            back.disconnect,
+            "Back to monitoring",
+            back.resume_monitoring,
+        )
         back.ui.update_ui_state(GUIState.SUCCESS)
 
 
@@ -1805,5 +2114,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-    # TODO enhancement: have an interface for advanced manual download
