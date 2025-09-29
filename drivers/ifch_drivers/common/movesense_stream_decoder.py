@@ -51,21 +51,21 @@ class StreamDecoder:
             )
             return None, None, None
 
-        data_type = self.subscriptions[reference]
-        split_path = data_type.split("/")
+        sensor_path = self.subscriptions[reference]
+        split_path = sensor_path.split("/")
         data_type = "/".join(split_path[:-1])
         data_type = data_type.upper()
         sampling = int(split_path[-1])
         data_type = DataTypes(data_type)
 
         logging.debug(
-            "Decoding stream packet: type=%s, reference=%s, data_type=%s",
+            "Decoding stream packet: type=%s, sensor_path=%s, data_type=%s",
             packet_type,
-            reference,
+            sensor_path,
             data_type,
         )
 
-        time, samples, reference = None, None, reference
+        time, samples, sensor_path = None, None, sensor_path
 
         if data_type == DataTypes.ECG:
             if packet_type != Responses.DATA:
@@ -95,22 +95,22 @@ class StreamDecoder:
             if packet_type == Responses.DATA:
                 if self._partial_data[reference] is not None:
                     logging.warning(
-                        "%s: DATA_PART2 never arrived for reference %s, discarding partial",
+                        "%s: DATA_PART2 never arrived for sensor_path %s, discarding partial",
                         data_type,
-                        reference,
+                        sensor_path,
                     )
                 self._partial_data[reference] = packet
-                return None, None, reference
+                return None, None, sensor_path
 
             elif packet_type == Responses.DATA_PART2:
                 part_1 = self._partial_data[reference]
                 if part_1 is None:
                     logging.warning(
-                        "%s: DATA_PART_2 without DATA for reference %s",
+                        "%s: DATA_PART_2 without DATA for sensor_path %s",
                         data_type,
-                        reference,
+                        sensor_path,
                     )
-                    return None, None, reference
+                    return None, None, sensor_path
 
                 # Reconstruct full packet
                 packet = part_1 + packet[2:]
@@ -133,4 +133,4 @@ class StreamDecoder:
         if samples is not None and timestamp is not None:
             time = [timestamp / 1000 + i / sampling for i in range(len(samples))]
 
-        return time, samples, reference
+        return time, samples, sensor_path

@@ -599,17 +599,15 @@ class ESPLogger:
             # await next notification from the queue
             payload = await self.proto.notif_queue.get()
 
-            timestamps, samples, ref = self.decoder.decode_stream_packet(payload)
+            timestamps, samples, path = self.decoder.decode_stream_packet(payload)
 
             if self.time_start == -1 and timestamps is not None:
                 self.time_start = time.time() - timestamps[0]
 
-            if ref == 1:
+            if path.split("/")[2] == "ECG":
                 timestamps = [t + self.time_start for t in timestamps]
                 self.plot_x.extend(timestamps)
                 self.plot_y.extend(samples)
-
-                # TODO enhancement: signal filtering
 
     async def scan(self, retries=5, filter_movesense=True):
         scanned = set()
