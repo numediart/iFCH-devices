@@ -899,8 +899,8 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
             uint8_t ackMsg[8];
             ackMsg[0] = Responses::COMMAND_RESULT;
             ackMsg[1] = mLogFetchReference;
-            ackMsg[2] = Status::SUCCESS;
-            ackMsg[3] = Codes::OK;
+            ackMsg[2] = Codes::OK;
+            ackMsg[3] = Status::SUCCESS;
             memcpy(&ackMsg[4], &mLogFetchDataSent, sizeof(mLogFetchDataSent));
 
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
@@ -939,8 +939,8 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         uint8_t stateMsg[5];
         stateMsg[0] = Responses::COMMAND_RESULT;
         stateMsg[1] = mGetLoggingReference;
-        stateMsg[2] = Status::SUCCESS;
-        stateMsg[3] = Codes::OK;
+        stateMsg[2] = Codes::OK;
+        stateMsg[3] = Status::SUCCESS;
 
         stateMsg[4] = (uint8_t)mDataLoggerState;
 
@@ -1007,8 +1007,8 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
             uint8_t ackMsg[8];
             ackMsg[0] = Responses::COMMAND_RESULT;
             ackMsg[1] = mLogListReference;
-            ackMsg[2] = Status::SUCCESS;
-            ackMsg[3] = Codes::OK;
+            ackMsg[2] = Codes::OK;
+            ackMsg[3] = Status::SUCCESS;
             memcpy(&ackMsg[4], &mLogListDataSent, sizeof(mLogListDataSent));
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
 
@@ -1043,8 +1043,8 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         timeMsg[0] = Responses::COMMAND_RESULT;
         timeMsg[1] = mGetTimeReference;
-        timeMsg[2] = Status::SUCCESS;
-        timeMsg[3] = Codes::OK;
+        timeMsg[2] = Codes::OK;
+        timeMsg[3] = Status::SUCCESS;
 
         uint32_t relTime = time.relativeTime;
         memcpy(&timeMsg[4], &relTime, 4);
@@ -1079,8 +1079,8 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         responseMsg[0] = Responses::COMMAND_RESULT;
         responseMsg[1] = mGetBatteryReference;
-        responseMsg[2] = Status::SUCCESS;
-        responseMsg[3] = Codes::OK;
+        responseMsg[2] = Codes::OK;
+        responseMsg[3] = Status::SUCCESS;
 
         memcpy(&responseMsg[4], &battery, 1);
 
