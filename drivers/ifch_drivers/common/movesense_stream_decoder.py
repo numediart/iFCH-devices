@@ -17,7 +17,7 @@ class DataTypes(enum.Enum):
     ACC = "/Meas/Acc".upper()
 
 
-class StreamDecoder:
+class MovesenseStreamDecoder:
     def __init__(self, subscriptions: dict | list):
         if isinstance(subscriptions, list):
             subscriptions = {

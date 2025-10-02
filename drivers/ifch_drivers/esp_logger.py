@@ -12,7 +12,7 @@ import zlib
 import serial.tools.list_ports
 import serial_asyncio
 
-from .common.movesense_stream_decoder import StreamDecoder
+from .common.movesense_stream_decoder import MovesenseStreamDecoder
 from .common.utils import BoundedQueue
 
 
@@ -558,7 +558,7 @@ class ESPLogger:
             "MovesenseID": None,
         }
 
-        self.decoder = StreamDecoder(self.config["sensorPaths"])
+        self.decoder = MovesenseStreamDecoder(self.config["sensorPaths"])
 
     def set_address(self, address: str, movesense_id: str):
         self.config["address"] = address

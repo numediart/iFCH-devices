@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import bleak
 
-from .common.movesense_stream_decoder import StreamDecoder
+from .common.movesense_stream_decoder import MovesenseStreamDecoder
 from .common.utils import BoundedQueue
 
 
@@ -104,7 +104,7 @@ class MovesenseGatt:
         self._is_ifch_firmware = True
 
         self._stream_subscribtions = {}
-        self._stream_decoder = StreamDecoder(self._stream_subscribtions)
+        self._stream_decoder = MovesenseStreamDecoder(self._stream_subscribtions)
         self._stream_callback = stream_callback
 
     async def start(self):
