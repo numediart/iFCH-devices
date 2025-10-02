@@ -596,12 +596,12 @@ class ESPLogger:
             # await next notification from the queue
             payload = await self.proto.notif_queue.get()
 
-            timestamps, samples, path = self.decoder.decode_stream_packet(payload)
+            timestamps, samples, sensor = self.decoder.decode_stream_packet(payload)
 
             if self.time_start == -1 and timestamps is not None:
                 self.time_start = time.time() * 1000 - timestamps[0]
 
-            if path.split("/")[2] == "ECG":
+            if sensor == "ECG":
                 timestamps = [t + self.time_start for t in timestamps]
                 self.plot_x.extend(timestamps)
                 self.plot_y.extend(samples)

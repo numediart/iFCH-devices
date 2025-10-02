@@ -16,6 +16,14 @@ class DataTypes(enum.Enum):
     IMU9 = "/Meas/IMU9".upper()
     ACC = "/Meas/Acc".upper()
 
+    @classmethod
+    def from_path(cls, path):
+        split_path = path.split("/")
+        sampling = int(split_path[-1])
+        data_type = "/".join(split_path[:-1])
+        data_type = data_type.upper()
+        return cls(data_type), sampling
+
 
 class MovesenseStreamDecoder:
     def __init__(self, subscriptions: dict | list):
@@ -57,11 +65,7 @@ class MovesenseStreamDecoder:
             return None, None, None
 
         sensor_path = self.subscriptions[reference]
-        split_path = sensor_path.split("/")
-        data_type = "/".join(split_path[:-1])
-        data_type = data_type.upper()
-        sampling = int(split_path[-1])
-        data_type = DataTypes(data_type)
+        data_type, sampling = DataTypes.from_path(sensor_path)
 
         logging.debug(
             "Decoding stream packet: type=%s, sensor_path=%s, data_type=%s",
@@ -137,4 +141,4 @@ class MovesenseStreamDecoder:
         if samples is not None and timestamp is not None:
             time = [timestamp + 1000 * i / sampling for i in range(len(samples))]
 
-        return time, samples, sensor_path
+        return time, samples, data_type.name

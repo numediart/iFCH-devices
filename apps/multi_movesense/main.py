@@ -1652,7 +1652,7 @@ class Backend:
         self.gyro_log = {}
 
     def stream_callback(self, device: MovesenseGatt, data):
-        timestamps, samples, path = data
+        timestamps, samples, sensor = data
         if timestamps is not None and samples is not None:
             if device.movesense_id not in self.time_origins:
                 self.time_origins[device.movesense_id] = (
@@ -1661,7 +1661,6 @@ class Backend:
 
             origin = self.time_origins[device.movesense_id]
 
-            sensor = path.split("/")[2]
             if self._logging:
                 if sensor == "ECG":
                     s_array = np.asarray(samples)
