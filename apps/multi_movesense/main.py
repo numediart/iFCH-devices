@@ -1280,13 +1280,21 @@ class MainWindow(QWidget):
                 self.form_view.form_layout.removeRow(inform)
             self.form_view.position_inputs.clear()
 
-            for device in self.backend.devices:
+            for idx, device in enumerate(self.backend.devices):
                 pos_input = QLineEdit()
                 pos_input.setPlaceholderText("Position")
                 self.form_view.form_layout.insertRow(
-                    1, f"{device.movesense_id}:", pos_input
+                    1 + idx, f"{device.movesense_id}:", pos_input
                 )
                 self.form_view.position_inputs[device.movesense_id] = pos_input
+
+                # Set tab order
+                if idx == 0:
+                    self.form_view.setTabOrder(self.form_view.name_input, pos_input)
+                else:
+                    self.form_view.setTabOrder(
+                        self.form_view.position_inputs[idx - 1], pos_input
+                    )
 
             self.form_view.save_button.setEnabled(False)
             self.form_view.name_input.setEnabled(True)
@@ -1952,8 +1960,12 @@ class CmdScanBLE:
         try:
             found = await detect_device()
         except Exception as e:
-            logging.warning("BLE scan failed: %s", e)
-            found = []
+            logging.warning("BLE scan error: %s", e)
+            await back.show_error(
+                "Bluetooth error",
+                "Please ensure Bluetooth is enabled on your system.",
+            )
+            return
 
         if found or not self.repeat:
             back.available_devices = found
