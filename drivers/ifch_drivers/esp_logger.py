@@ -558,11 +558,7 @@ class ESPLogger:
             "MovesenseID": None,
         }
 
-        subscriptions = {}
-        for index, path in enumerate(self.config["sensorPaths"]):
-            subscriptions[index + 1] = path
-
-        self.decoder = StreamDecoder(subscriptions)
+        self.decoder = StreamDecoder(self.config["sensorPaths"])
 
     def set_address(self, address: str, movesense_id: str):
         self.config["address"] = address
@@ -595,6 +591,7 @@ class ESPLogger:
         logging.debug("Device service stopped")
 
     async def process_notifications(self):
+        # TODO move this to the app using a callback
         while True:
             # await next notification from the queue
             payload = await self.proto.notif_queue.get()
@@ -602,7 +599,7 @@ class ESPLogger:
             timestamps, samples, path = self.decoder.decode_stream_packet(payload)
 
             if self.time_start == -1 and timestamps is not None:
-                self.time_start = time.time() - timestamps[0]
+                self.time_start = time.time() * 1000 - timestamps[0]
 
             if path.split("/")[2] == "ECG":
                 timestamps = [t + self.time_start for t in timestamps]

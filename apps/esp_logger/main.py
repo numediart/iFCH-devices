@@ -797,6 +797,7 @@ class MonitoringView(QWidget):
         ("mov", "Movesense id"),
         ("mov_bat", "Movesense battery"),
     ]
+    PLOT_DURATION = 10
 
     def __init__(self):
         super().__init__()
@@ -823,13 +824,13 @@ class MonitoringView(QWidget):
         # Create axes with fixed ranges
         self.axis_x = QValueAxis()
         self.axis_x.setTitleText("Time (seconds)")
-        self.axis_x.setRange(0, 9)  # For 10 data points (0-9)
+        self.axis_x.setRange(-self.PLOT_DURATION, 0)
         self.axis_x.setGridLineVisible(False)  # Hide X-axis grid lines
         self.axis_x.setVisible(False)
 
         self.axis_y = QValueAxis()
         self.axis_y.setTitleText("ECG (V)")
-        self.axis_y.setRange(0, 10)  # Match your random data range
+        self.axis_y.setRange(-1, 1)
         self.axis_y.setGridLineVisible(False)  # Hide Y-axis grid lines
 
         # Add axes to chart
@@ -1240,13 +1241,12 @@ class MainWindow(QWidget):
             return
 
         t = time.time()
-        x_time = np.asarray(self.backend.device.plot_x) - t
-        y_ecg = np.asarray(self.backend.device.plot_y)
+        x_time = np.asarray(self.backend.device.plot_x) / 1000 - t
+        y_ecg = np.asarray(self.backend.device.plot_y) * 0.38147e-6
         self.monitoring_view.series.replaceNp(x_time.astype(float), y_ecg.astype(float))
 
         maxY = np.max(np.abs(y_ecg))
         self.monitoring_view.axis_y.setRange(-maxY, maxY)
-        self.monitoring_view.axis_x.setRange(-10, 0)
 
     def reset_graph(self):
         self.monitoring_view.series.clear()

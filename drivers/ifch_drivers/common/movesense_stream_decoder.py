@@ -18,7 +18,12 @@ class DataTypes(enum.Enum):
 
 
 class StreamDecoder:
-    def __init__(self, subscriptions: dict):
+    def __init__(self, subscriptions: dict | list):
+        if isinstance(subscriptions, list):
+            subscriptions = {
+                ref: path for ref, path in enumerate(subscriptions, start=1)
+            }
+
         self.subscriptions = subscriptions
         self._partial_data = defaultdict(lambda: None)
 
@@ -78,7 +83,7 @@ class StreamDecoder:
                 stride = 4
 
                 samples = [
-                    struct.unpack("<i", packet[i : i + stride])[0] * 0.38147e-6
+                    struct.unpack("<i", packet[i : i + stride])[0]
                     for i in range(0, len(packet), stride)
                 ]
 
@@ -91,7 +96,6 @@ class StreamDecoder:
                 samples = self._unpack_vectors(packet[6:], size=3, stride=4)
 
         elif data_type == DataTypes.IMU6:
-            # IMU6 arrive en deux parties : DATA (part1) puis DATA_PART2 (part2)
             if packet_type == Responses.DATA:
                 if self._partial_data[reference] is not None:
                     logging.warning(
@@ -131,6 +135,6 @@ class StreamDecoder:
             logging.warning("Stream decoding of %s not implemented.", data_type)
 
         if samples is not None and timestamp is not None:
-            time = [timestamp / 1000 + i / sampling for i in range(len(samples))]
+            time = [timestamp + 1000 * i / sampling for i in range(len(samples))]
 
         return time, samples, sensor_path

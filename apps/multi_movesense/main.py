@@ -940,7 +940,7 @@ class MovesenseChart(QWidget):
         chart.addSeries(self.series_ecg)
         chart.setTitle(movesense_id)
         axis_x = QValueAxis()
-        axis_x.setRange(-self.PLOT_DURATION, 0)
+        axis_x.setRange(-self.PLOT_DURATION * 1000, 0)
         axis_x.setVisible(False)
         self.axis_ecg = QValueAxis()
         self.axis_ecg.setRange(-1, 1)
@@ -967,7 +967,7 @@ class MovesenseChart(QWidget):
         chart = QChart()
         chart.addSeries(self.series_acc)
         axis_x = QValueAxis()
-        axis_x.setRange(-self.PLOT_DURATION, 0)
+        axis_x.setRange(-self.PLOT_DURATION * 1000, 0)
         axis_x.setVisible(False)
         self.axis_acc = QValueAxis()
         self.axis_acc.setRange(-1, 1)  # Match your random data range
@@ -1453,7 +1453,7 @@ class MainWindow(QWidget):
         if self.current_state != GUIState.MONITORING:
             return
 
-        t = time.time()
+        t = time.time() * 1000
 
         for ms_id, chart in self.monitoring_view.charts.items():
             ecg_data = np.asarray(self.backend.ecg_data[ms_id])
@@ -1647,20 +1647,21 @@ class Backend:
         timestamps, samples, path = data
         if timestamps is not None and samples is not None:
             if device.movesense_id not in self.time_origins:
-                self.time_origins[device.movesense_id] = time.time() - timestamps[0]
+                self.time_origins[device.movesense_id] = (
+                    time.time() * 1000 - timestamps[0]
+                )
 
             origin = self.time_origins[device.movesense_id]
 
             sensor = path.split("/")[2]
-
             if self._logging:
                 if sensor == "ECG":
                     s_array = np.asarray(samples)
-                    s_array = np.round(s_array / 0.38147e-6)
+                    s_array = np.round(s_array)
                     s_array = s_array.astype(int).tolist()
                     ecg_sample = {
                         "ecg": {
-                            "Timestamp": int(timestamps[0] * 1000),
+                            "Timestamp": int(timestamps[0]),
                             "Samples": s_array,
                         }
                     }
@@ -1669,13 +1670,13 @@ class Backend:
                 elif sensor == "IMU6":
                     gyro_sample = {
                         "gyroscope": {
-                            "Timestamp": int(timestamps[0] * 1000),
+                            "Timestamp": int(timestamps[0]),
                             "ArrayGyro": [],
                         }
                     }
                     acc_sample = {
                         "acc": {
-                            "Timestamp": int(timestamps[0] * 1000),
+                            "Timestamp": int(timestamps[0]),
                             "ArrayAcc": [],
                         }
                     }
