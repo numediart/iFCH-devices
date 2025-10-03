@@ -2047,8 +2047,8 @@ class CmdSaveRecord:
         for filename, data in back.record_files.items():
             # Optional: convert short names to standard ones
             filename = filename.lower()
-            filename = filename.replace(".sbm", ".sbem")
-            filename = filename.replace(".jsn", ".json")
+            filename = filename.replace("sbm", "sbem")
+            filename = filename.replace("jsn", "json")
 
             file_path = record_dir / filename
             with open(file_path, "wb") as f:
