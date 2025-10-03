@@ -7,8 +7,6 @@ import struct
 import typing
 from collections import defaultdict
 
-import pandas as pd
-
 
 class SBEMPath:
     def __init__(self, name: str):
@@ -247,7 +245,7 @@ class SBEMDecoder:
 
         return
 
-    def decode(self):
+    def decode(self, standardize=True):
         # read data
         with open(self.file, "rb") as self.reader:
             sbem_version = self._parse_header()
@@ -274,12 +272,57 @@ class SBEMDecoder:
                 else:
                     logging.debug("Decoding chunk %i", chunk_id)
 
-                    sbem_block = self.sbem_blocks[chunk_id]
+                    try:
+                        sbem_block = self.sbem_blocks[chunk_id]
 
-                    self.decoded[sbem_block.name].append(sbem_block.decode(chunk_bytes))
+                        self.decoded[sbem_block.name].append(
+                            sbem_block.decode(chunk_bytes)
+                        )
+                    except KeyError as e:
+                        logging.warning(f"Unknown SBEM block ID: {chunk_id}, {e}")
 
-            for key, decoded in self.decoded.items():
-                self.decoded[key] = pd.DataFrame(decoded)
+            if not standardize:
+                # Return the raw decoded data as a dicts of lists
+                for key, decoded in self.decoded.items():
+                    self.decoded[key] = {
+                        k: [d[k] for d in decoded] for k in decoded[0].keys()
+                    }
+
+            else:
+                # Convert the dictionary keys to a standard format for sensor names
+                standardized = defaultdict(dict)
+                for key, decoded in self.decoded.items():
+                    sensor = None
+                    for part in key.split("."):
+                        if part.startswith("Meas"):
+                            sensor = part[4:].upper()  # TODO test for IMU6 and IMU9
+                            break
+
+                    if sensor is None:
+                        raise NotImplementedError(
+                            f"Could not identify sensor for key {key}, set standardize=False"
+                        )
+
+                    # Assumes that all sensors contain only Timestamp and Data
+                    if len(decoded) and len(decoded[0].keys()) != 2:
+                        # TODO test for IMU6 and IMU9
+                        raise NotImplementedError(
+                            "Invalid number of keys in decoded SBEM for standardization, set standardize=False"
+                        )
+
+                    def time_or_sample(k):  # TODO test for IMU6 and IMU9
+                        tail = k.split(".")[-1]
+                        if tail == "Timestamp":
+                            return "timestamps"
+                        else:
+                            return "samples"
+
+                    standardized[sensor] = {
+                        time_or_sample(k): [v[k] for v in decoded]
+                        for k in decoded[0].keys()
+                    }
+
+                self.decoded = standardized
 
         return self.decoded
 
@@ -293,6 +336,4 @@ if __name__ == "__main__":
     data_path = pathlib.Path(args.data_path)
     decoder = SBEMDecoder(data_path)
     data = decoder.decode()
-
-    for val in data.values():
-        print(val.head())
+    print(data)
