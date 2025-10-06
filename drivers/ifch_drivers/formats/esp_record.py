@@ -169,23 +169,9 @@ class ESPRecordConverter:
         self.config = {}
 
         config_file = self.record_path / "config.json"
-        if config_file.exists():
-            with open(config_file, "r") as f:
-                self.config = json.load(f)
-                for key, value in self.config.items():
-                    self.metadata[f"config_{key}"] = value
-
-        for sesor_path in self.config["sensorPaths"]:
-            sensor, sampling = MovesenseDataTypes.from_path(sesor_path)
-            scale = 1
-            if sensor == MovesenseDataTypes.ECG:
-                scale = 0.38147e-6
-            elif sensor == MovesenseDataTypes.ECGMV:
-                scale = 1e-3
-            self.metadata[sensor.name] = {
-                "sampling": sampling,
-                "scale": scale,
-            }
+        with open(config_file, "r") as f:
+            self.config = json.load(f)
+            self.metadata["config"] = self.config
 
     def _read_checkpoints(self, ignored=["metadata.json", "config.json"]):
         excpect_id = 0
@@ -277,6 +263,7 @@ class ESPRecordConverter:
         output_path.mkdir(parents=True, exist_ok=True)
 
         self.metadata["format"] = "movesense"
+
         with open(output_path / "metadata.json", "w") as f:
             json.dump(self.metadata, f, indent=4)
 
@@ -285,4 +272,9 @@ class ESPRecordConverter:
             writer.writerow(self.checkpoints.keys())
             writer.writerows(zip(*self.checkpoints.values()))
 
-        movesense_record.write(output_path / "record.h5", self.record, self.metadata)
+        movesense_record.write(
+            output_path / "record.h5",
+            self.record,
+            self.metadata,
+            self.config["sensorPaths"],
+        )

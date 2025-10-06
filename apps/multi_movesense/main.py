@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 import numpy as np
 import qasync
+from ifch_drivers.formats import movesense_record
 from ifch_drivers.movesense_gatt import MovesenseGatt, detect_device
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QSettings, Qt, QTimer, Slot
@@ -1647,9 +1648,8 @@ class Backend:
         self.imu_data = {}
         self.time_origins = {}
 
-        self.ecg_log = {}
-        self.acc_log = {}
-        self.gyro_log = {}
+        self.sensor_log = {}
+        self.metadata_log = {}
 
     def stream_callback(self, device: MovesenseGatt, data):
         timestamps, samples, sensor = data
@@ -1662,42 +1662,10 @@ class Backend:
             origin = self.time_origins[device.movesense_id]
 
             if self._logging:
-                if sensor == "ECG":
-                    s_array = np.asarray(samples)
-                    s_array = np.round(s_array)
-                    s_array = s_array.astype(int).tolist()
-                    ecg_sample = {
-                        "ecg": {
-                            "Timestamp": int(timestamps[0]),
-                            "Samples": s_array,
-                        }
-                    }
-                    self.ecg_log[device.movesense_id].append(ecg_sample)
-
-                elif sensor == "IMU6":
-                    gyro_sample = {
-                        "gyroscope": {
-                            "Timestamp": int(timestamps[0]),
-                            "ArrayGyro": [],
-                        }
-                    }
-                    acc_sample = {
-                        "acc": {
-                            "Timestamp": int(timestamps[0]),
-                            "ArrayAcc": [],
-                        }
-                    }
-
-                    for acc, gyro in samples:
-                        acc_sample["acc"]["ArrayAcc"].append(
-                            {"x": acc[0], "y": acc[1], "z": acc[2]}
-                        )
-                        gyro_sample["gyroscope"]["ArrayGyro"].append(
-                            {"x": gyro[0], "y": gyro[1], "z": gyro[2]}
-                        )
-
-                    self.acc_log[device.movesense_id].append(acc_sample)
-                    self.gyro_log[device.movesense_id].append(gyro_sample)
+                self.sensor_log[device.movesense_id][sensor]["timestamps"].append(
+                    int(timestamps[0])
+                )
+                self.sensor_log[device.movesense_id][sensor]["samples"].append(samples)
 
             timestamps = [t + origin for t in timestamps]
 
@@ -1910,15 +1878,14 @@ class Backend:
 
     async def start_logging(self):
         # Prepare logs
-        self.acc_log = {}
+        self.sensor_log = {}
+        self.metadata_log = {"source": "multi_movesense"}
+
+        def sensor_dict():
+            return collections.defaultdict(list)
+
         for device in self.devices:
-            self.acc_log[device.movesense_id] = []
-        self.gyro_log = {}
-        for device in self.devices:
-            self.gyro_log[device.movesense_id] = []
-        self.ecg_log = {}
-        for device in self.devices:
-            self.ecg_log[device.movesense_id] = []
+            self.sensor_log[device.movesense_id] = collections.defaultdict(sensor_dict)
 
         await self.queue_command(CmdStartLogging())
 
@@ -2034,6 +2001,9 @@ class CmdStartLogging:
         if not back.devices:
             raise RuntimeError("CmdStartLogging: No device connected")
 
+        back.metadata_log["start_time"] = datetime.datetime.now(
+            datetime.UTC
+        ).isoformat()
         back.ui.prevent_close = True
         back._logging = True
 
@@ -2051,6 +2021,7 @@ class CmdStopLogging:
             raise RuntimeError("CmdStopLogging: Not currently logging")
 
         back._logging = False
+        back.metadata_log["end_time"] = datetime.datetime.now(datetime.UTC).isoformat()
 
         back.ui.update_ui_state(GUIState.FORM)
 
@@ -2067,7 +2038,7 @@ class CmdSaveRecord:
         back.ui.update_ui_state(GUIState.INFO)
 
         # Save data to files
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         output_dir = (
             pathlib.Path(back.ui.settings.value("output_dir", type=str)).absolute()
             / timestamp
@@ -2075,21 +2046,22 @@ class CmdSaveRecord:
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        self.metadata.update(back.metadata_log)
+        self.metadata["format"] = "movesense"
+        self.metadata["source"] = "multi_movesense"
+        self.metadata["sensor_paths"] = back.SENSOR_PATHS
+
         with open(output_dir / "metadata.json", "w") as f:
             json.dump(self.metadata, f, indent=4)
 
         for device in back.devices:
-            with open(output_dir / f"{device.movesense_id}_ecg_stream.json", "w") as f:
-                data_dict = {"data": back.ecg_log[device.movesense_id]}
-                json.dump(data_dict, f)
-
-            with open(output_dir / f"{device.movesense_id}_acc_stream.json", "w") as f:
-                data_dict = {"data": back.acc_log[device.movesense_id]}
-                json.dump(data_dict, f)
-
-            with open(output_dir / f"{device.movesense_id}_gyro_stream.json", "w") as f:
-                data_dict = {"data": back.gyro_log[device.movesense_id]}
-                json.dump(data_dict, f)
+            output_file = output_dir / f"{device.movesense_id}"
+            movesense_record.write(
+                output_file,
+                back.sensor_log[device.movesense_id],
+                metadata=self.metadata,
+                sensor_paths=back.SENSOR_PATHS,
+            )
 
         back.ui.prevent_close = False
 
