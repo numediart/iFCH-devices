@@ -10,10 +10,7 @@ import numpy as np
 
 from . import movesense_record
 from .movesense_sbem import SBEMDecoder
-from .movesense_stream import (
-    MovesenseDataTypes,
-    MovesenseStreamDecoder,
-)
+from .movesense_stream import MovesenseStreamDecoder
 
 
 class ESPBinReader:

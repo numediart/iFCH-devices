@@ -3,28 +3,13 @@ import logging
 import struct
 from collections import defaultdict
 
+from .movesense_record import MovesenseDataTypes
+
 
 class Responses(enum.IntEnum):
     COMMAND_RESULT = 1
     DATA = 2
     DATA_PART2 = 3
-
-
-class MovesenseDataTypes(enum.Enum):
-    ECG = "/Meas/ECG".upper()
-    ECGMV = "/Meas/ECG/mv".upper()
-    IMU6 = "/Meas/IMU6".upper()
-    IMU9 = "/Meas/IMU9".upper()
-    ACC = "/Meas/Acc".upper()
-
-    @classmethod
-    def from_path(cls, path):
-        split_path = path.split("/")
-        sampling = int(split_path.pop(3))
-        data_type = "/".join(split_path)
-        data_type = cls(data_type.upper())
-
-        return data_type, sampling
 
 
 class MovesenseStreamDecoder:

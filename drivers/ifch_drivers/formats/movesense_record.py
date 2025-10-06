@@ -1,9 +1,25 @@
+import enum
 import pathlib
 
 import h5py
 import numpy as np
 
-from .movesense_stream import MovesenseDataTypes
+
+class MovesenseDataTypes(enum.Enum):
+    ECG = "/Meas/ECG".upper()
+    ECGMV = "/Meas/ECG/mv".upper()
+    IMU6 = "/Meas/IMU6".upper()
+    IMU9 = "/Meas/IMU9".upper()
+    ACC = "/Meas/Acc".upper()
+
+    @classmethod
+    def from_path(cls, path):
+        split_path = path.split("/")
+        sampling = int(split_path.pop(3))
+        data_type = "/".join(split_path)
+        data_type = cls(data_type.upper())
+
+        return data_type, sampling
 
 
 def write(
