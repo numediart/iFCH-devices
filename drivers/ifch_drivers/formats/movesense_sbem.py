@@ -295,7 +295,9 @@ class SBEMDecoder:
                     sensor = None
                     for part in key.split("."):
                         if part.startswith("Meas"):
-                            sensor = part[4:].upper()  # TODO test for IMU6 and IMU9
+                            sensor = part[
+                                4:
+                            ].upper()  # TODO test for IMU6 and IMU9 and ECGMV
                             break
 
                     if sensor is None:

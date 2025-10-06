@@ -12,8 +12,8 @@ import zlib
 import serial.tools.list_ports
 import serial_asyncio
 
-from .common.movesense_stream_decoder import MovesenseStreamDecoder
-from .common.utils import BoundedQueue
+from .formats.movesense_stream import MovesenseStreamDecoder
+from .utils import BoundedQueue
 
 
 class Commands(enum.IntEnum):

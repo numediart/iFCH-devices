@@ -10,8 +10,9 @@ class Responses(enum.IntEnum):
     DATA_PART2 = 3
 
 
-class DataTypes(enum.Enum):
+class MovesenseDataTypes(enum.Enum):
     ECG = "/Meas/ECG".upper()
+    ECGMV = "/Meas/ECG/mv".upper()
     IMU6 = "/Meas/IMU6".upper()
     IMU9 = "/Meas/IMU9".upper()
     ACC = "/Meas/Acc".upper()
@@ -19,10 +20,11 @@ class DataTypes(enum.Enum):
     @classmethod
     def from_path(cls, path):
         split_path = path.split("/")
-        sampling = int(split_path[-1])
-        data_type = "/".join(split_path[:-1])
-        data_type = data_type.upper()
-        return cls(data_type), sampling
+        sampling = int(split_path.pop(3))
+        data_type = "/".join(split_path)
+        data_type = cls(data_type.upper())
+
+        return data_type, sampling
 
 
 class MovesenseStreamDecoder:
@@ -65,7 +67,7 @@ class MovesenseStreamDecoder:
             return None, None, None
 
         sensor_path = self.subscriptions[reference]
-        data_type, sampling = DataTypes.from_path(sensor_path)
+        data_type, sampling = MovesenseDataTypes.from_path(sensor_path)
 
         logging.debug(
             "Decoding stream packet: type=%s, sensor_path=%s, data_type=%s",
@@ -76,7 +78,7 @@ class MovesenseStreamDecoder:
 
         time, samples, sensor_path = None, None, sensor_path
 
-        if data_type == DataTypes.ECG:
+        if data_type == MovesenseDataTypes.ECG:
             if packet_type != Responses.DATA:
                 logging.error("Invalid packet type for %s: %s", data_type, packet_type)
 
@@ -91,7 +93,7 @@ class MovesenseStreamDecoder:
                     for i in range(0, len(packet), stride)
                 ]
 
-        elif data_type == DataTypes.ACC:
+        elif data_type == MovesenseDataTypes.ACC:
             if packet_type != Responses.DATA:
                 logging.error("Invalid packet type for %s: %s", data_type, packet_type)
 
@@ -99,7 +101,7 @@ class MovesenseStreamDecoder:
                 timestamp = int.from_bytes(packet[2:6], byteorder="little")
                 samples = self._unpack_vectors(packet[6:], size=3, stride=4)
 
-        elif data_type == DataTypes.IMU6:
+        elif data_type == MovesenseDataTypes.IMU6:
             if packet_type == Responses.DATA:
                 if self._partial_data[reference] is not None:
                     logging.warning(

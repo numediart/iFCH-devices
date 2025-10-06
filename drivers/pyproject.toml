@@ -13,3 +13,4 @@ build-backend = "hatchling.build"
 [project.optional-dependencies]
 esp_logger = ["pyserial", "pyserial-asyncio"]
 movesense_gatt = ["bleak"]
+formats = ["h5py", "numpy"]

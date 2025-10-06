@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 import bleak
 
-from .common.movesense_stream_decoder import MovesenseStreamDecoder
-from .common.utils import BoundedQueue
+from .formats.movesense_stream import MovesenseStreamDecoder
+from .utils import BoundedQueue
 
 
 async def detect_device():

@@ -12,6 +12,7 @@ from typing import Any, Optional
 import numpy as np
 import qasync
 from ifch_drivers.esp_logger import ESPLogger, detect_device
+from ifch_drivers.formats.esp_record import ESPRecordConverter
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QSettings, Qt, QTimer, Slot
 from PySide6.QtGui import QFont, QPainter
@@ -43,6 +44,7 @@ class GUIState(Enum):
     MONITORING = "connected_available"
     FORM = "form"
     WARNING = "warning"
+    SUCCESS = "success"
 
 
 METADATA_FILENAME = "metadata.json"
@@ -289,6 +291,78 @@ class WarningView(QWidget):
         self.cancel_button.setFixedWidth(150)
         button_layout.addWidget(self.cancel_button)
 
+        layout.addSpacing(20)
+        layout.addLayout(button_layout)
+
+
+class SuccessView(QWidget):
+    def __init__(self):
+        super().__init__()
+        over_layout = QVBoxLayout(self)
+        over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main = QWidget()
+        over_layout.addWidget(main)
+        main.setMaximumWidth(700)
+        layout = QVBoxLayout(main)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Large icon or image placeholder
+
+        # Main message
+        self.message = QLabel("Record Saved")
+        self.message.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 28px;
+                font-weight: bold;
+                color: {GREEN_L};
+            }}
+        """
+        )
+        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.message)
+        layout.addSpacing(30)
+
+        # Status label
+        self.status_label = QLabel("Click OK to reset")
+        self.status_label.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+        """
+        )
+        self.status_label.setWordWrap(True)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.status_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        layout.addWidget(self.status_label)
+
+        button_layout = QHBoxLayout()
+        self.ok_button = QPushButton("OK")
+        self.ok_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                font-size: 16px;
+                padding: 10px 30px;
+                background-color: {GREEN_L};
+                border: none;
+                border-radius: 4px;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {GREEN_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {GREEN_D};
+            }}
+        """
+        )
+        self.ok_button.setFixedWidth(150)
+        button_layout.addStretch()
+        button_layout.addWidget(self.ok_button)
         layout.addSpacing(20)
         layout.addLayout(button_layout)
 
@@ -996,6 +1070,7 @@ class MainWindow(QWidget):
         self.monitoring_view = MonitoringView()
         self.form_view = FormView()
         self.warning_view = WarningView()
+        self.success_view = SuccessView()
 
         # Add views to stack
         self.stacked_widget.addWidget(self.error_view)
@@ -1006,6 +1081,7 @@ class MainWindow(QWidget):
         self.stacked_widget.addWidget(self.monitoring_view)
         self.stacked_widget.addWidget(self.form_view)
         self.stacked_widget.addWidget(self.warning_view)
+        self.stacked_widget.addWidget(self.success_view)
 
         # Set main layout
         views_widget = QWidget(self)
@@ -1054,6 +1130,8 @@ class MainWindow(QWidget):
         self.form_view.save_button.clicked.connect(self.handle_form_save)
         self.warning_view.cancel_button.clicked.connect(self.handle_error_ok)
         self.warning_view.ok_button.clicked.connect(self.handle_warning_ok)
+
+        self.success_view.ok_button.clicked.connect(self.handle_error_ok)
 
         settings_button.clicked.connect(self.handle_settings)
         self.settings_view.close_button.clicked.connect(self.handle_settings_close)
@@ -1116,6 +1194,9 @@ class MainWindow(QWidget):
         elif new_state == GUIState.WARNING:
             self.warning_view.ok_button.setEnabled(True)
             self.stacked_widget.setCurrentIndex(7)  # Show warning view
+
+        elif new_state == GUIState.SUCCESS:
+            self.stacked_widget.setCurrentIndex(8)  # Show success view
 
     @Slot()
     def select_output_dir(self):
@@ -1268,6 +1349,12 @@ class MainWindow(QWidget):
         self.warning_view.status_label.setText(message)
         self.warning_view.ok_button.setText(ok_text)
         self.warning_view.cancel_button.setVisible(show_cancel)
+
+    def update_success_status(self, title, message, ok_text="OK"):
+        """Update the warning view with a title and message"""
+        self.success_view.message.setText(title)
+        self.success_view.status_label.setText(message)
+        self.success_view.ok_button.setText(ok_text)
 
     def show_device_selection(self):
         self.device_selection_view.set_devices(self.backend.available_devices)
@@ -1675,7 +1762,7 @@ class CmdLogging:
                 ok_cb=back.force_stop_logging,
                 show_cancel=True,
             )
-            back.record_meta["Stopping"] = "Forced"
+            back.record_meta["stopping"] = "Forced"
             back.ui.update_ui_state(GUIState.WARNING)
             return
 
@@ -1694,7 +1781,7 @@ class CmdLogging:
                 ok_cb=back.stop_logging,
                 show_cancel=False,
             )
-            back.record_meta["Stopping"] = "Early"
+            back.record_meta["stopping"] = "Early"
             back.ui.update_ui_state(GUIState.WARNING)
             return
 
@@ -2016,6 +2103,7 @@ class CmdSaveRecord:
             raise RuntimeError("Save record called without metadata")
 
         self.metadata.update(back.record_meta)
+        self.metadata["source"] = "esp_logger"
 
         output_dir = back.ui.settings.value(
             "output_dir",
@@ -2033,7 +2121,7 @@ class CmdSaveRecord:
         if record_dir.exists():
             logging.warning("Record directory already exists: %s", record_dir)
             for i in range(1, 100):
-                new_dir = output_dir / f"{self.metadata['ID']}_b{i:02d}"
+                new_dir = output_dir / f"{self.metadata['ID']}_{i:02d}"
                 if not new_dir.exists():
                     record_dir = new_dir
                     break
@@ -2043,18 +2131,20 @@ class CmdSaveRecord:
                     % self.metadata["ID"]
                 )
 
-        record_dir.mkdir(parents=True, exist_ok=False)
+        raw_dir = record_dir / "raw"
+
+        raw_dir.mkdir(parents=True, exist_ok=False)
         for filename, data in back.record_files.items():
             # Optional: convert short names to standard ones
             filename = filename.lower()
             filename = filename.replace("sbm", "sbem")
             filename = filename.replace("jsn", "json")
 
-            file_path = record_dir / filename
+            file_path = raw_dir / filename
             with open(file_path, "wb") as f:
                 f.write(data)
 
-        with open(record_dir / METADATA_FILENAME, "w") as f:
+        with open(raw_dir / METADATA_FILENAME, "w") as f:
             json.dump(self.metadata, f, indent=4)
 
         archived = await back.device.archive_log(self.metadata["ID"])
@@ -2062,11 +2152,21 @@ class CmdSaveRecord:
             logging.warning("Archive log failed for ID %s", self.metadata["ID"])
             # Not critical, continue
 
-        back.ui.update_warning_status(
+        convert_dir = record_dir / "converted"
+
+        back.ui.update_info_status(
+            "Saving record",
+            "Converting to standard format...\nThis might take a few minutes. Please do not disconnect the device.",
+        )
+
+        converter = ESPRecordConverter(raw_dir)
+        converter.write(convert_dir)
+
+        back.ui.prevent_close = False
+        back.ui.update_success_status(
             "Record saved", f"The data were successfully saved to:\n{str(record_dir)}"
         )
-        back.ui.prevent_close = False
-        back.ui.update_ui_state(GUIState.WARNING)
+        back.ui.update_ui_state(GUIState.SUCCESS)
 
 
 # ----------------------------------------------------------------------
