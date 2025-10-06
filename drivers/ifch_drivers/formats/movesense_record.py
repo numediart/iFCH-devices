@@ -98,3 +98,51 @@ def write(
         # Store the metadata as attributes of the root group
         for key, value in metadata.items():
             add_attr(hfile, key, value)
+
+
+def read(file_path: pathlib.Path | str) -> (dict, dict, dict):
+    """
+    Read a Movesense record from an HDF5 file.
+
+    Args:
+        file_path (pathlib.Path | str): path to the HDF5 file to read
+    Returns:
+        tuple: (record, metadata, properties)
+            record (dict): the Movesense record in dict format
+            metadata (dict): the metadata of the record
+            properties (dict): the properties of each sensor
+    """
+
+    if not isinstance(file_path, pathlib.Path):
+        file_path = pathlib.Path(file_path)
+
+    record = {}
+    properties = {}
+
+    with h5py.File(file_path, "r") as hfile:
+        metadata = dict(hfile.attrs)
+
+        for sensor_name in hfile.keys():
+            sensor_group = hfile[sensor_name]
+            sensor_dict = {}
+            for key in sensor_group.keys():
+                sensor_dict[key] = sensor_group[key][:]
+            record[sensor_name] = sensor_dict
+
+            properties[sensor_name] = dict(sensor_group.attrs)
+
+    keys = list(metadata.keys())
+
+    for key in keys:
+        if "." in key:
+            parts = key.split(".")
+            current_level = metadata
+            for part in parts[:-1]:
+                if part not in current_level:
+                    current_level[part] = {}
+                current_level = current_level[part]
+            current_level[parts[-1]] = metadata[key]
+
+            del metadata[key]
+
+    return record, metadata, properties
