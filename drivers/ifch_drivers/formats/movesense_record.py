@@ -7,7 +7,10 @@ from .movesense_stream import MovesenseDataTypes
 
 
 def write(
-    file_path: pathlib.Path | str, record: dict, metadata: dict, sensor_paths: list
+    file_path: pathlib.Path | str,
+    record: dict,
+    metadata: dict = {},
+    sensor_paths: list = [],
 ):
     """
     Write a Movesense record to an HDF5 file.
@@ -16,11 +19,14 @@ def write(
     Args:
         file_path (pathlib.Path | str): where to write the HDF5 file
         record (dict): the Movesense record to write, in dict format
-        metadata (dict): the metadata to write as attributes
-        sensor_paths (list): list of sensor paths included in the record
+        metadata (dict, optional): the metadata to write as attributes
+        sensor_paths (list, optional): list of sensor paths included in the record
+            (this will be used to extract sampling and scale information for each sensor)
+    Raises:
+        ValueError: if the provided sensor_paths do not match sensors in the record
     """
 
-    if len(sensor_paths) != len(record):
+    if len(sensor_paths) and len(sensor_paths) != len(record):
         raise ValueError("Mismatch between sensor_paths and record keys")
 
     sensor_properties = {}
@@ -60,7 +66,9 @@ def write(
                 data = np.asarray(data)
                 sensor_group.create_dataset(key, data=data, compression="gzip")
 
-            for key, value in sensor_properties[sensor_name].items():
+        for sensor, properties in sensor_properties.items():
+            sensor_group = hfile[sensor]
+            for key, value in properties.items():
                 sensor_group.attrs[key] = value
 
         def add_attr(group, key, value):
