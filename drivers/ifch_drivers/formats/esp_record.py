@@ -218,12 +218,6 @@ class ESPRecordConverter:
                 % (max_deviation / 1000)
             )
 
-        # Convert the timestamps to UNIX epoch in ms
-        for sensor in self.record.values():
-            sensor["timestamps"] = (
-                np.asarray(sensor["timestamps"]) - time_deviation[0]
-            ).tolist()
-
         start_time = None
         end_time = None
         for sensor in self.record.values():
