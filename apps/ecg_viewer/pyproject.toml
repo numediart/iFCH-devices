@@ -3,7 +3,7 @@ name = "iFCH_ecg_viewer"
 version = "0.1"
 description = "GUI for viewing ECG recordings"
 requires-python = ">=3.12"
-dependencies = ["PySide6>=6.9.2", "numpy", "ifch_drivers[formats]"]
+dependencies = ["PySide6>=6.9.2", "numpy", "scipy", "ifch_drivers[formats]"]
 
 [tool.uv.sources]
 ifch_drivers = { path = "../../drivers/", editable = true }
