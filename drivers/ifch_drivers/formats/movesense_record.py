@@ -100,12 +100,14 @@ def write(
             add_attr(hfile, key, value)
 
 
-def read(file_path: pathlib.Path | str) -> (dict, dict, dict):
+def load(file_path: pathlib.Path | str, flatten=True) -> tuple[dict, dict, dict]:
     """
     Read a Movesense record from an HDF5 file.
 
     Args:
         file_path (pathlib.Path | str): path to the HDF5 file to read
+        flatten (bool, optional): if True, the timestamps and samples will be
+            flattened to have one timestamp per sample. Defaults to True.
     Returns:
         tuple: (record, metadata, properties)
             record (dict): the Movesense record in dict format
@@ -144,5 +146,24 @@ def read(file_path: pathlib.Path | str) -> (dict, dict, dict):
             current_level[parts[-1]] = metadata[key]
 
             del metadata[key]
+
+    if flatten:
+        for sensor_name, sensor_dict in record.items():
+            timestamps = sensor_dict["timestamps"]
+            delta_t = np.diff(timestamps)
+            delta_t = np.append(delta_t, delta_t[-1])
+
+            samples = sensor_dict["samples"]
+            n_samples = samples.shape[1]
+
+            delta_t = (
+                delta_t.reshape(-1, 1) / n_samples * np.arange(n_samples).reshape(1, -1)
+            )
+
+            timestamps = (timestamps.reshape(-1, 1) + delta_t).flatten()
+            samples = np.concatenate(samples, axis=0)
+
+            sensor_dict["timestamps"] = timestamps
+            sensor_dict["samples"] = samples
 
     return record, metadata, properties
