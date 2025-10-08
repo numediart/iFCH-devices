@@ -6,7 +6,7 @@ import numpy as np
 from ifch_drivers.formats import movesense_record
 from PySide6.QtCharts import QChart, QChartView, QDateTimeAxis, QLineSeries, QValueAxis
 from PySide6.QtCore import QDateTime, QSettings, Qt, QTimer, QTimeZone, Slot
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QMouseEvent, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -106,11 +106,40 @@ class MonitoringView(QWidget):
     def __init__(self):
         super().__init__()
         # Main layout: split horizontally
-        main_layout = QHBoxLayout(self)
+        main_layout = QVBoxLayout(self)
 
-        self.plot_widget = QWidget()
-        plot_layout = QVBoxLayout(self.plot_widget)
+        top_layout = QHBoxLayout()
+        top_layout.addWidget(self.create_plot_widget(), 2.5)
+        top_layout.addWidget(self.create_controls_widget(), 1)
 
+        main_layout.addLayout(top_layout)
+        main_layout.addWidget(self.create_summary_widget())
+
+        # Initialize data storage
+        self.ecg_timestamps = None
+        self.ecg_samples = None
+        self.ecg_sampling = None
+        self.current_start_idx = 0
+        self._current_window_size = None
+
+        # Handle dragging in summary
+        self._summary_mouse_dragging = None
+
+        # Auto-scroll functionality
+        self._is_auto_scrolling = False
+        self.auto_scroll_timer = QTimer()
+        self.auto_scroll_timer.timeout.connect(self.auto_scroll_step)
+
+        self.update_zoom(self.zoom_slider.value())
+
+        # Connect navigation signals
+        self.full_left_btn.clicked.connect(self.navigate_full_left)
+        self.full_right_btn.clicked.connect(self.navigate_full_right)
+        self.quarter_left_btn.clicked.connect(self.navigate_quarter_left)
+        self.quarter_right_btn.clicked.connect(self.navigate_quarter_right)
+        self.zoom_slider.valueChanged.connect(self.update_zoom)
+
+    def create_plot_widget(self):
         # Create a line series
         self.ecg_series = QLineSeries()
         self.ecg_series.setName("ECG")
@@ -121,37 +150,162 @@ class MonitoringView(QWidget):
         self.ecg_series.setPen(pen)
 
         # Create chart and add series
-        self.chart = QChart()
-        self.chart.addSeries(self.ecg_series)
+        chart = QChart()
+        chart.addSeries(self.ecg_series)
 
         # Create axes with fixed ranges
         self.axis_x = QDateTimeAxis()
-        self.axis_x.setTitleText("Time")
         self.axis_x.setTickCount(4)
         self.axis_x.setGridLineVisible(False)
-        self.axis_x.setFormat("dd/MM/yy hh:mm:ss")
+        self.axis_x.setFormat("hh:mm:ss")
 
         self.axis_y = QValueAxis()
         self.axis_y.setTitleText("ECG (mV)")
         self.axis_y.setGridLineVisible(False)
 
-        self.chart.addAxis(self.axis_x, Qt.AlignBottom)
-        self.chart.addAxis(self.axis_y, Qt.AlignLeft)
+        chart.addAxis(self.axis_x, Qt.AlignBottom)
+        chart.addAxis(self.axis_y, Qt.AlignLeft)
 
-        self.chart.legend().setVisible(False)
+        chart.legend().setVisible(False)
 
         self.ecg_series.attachAxis(self.axis_x)
         self.ecg_series.attachAxis(self.axis_y)
 
-        self.chart_view = QChartView(self.chart)
-        self.chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.chart_view.setMinimumWidth(500)
+        chart_view = QChartView(chart)
+        chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        chart_view.setMinimumWidth(500)
 
-        plot_layout.addWidget(self.chart_view)
+        return chart_view
 
-        self.controls_widget = QWidget()
-        self.controls_widget.setMaximumWidth(400)
-        controls_layout = QVBoxLayout(self.controls_widget)
+    def create_summary_widget(self):
+        # Create summary series
+        # self.summary_series = QLineSeries()
+        # self.summary_series.setName("Summary")
+
+        # pen = self.summary_series.pen()
+        # pen.setWidth(1)
+        # pen.setColor(Qt.blue)
+        # self.summary_series.setPen(pen)
+
+        # Create window indicator series (shows current visible window)
+        self.window_indicator_series = QLineSeries()
+        pen = self.window_indicator_series.pen()
+        pen.setWidth(2)
+        pen.setColor(Qt.red)
+        self.window_indicator_series.setPen(pen)
+
+        # Create dragging indicator series
+        self.dragging_indicator_series = QLineSeries()
+        pen = self.dragging_indicator_series.pen()
+        pen.setWidth(1)
+        pen.setColor(Qt.blue)
+        self.dragging_indicator_series.setPen(pen)
+
+        # Create summary chart
+        self.summary_chart = QChart()
+        # self.summary_chart.addSeries(self.summary_series)
+        self.summary_chart.addSeries(self.window_indicator_series)
+        self.summary_chart.addSeries(self.dragging_indicator_series)
+
+        # Create summary axes
+        self.summary_axis_x = QDateTimeAxis()
+        self.summary_axis_x.setTickCount(10)
+        self.summary_axis_x.setGridLineVisible(True)
+        self.summary_axis_x.setFormat("dd/MM hh:mm")
+
+        self.summary_axis_y = QValueAxis()
+        self.summary_axis_y.setTitleText("ECG")
+        self.summary_axis_y.setVisible(False)
+        self.summary_axis_y.setRange(-1.1, 1.1)
+
+        self.summary_chart.addAxis(self.summary_axis_x, Qt.AlignBottom)
+        self.summary_chart.addAxis(self.summary_axis_y, Qt.AlignLeft)
+
+        self.summary_chart.legend().setVisible(False)
+
+        # self.summary_series.attachAxis(self.summary_axis_x)
+        # self.summary_series.attachAxis(self.summary_axis_y)
+        self.window_indicator_series.attachAxis(self.summary_axis_x)
+        self.window_indicator_series.attachAxis(self.summary_axis_y)
+        self.dragging_indicator_series.attachAxis(self.summary_axis_x)
+        self.dragging_indicator_series.attachAxis(self.summary_axis_y)
+
+        # Create chart view with click handling
+        summary_view = QChartView(self.summary_chart)
+        summary_view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        summary_view.setFixedHeight(150)
+
+        # Enable mouse tracking for click navigation
+        summary_view.mousePressEvent = self.on_summary_mouse
+        summary_view.mouseMoveEvent = self.on_summary_mouse
+        summary_view.mouseReleaseEvent = self.on_summary_mouse
+
+        return summary_view
+
+    def mouse_to_index(self, coords):
+        if self.ecg_timestamps is None:
+            return None
+
+        coords = self.summary_chart.mapToValue(coords)
+
+        if np.abs(coords.y()) > 1:
+            return None
+
+        time_coord = coords.x()
+
+        if time_coord < self.ecg_timestamps[0] or time_coord > self.ecg_timestamps[-1]:
+            return None
+
+        index = np.searchsorted(self.ecg_timestamps, time_coord)
+
+        return index
+
+    @Slot(QMouseEvent)
+    def on_summary_mouse(self, event: QMouseEvent):
+        if self._is_auto_scrolling:
+            return
+        if event.type() == QMouseEvent.Type.MouseButtonPress:
+            coords = self.mouse_to_index(event.position())
+            if coords is not None:
+                self._summary_mouse_dragging = [coords, None]
+            else:
+                self._summary_mouse_dragging = None
+
+        elif event.type() == QMouseEvent.Type.MouseMove:
+            if self._summary_mouse_dragging is not None:
+                coords = self.mouse_to_index(event.position())
+                if coords is not None:
+                    self._summary_mouse_dragging[1] = coords
+                else:
+                    self._summary_mouse_dragging = None
+
+        elif event.type() == QMouseEvent.Type.MouseButtonRelease:
+            if self._summary_mouse_dragging is not None:
+                start_index, end_index = self._summary_mouse_dragging
+
+                if end_index is None:
+                    end_index = start_index
+
+                if start_index > end_index:
+                    start_index, end_index = end_index, start_index
+
+                # Center current window on the selected range
+                if end_index - start_index > 0:
+                    self.current_start_idx = start_index
+                    self.current_window_size = end_index - start_index
+
+                else:
+                    self.current_start_idx = start_index - self.current_window_size // 2
+                    self.update_plot()
+
+            self._summary_mouse_dragging = None
+
+        self.update_summary_dragging()
+
+    def create_controls_widget(self):
+        controls_widget = QWidget()
+        controls_widget.setMaximumWidth(400)
+        controls_layout = QVBoxLayout(controls_widget)
         controls_layout.addStretch(1)
 
         # Metadata
@@ -344,35 +498,78 @@ class MonitoringView(QWidget):
 
         controls_layout.addStretch(1)
 
-        main_layout.addWidget(self.plot_widget, 2.5)
-        main_layout.addWidget(self.controls_widget, 1)
+        return controls_widget
 
-        # Initialize data storage
-        self.ecg_timestamps = None
-        self.ecg_samples = None
-        self.ecg_sampling = None
+    def load_record(self, path):
+        record, metadata, properties = movesense_record.load(path)
+        try:
+            ecg_sensor = record["ECG"]
+        except KeyError:
+            logging.error("No ECG data in the record")
+            return
+
+        self.ecg_timestamps = ecg_sensor["timestamps"]  # Convert to seconds
+        self.ecg_timestamps -= self.ecg_timestamps[0]
+
+        utc_start = datetime.datetime.fromisoformat(metadata["start_time"])
+        self.ecg_timestamps += utc_start.timestamp() * 1000
+
+        self.ecg_samples = ecg_sensor["samples"] * 1000  # Convert to mV
+
+        if "scale" in properties["ECG"]:
+            self.ecg_samples = self.ecg_samples * properties["ECG"]["scale"]
+        if "sampling" in properties["ECG"]:
+            self.ecg_sampling = properties["ECG"]["sampling"]
+        else:
+            logging.warning("No sampling rate in properties, using default 250Hz")
+            self.ecg_sampling = 250  # Default fallback
+
+        # Clear previous metadata
+        while self.metadata_form.rowCount() > 0:
+            self.metadata_form.removeRow(0)
+
+        # Populate metadata
+        try:
+            label = QLabel(str(metadata["name"]))
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            self.metadata_form.addRow("Name:", label)
+        except KeyError:
+            logging.warning("No name in metadata")
+
+        try:
+            start_date = datetime.datetime.fromisoformat(metadata["start_time"])
+            label = QLabel(start_date.strftime("%d/%m/%Y"))
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            self.metadata_form.addRow("Date:", label)
+        except KeyError:
+            logging.warning("No start_time in metadata")
+
+        # Enable navigation controls
+        self.full_left_btn.setEnabled(True)
+        self.full_right_btn.setEnabled(True)
+        self.quarter_left_btn.setEnabled(True)
+        self.quarter_right_btn.setEnabled(True)
+        self.play_pause_btn.setEnabled(True)
+        self.zoom_slider.setEnabled(True)
+
+        # Reset view to beginning
         self.current_start_idx = 0
-        self._current_window_size = None
-
-        # Auto-scroll functionality
-        self.is_playing = False
-        self.auto_scroll_timer = QTimer()
-        self.auto_scroll_timer.timeout.connect(self.auto_scroll_step)
-
-        self.update_zoom(self.zoom_slider.value())
-
-        # Connect navigation signals
-        self.full_left_btn.clicked.connect(self.navigate_full_left)
-        self.full_right_btn.clicked.connect(self.navigate_full_right)
-        self.quarter_left_btn.clicked.connect(self.navigate_quarter_left)
-        self.quarter_right_btn.clicked.connect(self.navigate_quarter_right)
-        self.zoom_slider.valueChanged.connect(self.update_zoom)
+        self.update_summary()
+        self.update_plot()
 
     @property
     def current_window_size(self):
         """Current window size in number of samples"""
 
         return int(self._current_window_size * self.ecg_sampling)
+
+    @current_window_size.setter
+    def current_window_size(self, value):
+        slide_value = np.log2(value / self.ecg_sampling) * 10
+        self.zoom_slider.blockSignals(True)
+        self.zoom_slider.setValue(slide_value)
+        self.zoom_slider.blockSignals(False)
+        self.update_zoom(slide_value)
 
     @Slot()
     def browse_file(self):
@@ -383,64 +580,7 @@ class MonitoringView(QWidget):
         )
 
         if path and path[0]:
-            record, metadata, properties = movesense_record.load(path[0])
-            try:
-                ecg_sensor = record["ECG"]
-            except KeyError:
-                logging.error("No ECG data in the record")
-                return
-
-            self.ecg_timestamps = ecg_sensor["timestamps"]  # Convert to seconds
-            self.ecg_timestamps -= self.ecg_timestamps[0]
-
-            utc_start = datetime.datetime.fromisoformat(metadata["start_time"])
-            self.ecg_timestamps += utc_start.timestamp() * 1000
-
-            self.ecg_samples = ecg_sensor["samples"] * 1000  # Convert to mV
-
-            if "scale" in properties["ECG"]:
-                self.ecg_samples = self.ecg_samples * properties["ECG"]["scale"]
-            if "sampling" in properties["ECG"]:
-                self.ecg_sampling = properties["ECG"]["sampling"]
-            else:
-                logging.warning("No sampling rate in properties, using default 250Hz")
-                self.ecg_sampling = 250  # Default fallback
-
-            # Clear previous metadata
-            while self.metadata_form.rowCount() > 0:
-                self.metadata_form.removeRow(0)
-
-            # Populate metadata
-            try:
-                label = QLabel(str(metadata["name"]))
-                label.setTextInteractionFlags(
-                    Qt.TextInteractionFlag.TextSelectableByMouse
-                )
-                self.metadata_form.addRow("Name:", label)
-            except KeyError:
-                logging.warning("No name in metadata")
-
-            try:
-                start_date = datetime.datetime.fromisoformat(metadata["start_time"])
-                label = QLabel(start_date.strftime("%d/%m/%Y"))
-                label.setTextInteractionFlags(
-                    Qt.TextInteractionFlag.TextSelectableByMouse
-                )
-                self.metadata_form.addRow("Date:", label)
-            except KeyError:
-                logging.warning("No start_time in metadata")
-
-            # Enable navigation controls
-            self.full_left_btn.setEnabled(True)
-            self.full_right_btn.setEnabled(True)
-            self.quarter_left_btn.setEnabled(True)
-            self.quarter_right_btn.setEnabled(True)
-            self.play_pause_btn.setEnabled(True)
-            self.zoom_slider.setEnabled(True)
-
-            # Reset view to beginning
-            self.current_start_idx = 0
-            self.update_plot()
+            self.load_record(path[0])
 
     def update_plot(self):
         """Update the plot with current window"""
@@ -485,17 +625,92 @@ class MonitoringView(QWidget):
             y_max *= 1.1  # Add 10% margin
             self.axis_y.setRange(-y_max, y_max)
 
+        # Update window indicator
+        window_start_time = window_times[0]
+        window_end_time = window_times[-1]
+
+        window_indicator_points = [
+            (window_start_time, -1),
+            (window_start_time, 1),
+            (window_end_time, 1),
+            (window_end_time, -1),
+            (window_start_time, -1),
+        ]
+        self.window_indicator_series.replaceNp(
+            np.array([pt[0] for pt in window_indicator_points], dtype=float),
+            np.array([pt[1] for pt in window_indicator_points], dtype=float),
+        )
+
+    def update_summary(self):
+        """Update the summary plot"""
+        if self.ecg_timestamps is None:
+            return
+
+        # summary_times = self.ecg_timestamps
+        # summary_samples = self.ecg_samples
+
+        # # Downsample for performance if needed
+        # if len(summary_times) > self.MAX_RESOLUTION:
+        #     downsample_factor = len(summary_times) // self.MAX_RESOLUTION + 1
+        #     summary_times = summary_times[::downsample_factor]
+        #     summary_samples = signal.decimate(summary_samples, downsample_factor, n=4)
+
+        # # Auto-scale Y axis based on full data
+        # if len(summary_samples) > 0:
+        #     y_max = np.max(np.abs(summary_samples))
+        #     summary_samples = summary_samples / y_max
+
+        # # Clear and update series
+        # self.summary_series.replaceNp(
+        #     summary_times.astype(float), summary_samples.astype(float)
+        # )
+
+        # Update axes
+        start_time = QDateTime.fromMSecsSinceEpoch(
+            int(self.ecg_timestamps[0]), self.BRUSSELS_TZ
+        )
+        end_time = QDateTime.fromMSecsSinceEpoch(
+            int(self.ecg_timestamps[-1]), self.BRUSSELS_TZ
+        )
+        self.summary_axis_x.setRange(start_time, end_time)
+
+    def update_summary_dragging(self):
+        if self._summary_mouse_dragging is None:
+            self.dragging_indicator_series.clear()
+            return
+
+        else:
+            start_index, current_index = self._summary_mouse_dragging
+            if current_index is None:
+                self.dragging_indicator_series.clear()
+                return
+
+            start_time = self.ecg_timestamps[start_index]
+            current_time = self.ecg_timestamps[current_index]
+
+            dragging_points = [
+                (start_time, -1),
+                (start_time, 1),
+                (current_time, 1),
+                (current_time, -1),
+                (start_time, -1),
+            ]
+            self.dragging_indicator_series.replaceNp(
+                np.array([pt[0] for pt in dragging_points], dtype=float),
+                np.array([pt[1] for pt in dragging_points], dtype=float),
+            )
+
     @Slot()
     def toggle_play_pause(self):
         """Toggle between play and pause states"""
-        if self.is_playing:
+        if self._is_auto_scrolling:
             self.stop_auto_scroll()
         else:
             self.start_auto_scroll()
 
     def start_auto_scroll(self):
         """Start auto-scrolling"""
-        self.is_playing = True
+        self._is_auto_scrolling = True
 
         # Disable other navigation controls
         self.full_left_btn.setEnabled(False)
@@ -509,7 +724,7 @@ class MonitoringView(QWidget):
 
     def stop_auto_scroll(self):
         """Stop auto-scrolling"""
-        self.is_playing = False
+        self._is_auto_scrolling = False
 
         # Re-enable other navigation controls
         self.full_left_btn.setEnabled(True)
