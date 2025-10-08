@@ -102,6 +102,7 @@ class MonitoringView(QWidget):
     BRUSSELS_TZ = QTimeZone(b"Europe/Brussels")
     AUTO_SCROLL_STRIDE = 0.25
     AUTO_SCROLL_DELAY = 200  # Timer interval in ms
+    ZOOM_STEP = 5
 
     def __init__(self):
         super().__init__()
@@ -138,6 +139,8 @@ class MonitoringView(QWidget):
         self.quarter_left_btn.clicked.connect(self.navigate_quarter_left)
         self.quarter_right_btn.clicked.connect(self.navigate_quarter_right)
         self.zoom_slider.valueChanged.connect(self.update_zoom)
+        self.zoom_in_btn.clicked.connect(self.zoom_in)
+        self.zoom_out_btn.clicked.connect(self.zoom_out)
 
     def create_plot_widget(self):
         # Create a line series
@@ -242,21 +245,20 @@ class MonitoringView(QWidget):
 
         return summary_view
 
-    def mouse_to_index(self, coords):
+    def summary_mouse_to_index(self, coords):
         if self.ecg_timestamps is None:
             return None
 
         coords = self.summary_chart.mapToValue(coords)
 
-        if np.abs(coords.y()) > 1:
+        if np.abs(coords.y()) > 2:
             return None
 
         time_coord = coords.x()
 
-        if time_coord < self.ecg_timestamps[0] or time_coord > self.ecg_timestamps[-1]:
-            return None
-
         index = np.searchsorted(self.ecg_timestamps, time_coord)
+        if index >= len(self.ecg_timestamps):
+            index = len(self.ecg_timestamps) - 1
 
         return index
 
@@ -265,7 +267,7 @@ class MonitoringView(QWidget):
         if self._is_auto_scrolling:
             return
         if event.type() == QMouseEvent.Type.MouseButtonPress:
-            coords = self.mouse_to_index(event.position())
+            coords = self.summary_mouse_to_index(event.position())
             if coords is not None:
                 self._summary_mouse_dragging = [coords, None]
             else:
@@ -273,7 +275,7 @@ class MonitoringView(QWidget):
 
         elif event.type() == QMouseEvent.Type.MouseMove:
             if self._summary_mouse_dragging is not None:
-                coords = self.mouse_to_index(event.position())
+                coords = self.summary_mouse_to_index(event.position())
                 if coords is not None:
                     self._summary_mouse_dragging[1] = coords
                 else:
@@ -291,6 +293,8 @@ class MonitoringView(QWidget):
 
                 # Center current window on the selected range
                 if end_index - start_index > 0:
+                    if end_index - start_index < 3:
+                        end_index = start_index + 3
                     self.current_start_idx = start_index
                     self.current_window_size = end_index - start_index
 
@@ -382,7 +386,7 @@ class MonitoringView(QWidget):
             }}
             QPushButton:disabled {{
                 background-color: {GREY_M};
-                color: #666;
+                color: {GREY_D};
             }}
         """
 
@@ -419,7 +423,7 @@ class MonitoringView(QWidget):
             }}
             QPushButton:disabled {{
                 background-color: {GREY_M};
-                color: #666;
+                color: {GREY_D};
             }}
         """
         self.play_pause_btn.setStyleSheet(play_pause_style)
@@ -437,10 +441,45 @@ class MonitoringView(QWidget):
         controls_layout.addSpacing(30)
 
         # Zoom control
+        zoom_layout = QHBoxLayout()
+
+        # Zoom out button
+        self.zoom_out_btn = QPushButton("-")
+        self.zoom_out_btn.setFixedSize(30, 30)
+        self.zoom_out_btn.setEnabled(False)
+
+        # Zoom in button
+        self.zoom_in_btn = QPushButton("+")
+        self.zoom_in_btn.setFixedSize(30, 30)
+        self.zoom_in_btn.setEnabled(False)
+
+        zoom_button_style = f"""
+            QPushButton {{
+                font-size: 16px;
+                font-weight: bold;
+                background-color: {BLUE_L};
+                border: none;
+                border-radius: 15px;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {BLUE_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {BLUE_D};
+            }}
+            QPushButton:disabled {{
+                background-color: {GREY_M};
+                color: {GREY_D};
+            }}
+        """
+        self.zoom_out_btn.setStyleSheet(zoom_button_style)
+        self.zoom_in_btn.setStyleSheet(zoom_button_style)
+
         self.zoom_slider = QSlider(Qt.Horizontal)
         self.zoom_slider.setMinimum(0)
-        self.zoom_slider.setMaximum(150)
-        self.zoom_slider.setValue(30)
+        self.zoom_slider.setMaximum(170)
+        self.zoom_slider.setValue(40)
         self.zoom_slider.setEnabled(False)
         self.zoom_slider.setStyleSheet(
             f"""
@@ -463,7 +502,12 @@ class MonitoringView(QWidget):
             }}
         """
         )
-        controls_layout.addWidget(self.zoom_slider)
+
+        zoom_layout.addWidget(self.zoom_out_btn)
+        zoom_layout.addWidget(self.zoom_in_btn)
+        zoom_layout.addWidget(self.zoom_slider)
+
+        controls_layout.addLayout(zoom_layout)
 
         self.zoom_value_label = QLabel("Xs")
         self.zoom_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -551,6 +595,8 @@ class MonitoringView(QWidget):
         self.quarter_right_btn.setEnabled(True)
         self.play_pause_btn.setEnabled(True)
         self.zoom_slider.setEnabled(True)
+        self.zoom_in_btn.setEnabled(True)
+        self.zoom_out_btn.setEnabled(True)
 
         # Reset view to beginning
         self.current_start_idx = 0
@@ -560,6 +606,8 @@ class MonitoringView(QWidget):
     @property
     def current_window_size(self):
         """Current window size in number of samples"""
+        if self._current_window_size is None or self.ecg_sampling is None:
+            return None
 
         return int(self._current_window_size * self.ecg_sampling)
 
@@ -569,7 +617,7 @@ class MonitoringView(QWidget):
         self.zoom_slider.blockSignals(True)
         self.zoom_slider.setValue(slide_value)
         self.zoom_slider.blockSignals(False)
-        self.update_zoom(slide_value)
+        self.update_zoom(slide_value, autocenter=False)
 
     @Slot()
     def browse_file(self):
@@ -718,6 +766,8 @@ class MonitoringView(QWidget):
         self.quarter_left_btn.setEnabled(False)
         self.quarter_right_btn.setEnabled(False)
         self.zoom_slider.setEnabled(False)
+        self.zoom_in_btn.setEnabled(False)
+        self.zoom_out_btn.setEnabled(False)
 
         # Start timer
         self.auto_scroll_timer.start(self.AUTO_SCROLL_DELAY)
@@ -732,6 +782,8 @@ class MonitoringView(QWidget):
         self.quarter_left_btn.setEnabled(True)
         self.quarter_right_btn.setEnabled(True)
         self.zoom_slider.setEnabled(True)
+        self.zoom_in_btn.setEnabled(True)
+        self.zoom_out_btn.setEnabled(True)
 
         # Stop timer
         self.auto_scroll_timer.stop()
@@ -783,8 +835,10 @@ class MonitoringView(QWidget):
         self.update_plot()
 
     @Slot(int)
-    def update_zoom(self, value):
+    def update_zoom(self, value, autocenter=True):
         """Update zoom level based on slider value"""
+        current_win = self.current_window_size
+
         self._current_window_size = 2 ** (value / 10)
 
         # Update label
@@ -799,7 +853,26 @@ class MonitoringView(QWidget):
                 f"Span: {self._current_window_size / 3600:.1f}h"
             )
 
+        if autocenter and current_win is not None:
+            # Adjust current start index to keep center position
+            new_win = self.current_window_size
+            self.current_start_idx += (current_win - new_win) // 2
+
         self.update_plot()
+
+    @Slot()
+    def zoom_in(self):
+        """Zoom in by increasing the slider value"""
+        current_value = self.zoom_slider.value()
+        new_value = max(current_value - self.ZOOM_STEP, self.zoom_slider.minimum())
+        self.zoom_slider.setValue(new_value)
+
+    @Slot()
+    def zoom_out(self):
+        """Zoom out by decreasing the slider value"""
+        current_value = self.zoom_slider.value()
+        new_value = min(current_value + self.ZOOM_STEP, self.zoom_slider.maximum())
+        self.zoom_slider.setValue(new_value)
 
 
 # ----------------------------------------------------------------------
