@@ -129,6 +129,7 @@ class MonitoringView(QWidget):
         self.axis_x.setTitleText("Time")
         self.axis_x.setTickCount(4)
         self.axis_x.setGridLineVisible(False)
+        self.axis_x.setFormat("dd/MM/yy hh:mm:ss")
 
         self.axis_y = QValueAxis()
         self.axis_y.setTitleText("ECG (mV)")
@@ -421,7 +422,7 @@ class MonitoringView(QWidget):
 
             try:
                 start_date = datetime.datetime.fromisoformat(metadata["start_time"])
-                label = QLabel(start_date.strftime("%Y/%m/%d"))
+                label = QLabel(start_date.strftime("%d/%m/%Y"))
                 label.setTextInteractionFlags(
                     Qt.TextInteractionFlag.TextSelectableByMouse
                 )
@@ -440,17 +441,6 @@ class MonitoringView(QWidget):
             # Reset view to beginning
             self.current_start_idx = 0
             self.update_plot()
-
-    def timestamps_to_pdatetime(self, timestamps):
-        """Convert relative timestamps to QDateTime objects in Brussels timezone"""
-
-        # Convert relative timestamps to absolute Brussels time
-        absolute_times = [
-            QDateTime.fromMSecsSinceEpoch(int(timestamp * 1000), self.BRUSSELS_TZ)
-            for timestamp in timestamps
-        ]
-
-        return absolute_times
 
     def update_plot(self):
         """Update the plot with current window"""
@@ -583,17 +573,13 @@ class MonitoringView(QWidget):
         self._current_window_size = 2 ** (value / 10)
 
         # Update label
-
         if self._current_window_size <= 60:
             self.zoom_value_label.setText(f"Span: {self._current_window_size:.1f}s")
-            self.axis_x.setFormat("hh:mm:ss.zzz")
         elif self._current_window_size <= 3600:  # Less than 1 hour
-            self.axis_x.setFormat("hh:mm:ss")
             self.zoom_value_label.setText(
                 f"Span: {self._current_window_size / 60:.1f}min"
             )
         else:  # More than 1 hour
-            self.axis_x.setFormat("yyyy/MM/dd hh:mm")
             self.zoom_value_label.setText(
                 f"Span: {self._current_window_size / 3600:.1f}h"
             )
