@@ -10,6 +10,7 @@ from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -99,6 +100,8 @@ class SettingsView(QWidget):
 class MonitoringView(QWidget):
     MAX_RESOLUTION = 10000
     BRUSSELS_TZ = QTimeZone(b"Europe/Brussels")
+    AUTO_SCROLL_STRIDE = 0.25
+    AUTO_SCROLL_DELAY = 200  # Timer interval in ms
 
     def __init__(self):
         super().__init__()
@@ -150,31 +153,6 @@ class MonitoringView(QWidget):
         controls_layout = QVBoxLayout(self.controls_widget)
         controls_layout.addStretch(1)
 
-        browse_btn = QPushButton("Open file")
-        browse_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 16px;
-                padding: 8px 15px;
-                background-color: {BLUE_L};
-                border: none;
-                border-radius: 4px;
-                color: white;
-            }}
-            QPushButton:hover {{
-                background-color: {BLUE_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {BLUE_D};
-            }}
-            """
-        )
-        browse_btn.setMaximumWidth(200)
-        controls_layout.addWidget(browse_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-        browse_btn.clicked.connect(self.browse_file)
-
-        controls_layout.addSpacing(30)
-
         # Metadata
         info_label = QLabel("Info")
         info_label.setStyleSheet(
@@ -190,7 +168,21 @@ class MonitoringView(QWidget):
         controls_layout.addWidget(info_label)
         controls_layout.addSpacing(10)
 
-        # TODO form layout with metadata
+        metadata_widget = QWidget()
+        metadata_widget.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+            """
+        )
+        self.metadata_form = QFormLayout(metadata_widget)
+        self.metadata_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        self.metadata_form.addRow("", QLabel("Please open a record file"))
+
+        controls_layout.addWidget(metadata_widget)
 
         controls_layout.addSpacing(30)
 
@@ -252,8 +244,36 @@ class MonitoringView(QWidget):
         self.quarter_left_btn.setEnabled(False)
         self.quarter_right_btn.setEnabled(False)
 
+        # Play/Pause button
+        self.play_pause_btn = QPushButton("▶|")
+        play_pause_style = f"""
+            QPushButton {{
+                font-size: 14px;
+                padding: 6px 12px;
+                background-color: {ORANGE_L};
+                border: none;
+                border-radius: 4px;
+                color: white;
+                min-width: 20px;
+            }}
+            QPushButton:hover {{
+                background-color: {ORANGE_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {ORANGE_D};
+            }}
+            QPushButton:disabled {{
+                background-color: {GREY_M};
+                color: #666;
+            }}
+        """
+        self.play_pause_btn.setStyleSheet(play_pause_style)
+        self.play_pause_btn.setEnabled(False)
+        self.play_pause_btn.clicked.connect(self.toggle_play_pause)
+
         arrows_layout.addWidget(self.full_left_btn)
         arrows_layout.addWidget(self.quarter_left_btn)
+        arrows_layout.addWidget(self.play_pause_btn)
         arrows_layout.addWidget(self.quarter_right_btn)
         arrows_layout.addWidget(self.full_right_btn)
         nav_buttons_layout.addLayout(arrows_layout)
@@ -262,24 +282,10 @@ class MonitoringView(QWidget):
         controls_layout.addSpacing(30)
 
         # Zoom control
-        zoom_label = QLabel("Zoom")
-        zoom_label.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 20px;
-                font-weight: bold;
-                color: {BLUE_L};
-            }}
-        """
-        )
-        zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        controls_layout.addWidget(zoom_label)
-        controls_layout.addSpacing(10)
-
         self.zoom_slider = QSlider(Qt.Horizontal)
         self.zoom_slider.setMinimum(0)
         self.zoom_slider.setMaximum(150)
-        self.zoom_slider.setValue(0)
+        self.zoom_slider.setValue(30)
         self.zoom_slider.setEnabled(False)
         self.zoom_slider.setStyleSheet(
             f"""
@@ -309,6 +315,32 @@ class MonitoringView(QWidget):
         self.zoom_value_label.setStyleSheet(f"color: {GREY_L}; font-size: 12px;")
         controls_layout.addWidget(self.zoom_value_label)
 
+        controls_layout.addSpacing(30)
+
+        # File browsing
+        browse_btn = QPushButton("Open file")
+        browse_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                font-size: 16px;
+                padding: 8px 15px;
+                background-color: {BLUE_L};
+                border: none;
+                border-radius: 4px;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {BLUE_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {BLUE_D};
+            }}
+            """
+        )
+        browse_btn.setMaximumWidth(200)
+        controls_layout.addWidget(browse_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        browse_btn.clicked.connect(self.browse_file)
+
         controls_layout.addStretch(1)
 
         main_layout.addWidget(self.plot_widget, 2.5)
@@ -320,6 +352,11 @@ class MonitoringView(QWidget):
         self.ecg_sampling = None
         self.current_start_idx = 0
         self._current_window_size = None
+
+        # Auto-scroll functionality
+        self.is_playing = False
+        self.auto_scroll_timer = QTimer()
+        self.auto_scroll_timer.timeout.connect(self.auto_scroll_step)
 
         self.update_zoom(self.zoom_slider.value())
 
@@ -368,11 +405,36 @@ class MonitoringView(QWidget):
                 logging.warning("No sampling rate in properties, using default 250Hz")
                 self.ecg_sampling = 250  # Default fallback
 
+            # Clear previous metadata
+            while self.metadata_form.rowCount() > 0:
+                self.metadata_form.removeRow(0)
+
+            # Populate metadata
+            try:
+                label = QLabel(str(metadata["name"]))
+                label.setTextInteractionFlags(
+                    Qt.TextInteractionFlag.TextSelectableByMouse
+                )
+                self.metadata_form.addRow("Name:", label)
+            except KeyError:
+                logging.warning("No name in metadata")
+
+            try:
+                start_date = datetime.datetime.fromisoformat(metadata["start_time"])
+                label = QLabel(start_date.strftime("%Y/%m/%d"))
+                label.setTextInteractionFlags(
+                    Qt.TextInteractionFlag.TextSelectableByMouse
+                )
+                self.metadata_form.addRow("Date:", label)
+            except KeyError:
+                logging.warning("No start_time in metadata")
+
             # Enable navigation controls
             self.full_left_btn.setEnabled(True)
             self.full_right_btn.setEnabled(True)
             self.quarter_left_btn.setEnabled(True)
             self.quarter_right_btn.setEnabled(True)
+            self.play_pause_btn.setEnabled(True)
             self.zoom_slider.setEnabled(True)
 
             # Reset view to beginning
@@ -434,31 +496,85 @@ class MonitoringView(QWidget):
             self.axis_y.setRange(-y_max, y_max)
 
     @Slot()
+    def toggle_play_pause(self):
+        """Toggle between play and pause states"""
+        if self.is_playing:
+            self.stop_auto_scroll()
+        else:
+            self.start_auto_scroll()
+
+    def start_auto_scroll(self):
+        """Start auto-scrolling"""
+        self.is_playing = True
+
+        # Disable other navigation controls
+        self.full_left_btn.setEnabled(False)
+        self.full_right_btn.setEnabled(False)
+        self.quarter_left_btn.setEnabled(False)
+        self.quarter_right_btn.setEnabled(False)
+        self.zoom_slider.setEnabled(False)
+
+        # Start timer
+        self.auto_scroll_timer.start(self.AUTO_SCROLL_DELAY)
+
+    def stop_auto_scroll(self):
+        """Stop auto-scrolling"""
+        self.is_playing = False
+
+        # Re-enable other navigation controls
+        self.full_left_btn.setEnabled(True)
+        self.full_right_btn.setEnabled(True)
+        self.quarter_left_btn.setEnabled(True)
+        self.quarter_right_btn.setEnabled(True)
+        self.zoom_slider.setEnabled(True)
+
+        # Stop timer
+        self.auto_scroll_timer.stop()
+
+    @Slot()
+    def auto_scroll_step(self):
+        """Perform one auto-scroll step"""
+        if self.ecg_samples is None:
+            return
+
+        # Calculate step size (1/4 frame per step for smooth scrolling)
+        step_size = int(self.current_window_size * self.AUTO_SCROLL_STRIDE)
+
+        # Check if we've reached the end
+        max_start_index = len(self.ecg_samples) - self.current_window_size
+        if self.current_start_idx + step_size >= max_start_index:
+            # Reached end of file, stop auto-scroll
+            self.current_start_idx = max_start_index
+            self.update_plot()
+            self.stop_auto_scroll()
+            return
+
+        # Move forward
+        self.current_start_idx += step_size
+        self.update_plot()
+
+    @Slot()
     def navigate_full_left(self):
         """Navigate one full frame to the left"""
         self.current_start_idx -= self.current_window_size
-
         self.update_plot()
 
     @Slot()
     def navigate_full_right(self):
         """Navigate one full frame to the right"""
         self.current_start_idx += self.current_window_size
-
         self.update_plot()
 
     @Slot()
     def navigate_quarter_left(self):
         """Navigate one quarter frame to the left"""
         self.current_start_idx -= self.current_window_size // 4
-
         self.update_plot()
 
     @Slot()
     def navigate_quarter_right(self):
         """Navigate one quarter frame to the right"""
         self.current_start_idx += self.current_window_size // 4
-
         self.update_plot()
 
     @Slot(int)
@@ -469,14 +585,18 @@ class MonitoringView(QWidget):
         # Update label
 
         if self._current_window_size <= 60:
-            self.zoom_value_label.setText(f"{self._current_window_size:.1f}s")
+            self.zoom_value_label.setText(f"Span: {self._current_window_size:.1f}s")
             self.axis_x.setFormat("hh:mm:ss.zzz")
         elif self._current_window_size <= 3600:  # Less than 1 hour
             self.axis_x.setFormat("hh:mm:ss")
-            self.zoom_value_label.setText(f"{self._current_window_size / 60:.1f}min")
+            self.zoom_value_label.setText(
+                f"Span: {self._current_window_size / 60:.1f}min"
+            )
         else:  # More than 1 hour
             self.axis_x.setFormat("yyyy/MM/dd hh:mm")
-            self.zoom_value_label.setText(f"{self._current_window_size / 3600:.1f}h")
+            self.zoom_value_label.setText(
+                f"Span: {self._current_window_size / 3600:.1f}h"
+            )
 
         self.update_plot()
 
