@@ -118,8 +118,14 @@ class ESPRecordConverter:
         sbem_list = sorted(self.record_path.glob("*.sbem"))
         bin_list = sorted(self.record_path.glob("*.bin"))
 
-        max_sbem = int(sbem_list[-1].stem.split("_")[0])
-        max_bin = int(bin_list[-1].stem.split("_")[0])
+        if len(sbem_list):
+            max_sbem = int(sbem_list[-1].stem.split("_")[0])
+        else:
+            max_sbem = 0
+        if len(bin_list):
+            max_bin = int(bin_list[-1].stem.split("_")[0])
+        else:
+            max_bin = 0
         max_id = max(max_sbem, max_bin)
 
         for chunk_id in range(1, max_id + 1):
