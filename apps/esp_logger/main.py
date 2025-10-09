@@ -1585,6 +1585,7 @@ class Backend:
 
             except Exception as e:
                 logging.error("Actor command error in %s: %s", cmd, e)
+                logging.exception(e)
                 # Try to keep running, but ensure replies are resolved
                 await self.show_error(
                     "Internal error", f"Exception in {str(cmd)}: {str(e)}"
