@@ -27,6 +27,7 @@
 #include "meas_hr/resources.h"
 #include "movesense_time/resources.h"
 #include "system_energy/resources.h"
+#include "movesense_info/resources.h"
 #include "sbem-code/sbem_definitions.h"
 
 const char *const IfchGattClient::LAUNCHABLE_NAME = "iFCHGatt";
@@ -127,6 +128,7 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mLogListLastId(0),
                                    mDataloggerStateReference(0),
                                    mGetTimeReference(0),
+                                   mGetInfoReference(0),
                                    mGetBatteryReference(0),
                                    mGetLoggingReference(0),
                                    mLogbookFull(true),
@@ -390,12 +392,10 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     case Commands::HELLO:
     {
         DEBUGLOG("Commands::HELLO. reference: %d", reference);
-        // Hello response
-        // TODO make this compatible with default Movesense Hello response?
-        // bytearray(b'\x01\n\x01220330000081\x00Movesense MD\x00C1:5F:91:65:8F:FD\x00Default Firmware\x001.0.1\x00')
-        uint8_t helloMsg[] = {Responses::COMMAND_RESULT, reference, Codes::OK, Status::SUCCESS, 'H', 'e', 'l', 'l', 'o'};
 
-        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), helloMsg, sizeof(helloMsg));
+        mGetInfoReference = reference;
+        asyncGet(WB_RES::LOCAL::INFO(), AsyncRequestOptions::ForceAsync);
+
         return;
     }
     case Commands::SUBSCRIBE:
@@ -805,6 +805,79 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
     DEBUGLOG("IfchGattClient::onGetResult");
     switch (resourceId.localResourceId)
     {
+    case WB_RES::LOCAL::INFO::LID:
+    {
+        // Hello response
+
+        if (mGetInfoReference == 0)
+        {
+            return;
+        }
+
+        if (resultCode >= 400)
+        {
+            DEBUGLOG("Error fetching time: %d", resultCode);
+
+            // 500: Internal server error
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetInfoReference, Codes::INTERNAL_ERROR, Status::ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+
+            mGetInfoReference = 0;
+            return;
+        }
+
+        const WB_RES::DeviceInfo &deviceInfo = rResultData.convertTo<WB_RES::DeviceInfo>();
+
+        // Create a buffer to build the hello response
+        std::vector<uint8_t> helloResponse;
+        helloResponse.push_back(Responses::COMMAND_RESULT);
+        helloResponse.push_back(mGetInfoReference);
+        helloResponse.push_back(Codes::OK);
+        helloResponse.push_back(Status::SUCCESS);
+        helloResponse.push_back(1);
+
+        // Add serial
+        const char *serial = deviceInfo.serial;
+        helloResponse.insert(helloResponse.end(), serial, serial + strlen(serial));
+        helloResponse.push_back(0);
+
+        // Add device
+        const char *device = deviceInfo.productName;
+        helloResponse.insert(helloResponse.end(), device, device + strlen(device));
+        helloResponse.push_back(0);
+
+        const char *address = "00:00:00:00:00:00";
+        // The address is in the "address" field of the array element with "name"=="BLE"
+        if (deviceInfo.addressInfo.hasValue())
+        {
+            const auto &addressInfoArray = deviceInfo.addressInfo.getValue();
+            for (size_t i = 0; i < addressInfoArray.size(); i++)
+            {
+                if (strcmp(addressInfoArray[i].name, "BLE") == 0)
+                {
+                    address = addressInfoArray[i].address;
+                    break;
+                }
+            }
+        }
+        helloResponse.insert(helloResponse.end(), address, address + strlen(address));
+        helloResponse.push_back(0);
+
+        // Add app name
+        helloResponse.insert(helloResponse.end(), g_appInfo_name, g_appInfo_name + strlen(g_appInfo_name));
+        helloResponse.push_back(0);
+
+        // Add software version
+        const char *sw = deviceInfo.sw;
+        helloResponse.insert(helloResponse.end(), sw, sw + strlen(sw));
+        helloResponse.push_back(0);
+
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true),
+                         helloResponse.data(), helloResponse.size());
+
+        mGetInfoReference = 0;
+        break;
+    }
     case WB_RES::LOCAL::COMM_BLE_GATTSVC_SVCHANDLE::LID:
     {
         // This code finalizes the service setup (triggered by code in onPostResult)
@@ -1298,6 +1371,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             mLogListReference = 0;
             mLogFetchReference = 0;
             mGetTimeReference = 0;
+            mGetInfoReference = 0;
             mGetBatteryReference = 0;
             mGetLoggingReference = 0;
             mDataloggerStateReference = 0;

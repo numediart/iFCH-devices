@@ -20,11 +20,7 @@ async def client():
 
 
 async def test_hello(client):
-    result = await client.hello()
-    import logging
-
-    logging.info(f"Hello result: {result}")
-    assert result
+    assert await client.hello()
 
 
 async def test_subscribe(client):
