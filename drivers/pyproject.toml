@@ -10,7 +10,15 @@ dependencies = []
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio"]
+
 [project.optional-dependencies]
 esp_logger = ["pyserial", "pyserial-asyncio"]
 movesense_gatt = ["bleak"]
 formats = ["h5py", "numpy"]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+asyncio_mode = "auto"

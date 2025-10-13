@@ -4,6 +4,7 @@
 # ]
 # ///
 
+# TODO reimplement using MovesenseGatt and delete this
 
 import asyncio
 import enum

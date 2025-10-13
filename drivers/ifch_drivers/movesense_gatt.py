@@ -168,7 +168,6 @@ class MovesenseGatt:
                     )
                     self._is_ifch_firmware = False
 
-                # TODO adapt to iFCH Movesense firmware
                 await self.client.start_notify(
                     self.DATA_CHAR_UUID, self._data_notification_handler
                 )
@@ -302,9 +301,10 @@ class MovesenseGatt:
                     return success, code, payload
                 else:
                     logging.warning(
-                        "Unexpected reference: %s while waiting for %s",
+                        "Unexpected reference: %s while waiting for %s (code: %s)",
                         rx_reference,
                         reference,
+                        code,
                     )
 
         except asyncio.TimeoutError:
@@ -320,9 +320,18 @@ class MovesenseGatt:
             if self._current_waiter is this_task:
                 self._current_waiter = None
 
+    async def send_and_wait(
+        self,
+        command: Commands,
+        reference: int,
+        data: bytes | None = None,
+        timeout: float = BLE_TIMEOUT,
+    ):
+        await self._send_command(command, reference, data)
+        return await self._wait_for_response(reference, timeout)
+
     async def hello(self):
-        await self._send_command(Commands.HELLO, self.HELLO_REF)
-        result = await self._wait_for_response(self.HELLO_REF)
+        result = await self.send_and_wait(Commands.HELLO, self.HELLO_REF)
         success, _, payload = result
 
         if success:
@@ -343,8 +352,8 @@ class MovesenseGatt:
             reference += 1
 
         byte_path = bytearray(path, "utf-8")
-        await self._send_command(Commands.SUBSCRIBE, reference, byte_path)
-        success, _, _ = await self._wait_for_response(reference)
+        result = await self.send_and_wait(Commands.SUBSCRIBE, reference, byte_path)
+        success, _, _ = result
 
         if success:
             self._stream_subscribtions[reference] = path

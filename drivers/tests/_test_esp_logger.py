@@ -1,16 +1,10 @@
-# /// script
-# dependencies = [
-#   "ifch_drivers[esp_logger]",
-# ]
-# [tool.uv.sources]
-# ifch_drivers = { path = "../", editable = true }
-# ///
-
 import asyncio
 import datetime
 import logging
 
 from ifch_drivers.esp_logger import ESPLogger, detect_device
+
+# TODO implement using pytest
 
 
 async def test_device(port):
