@@ -2,7 +2,7 @@ import asyncio
 import datetime
 import logging
 
-from ifch_drivers.esp_logger import ESPLogger, detect_device
+from ifch_drivers.esp_logger import ESPLogger
 
 # TODO implement using pytest
 
@@ -106,10 +106,9 @@ async def test_device(port):
         logging.info(f"Selecting device {devices[0]}")
 
     logging.info("Setting config...")
-    device.set_address(movesense_address)
-    ok = await device.put_config()
+    ok = await device.set_address(movesense_address)
     if not ok:
-        logging.error("Failed to send config")
+        logging.error("Failed to set address")
 
     logging.info("Retrieving config...")
     config = await device.get_config()
@@ -167,11 +166,11 @@ async def test_device(port):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    devices = asyncio.run(detect_device())
+    devices = asyncio.run(ESPLogger.detect_devices())
 
     if len(devices) == 0:
         logging.warning("No devices found, attempting to reset ports")
-        devices = asyncio.run(detect_device(reset_ports=True))
+        devices = asyncio.run(ESPLogger.detect_devices(reset_ports=True))
         if len(devices) == 0:
             logging.warning("No devices found, exiting")
             exit(1)

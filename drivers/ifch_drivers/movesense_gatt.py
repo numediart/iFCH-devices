@@ -9,18 +9,6 @@ from .formats.movesense_stream import MovesenseStreamDecoder
 from .utils import BoundedQueue
 
 
-async def detect_device():
-    logging.info("Scanning for Movesense device.")
-    devices = await bleak.BleakScanner().discover()
-    found = []
-
-    for d in devices:
-        if d.name and d.name.startswith("Movesense"):
-            found.append((d.address, d.name))
-
-    return found
-
-
 class Responses(enum.Enum):
     COMMAND_RESULT = 1
     DATA = 2
@@ -88,18 +76,18 @@ class MovesenseGatt:
     HELLO_REF = 0xFF
 
     def __init__(self, address: str, movesense_id: str, stream_callback=None):
-        self.address = address
-        self.movesense_id = movesense_id
-
-        self.rx_queue = BoundedQueue(self.RX_QUEUE_SIZE)
-        self.send_queue = asyncio.Queue()
-
-        self.client: bleak.BleakClient | None = None
-        self._tasks: list[asyncio.Task] = []
-        self._current_waiter: asyncio.Task | None = None
+        self._address = address
+        self._movesense_id = movesense_id
 
         self.connected = asyncio.Event()
         self.disconnected = asyncio.Event()
+
+        self._rx_queue = BoundedQueue(self.RX_QUEUE_SIZE)
+        self._send_queue = asyncio.Queue()
+
+        self._client: bleak.BleakClient | None = None
+        self._tasks: list[asyncio.Task] = []
+        self._current_waiter: asyncio.Task | None = None
 
         self._is_ifch_firmware = True
 
@@ -107,12 +95,20 @@ class MovesenseGatt:
         self._stream_decoder = MovesenseStreamDecoder(self._stream_subscribtions)
         self._stream_callback = stream_callback
 
+    @property
+    def address(self):
+        return self._address
+
+    @property
+    def movesense_id(self):
+        return self._movesense_id
+
     async def start(self):
         self.connected.clear()
         self.disconnected.clear()
 
-        self.send_queue = asyncio.Queue()
-        self.rx_queue.clear()
+        self._send_queue = asyncio.Queue()
+        self._rx_queue.clear()
 
         task = asyncio.create_task(self._ble_loop())
         self._tasks.append(task)
@@ -148,17 +144,17 @@ class MovesenseGatt:
                 timeout=self.BLE_CONNECT_TIMEOUT,
                 services=[self.MOVESENSE_SVC_UUID],
                 disconnected_callback=self._disconnect_handler,
-            ) as self.client:
+            ) as self._client:
                 logging.info("Connected to Movesense device %s", self.address)
                 self.connected.set()
 
                 self._is_ifch_firmware = True
 
                 try:
-                    await self.client.start_notify(
+                    await self._client.start_notify(
                         self.LOG_CHAR_UUID, self._log_notification_handler
                     )
-                    await self.client.start_notify(
+                    await self._client.start_notify(
                         self.RESPONSE_CHAR_UUID, self._response_notification_handler
                     )
 
@@ -168,12 +164,12 @@ class MovesenseGatt:
                     )
                     self._is_ifch_firmware = False
 
-                await self.client.start_notify(
+                await self._client.start_notify(
                     self.DATA_CHAR_UUID, self._data_notification_handler
                 )
 
                 while True:
-                    command: GATTCommand = await self.send_queue.get()
+                    command: GATTCommand = await self._send_queue.get()
                     logging.info(
                         "Sending command %s (ref=%d)",
                         command.command,
@@ -188,7 +184,7 @@ class MovesenseGatt:
                         command_bytes += command.data
 
                     try:
-                        await self.client.write_gatt_char(
+                        await self._client.write_gatt_char(
                             self.COMMAND_CHAR_UUID, command_bytes
                         )
                     except Exception as e:
@@ -199,7 +195,7 @@ class MovesenseGatt:
                 logging.exception(e)
 
         finally:
-            self.client = None
+            self._client = None
 
             self.connected.clear()
             self.disconnected.set()
@@ -255,7 +251,7 @@ class MovesenseGatt:
                 code = StatusCodes(data[2:4])
                 payload = data[4:] if len(data) > 4 else None
 
-            self.rx_queue.put_nowait((reference, code, payload))
+            self._rx_queue.put_nowait((reference, code, payload))
         except ValueError:
             logging.warning("Unknown status code in response: %s", data[2:4])
 
@@ -266,7 +262,7 @@ class MovesenseGatt:
             raise RuntimeError("Not connected to Movesense device")
 
         gatt_command = GATTCommand(command, reference, data)
-        await self.send_queue.put(gatt_command)
+        await self._send_queue.put(gatt_command)
 
     async def _wait_for_response(self, reference: int, timeout: float = BLE_TIMEOUT):
         # Enforce a single active waiter. Cancel the previous one if present.
@@ -293,7 +289,7 @@ class MovesenseGatt:
                     raise asyncio.TimeoutError
 
                 rx_reference, code, payload = await asyncio.wait_for(
-                    self.rx_queue.get(), timeout=remaining
+                    self._rx_queue.get(), timeout=remaining
                 )
 
                 if rx_reference == reference:
@@ -361,3 +357,15 @@ class MovesenseGatt:
             return True
 
         return None
+
+    @staticmethod
+    async def detect_devices():
+        logging.info("Scanning for Movesense device.")
+        devices = await bleak.BleakScanner().discover()
+        found = []
+
+        for d in devices:
+            if d.name and d.name.startswith("Movesense"):
+                found.append((d.address, d.name))
+
+        return found

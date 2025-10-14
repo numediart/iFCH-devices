@@ -14,7 +14,7 @@ from typing import Any, Optional
 import numpy as np
 import qasync
 from ifch_drivers.formats import movesense_record
-from ifch_drivers.movesense_gatt import MovesenseGatt, detect_device
+from ifch_drivers.movesense_gatt import MovesenseGatt
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QSettings, Qt, QTimer, Slot
 from PySide6.QtGui import QColor, QFont, QPainter
@@ -1925,7 +1925,7 @@ class CmdScanBLE:
         back.ui.update_ui_state(GUIState.DISCONNECTED)
 
         try:
-            found = await detect_device()
+            found = await MovesenseGatt.detect_devices()
         except Exception as e:
             logging.warning("BLE scan error: %s", e)
             await back.show_error(

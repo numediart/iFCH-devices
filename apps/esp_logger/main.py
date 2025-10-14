@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import contextlib
 import json
 import logging
@@ -11,7 +12,7 @@ from typing import Any, Optional
 
 import numpy as np
 import qasync
-from ifch_drivers.esp_logger import ESPLogger, detect_device
+from ifch_drivers.esp_logger import ESPLogger
 from ifch_drivers.formats.esp_record import ESPRecordConverter
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
 from PySide6.QtCore import QSettings, Qt, QTimer, Slot
@@ -879,8 +880,8 @@ class MonitoringView(QWidget):
         main_layout = QHBoxLayout(self)
 
         # Left zone: live ECG plot
-        self.plot_frame = QWidget()
-        plot_layout = QVBoxLayout(self.plot_frame)
+        plot_frame = QWidget()
+        plot_layout = QVBoxLayout(plot_frame)
 
         # Create a line series
         self.series = QLineSeries()
@@ -892,8 +893,8 @@ class MonitoringView(QWidget):
         self.series.setPen(pen)
 
         # Create chart and add series
-        self.chart = QChart()
-        self.chart.addSeries(self.series)
+        chart = QChart()
+        chart.addSeries(self.series)
 
         # Create axes with fixed ranges
         self.axis_x = QValueAxis()
@@ -903,31 +904,31 @@ class MonitoringView(QWidget):
         self.axis_x.setVisible(False)
 
         self.axis_y = QValueAxis()
-        self.axis_y.setTitleText("ECG (V)")
+        self.axis_y.setTitleText("ECG (mV)")
         self.axis_y.setRange(-1, 1)
         self.axis_y.setGridLineVisible(False)  # Hide Y-axis grid lines
 
         # Add axes to chart
-        self.chart.addAxis(self.axis_x, Qt.AlignBottom)
-        self.chart.addAxis(self.axis_y, Qt.AlignLeft)
+        chart.addAxis(self.axis_x, Qt.AlignBottom)
+        chart.addAxis(self.axis_y, Qt.AlignLeft)
 
-        self.chart.legend().setVisible(False)  # Hide the legend
+        chart.legend().setVisible(False)  # Hide the legend
 
         # Attach series to axes
         self.series.attachAxis(self.axis_x)
         self.series.attachAxis(self.axis_y)
 
         # Create chart view and set as central widget
-        self.chart_view = QChartView(self.chart)
-        self.chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.chart_view.setMinimumWidth(500)
+        chart_view = QChartView(chart)
+        chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        chart_view.setMinimumWidth(500)
 
-        plot_layout.addWidget(self.chart_view)
+        plot_layout.addWidget(chart_view)
 
         # Right zone: form with fixed labels and value fields
-        self.info_widget = QWidget()
-        self.info_widget.setMaximumWidth(500)
-        info_layout = QVBoxLayout(self.info_widget)
+        info_widget = QWidget()
+        info_widget.setMaximumWidth(500)
+        info_layout = QVBoxLayout(info_widget)
 
         info_layout.addStretch(1)
 
@@ -1035,8 +1036,8 @@ class MonitoringView(QWidget):
         )
         info_layout.addWidget(self.switch_button)
 
-        main_layout.addWidget(self.plot_frame, 2.5)
-        main_layout.addWidget(self.info_widget, 1)
+        main_layout.addWidget(plot_frame, 2.5)
+        main_layout.addWidget(info_widget, 1)
 
 
 # ----------------------------------------------------------------------
@@ -1317,17 +1318,23 @@ class MainWindow(QWidget):
         if (
             self.current_state != GUIState.MONITORING
             or self.backend.device is None
-            or len(self.backend.device.plot_x) == 0
+            or len(self.backend.ecg_data) == 0
         ):
             return
 
         t = time.time()
-        x_time = np.asarray(self.backend.device.plot_x) / 1000 - t
-        y_ecg = np.asarray(self.backend.device.plot_y) * 0.38147e-6
-        self.monitoring_view.series.replaceNp(x_time.astype(float), y_ecg.astype(float))
 
-        maxY = np.max(np.abs(y_ecg))
-        self.monitoring_view.axis_y.setRange(-maxY, maxY)
+        ecg_data = np.asarray(self.backend.ecg_data)
+
+        if len(ecg_data) != 0:
+            x_time = ecg_data[:, 0] / 1000 - t
+            y_ecg = ecg_data[:, 1] * 0.38147e-3  # Convert to mV
+            self.monitoring_view.series.replaceNp(
+                x_time.astype(float), y_ecg.astype(float)
+            )
+
+            maxY = np.max(np.abs(y_ecg))
+            self.monitoring_view.axis_y.setRange(-maxY, maxY)
 
     def reset_graph(self):
         self.monitoring_view.series.clear()
@@ -1465,6 +1472,8 @@ class MainWindow(QWidget):
 
 # ----------------------------------------------------------------------
 class Backend:
+    PLOT_SAMPLES = 10 * 200
+
     def __init__(self, ui: "MainWindow"):
         self.ui = ui
         self.device: ESPLogger | None = None
@@ -1480,6 +1489,20 @@ class Backend:
 
         self.record_files = None
         self.record_meta = {}
+
+        self.ecg_data = None
+        self.time_origin = None
+
+    def stream_callback(self, _, data):
+        timestamps, samples, sensor = data
+        if timestamps is not None and samples is not None:
+            if self.time_origin is None:
+                self.time_origin = time.time() * 1000 - timestamps[0]
+
+            timestamps = [t + self.time_origin for t in timestamps]
+
+            if sensor == "ECG":
+                self.ecg_data.extend(zip(timestamps, samples))
 
     async def run(self):
         """Start the actor and bootstrap probing."""
@@ -1553,7 +1576,7 @@ class Backend:
                 if self.device:
                     cmd_task = asyncio.create_task(cmd.handle(self))
                     disconnect_task = asyncio.create_task(
-                        self.device.proto.disconnected.wait()
+                        self.device.disconnected.wait()
                     )
 
                     done, pending = await asyncio.wait(
@@ -1594,8 +1617,10 @@ class Backend:
     async def start_device(self, port: str):
         """Open serial, start notification processing, start disconnect watcher."""
         try:
-            self.device = ESPLogger(port)
+            self.device = ESPLogger(port, stream_callback=self.stream_callback)
+            self.ecg_data = collections.deque(maxlen=self.PLOT_SAMPLES)
             await self.device.start()
+
         except Exception as e:
             logging.warning("Failed to start device on %s: %s", port, e)
             self.device = None
@@ -1693,7 +1718,7 @@ class CmdProbeUSB:
 
         if back.device is None:
             try:
-                found = await detect_device(reset_ports=False)
+                found = await ESPLogger.detect_devices(reset_ports=False)
             except Exception as e:
                 logging.debug("USB probe failed: %s", e)
                 found = []
@@ -1844,10 +1869,9 @@ class CmdStreamDevice:
         back.ui.update_ui_state(GUIState.INFO)
 
         parts = self.device.split(";")
-        back.device.set_address(parts[-1], parts[0])
 
-        if not await back.device.put_config():
-            logging.warning("Config PUT failed")
+        if not await back.device.set_address(parts[-1], parts[0]):
+            logging.warning("Set address failed")
             await back.show_error()
             return
 

@@ -3,7 +3,6 @@ from ifch_drivers.movesense_gatt import (
     Commands,
     MovesenseGatt,
     StatusCodes,
-    detect_device,
 )
 
 ECG_125 = bytearray("/Meas/ECG/125", "utf-8")
@@ -14,7 +13,7 @@ INVALID_PATH = bytearray("/Invalid/Path", "utf-8")
 
 @pytest.fixture(scope="session")
 async def client():
-    devices = await detect_device()
+    devices = await MovesenseGatt.detect_devices()
     if not devices:
         pytest.skip("No Movesense device found.")
 

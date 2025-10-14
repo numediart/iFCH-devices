@@ -1,10 +1,10 @@
 import pytest
-from ifch_drivers.movesense_gatt import MovesenseGatt, detect_device
+from ifch_drivers.movesense_gatt import MovesenseGatt
 
 
 @pytest.fixture
 async def client():
-    devices = await detect_device()
+    devices = await MovesenseGatt.detect_devices()
     if not devices:
         pytest.skip("No Movesense device found.")
 
