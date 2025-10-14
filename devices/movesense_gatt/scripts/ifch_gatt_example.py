@@ -152,9 +152,7 @@ class MovesenseController:
 
     ECG_128 = bytearray("/Meas/ECG/128", "utf-8")
     ECG_200 = bytearray("/Meas/ECG/200", "utf-8")
-    ECG_128_mV = bytearray(
-        "/Meas/ECG/128/mV", "utf-8"
-    )  # TODO check if logbook is 16 bits instead of 32
+    ECG_128_mV = bytearray("/Meas/ECG/128/mV", "utf-8")
     IMU_104 = bytearray("/Meas/IMU9/104", "utf-8")
     ACC_13 = bytearray("/Meas/Acc/13", "utf-8")
 

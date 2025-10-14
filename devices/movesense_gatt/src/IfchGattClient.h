@@ -159,7 +159,6 @@ private:
     LogSub *getFreeLogSubSlot();
 
     // Buffer for outgoing data messages
-    // TODO check if this avoids fragmentation
     static constexpr size_t PAYLOAD_SIZE = MTU - 3;
     uint8_t mDataMsgBuffer[PAYLOAD_SIZE];
 
