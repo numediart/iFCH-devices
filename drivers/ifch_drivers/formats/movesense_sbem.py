@@ -1,5 +1,6 @@
 import collections
 import dataclasses
+import io
 import logging
 import pathlib
 import re
@@ -158,15 +159,9 @@ class SBEMDecoder:
     RESERVED_SBEM_ID_E_ESCAPE = b"\255"
     RESERVED_SBEM_ID_E_DESCRIPTOR = 0
 
-    def __init__(self, file: pathlib.Path):
-        self.reader = None
-        self.file = file
-        self.sbem_blocks: dict[int, SBEMPath | SBEMGroup] = {}
-        self.decoded: dict[str, list] = defaultdict(list)
-
     # reads sbem ID upto uint16 from file
     def _read_id(self):
-        byte1 = self.reader.read(1)
+        byte1 = self._reader.read(1)
         sbem_id = None
         if not byte1:
             logging.debug("EOF found")
@@ -177,7 +172,7 @@ class SBEMDecoder:
 
         else:
             # read 2 following bytes
-            id_bytes = self.reader.read(2)
+            id_bytes = self._reader.read(2)
             sbem_id = int.from_bytes(id_bytes, byteorder="little")
             logging.debug("two byte id: %i", sbem_id)
 
@@ -185,14 +180,14 @@ class SBEMDecoder:
 
     # reads sbem length upto uint32 from file
     def _read_len(self):
-        byte1 = self.reader.read(1)
+        byte1 = self._reader.read(1)
         if byte1 < self.RESERVED_SBEM_ID_E_ESCAPE:
             datasize = int.from_bytes(byte1, byteorder="little")
             logging.debug("one byte len: %i", datasize)
 
         else:
             # read 4 following bytes
-            id_bytes = self.reader.read(4)
+            id_bytes = self._reader.read(4)
             datasize = int.from_bytes(id_bytes, byteorder="little")
             logging.debug("4 byte len: %i", datasize)
         return datasize
@@ -210,7 +205,7 @@ class SBEMDecoder:
 
     def _parse_header(self):
         # read header
-        header_bytes = self.reader.read(8)
+        header_bytes = self._reader.read(8)
         logging.debug("SBEM Header: %s", header_bytes)
 
         return header_bytes.decode()
@@ -232,101 +227,114 @@ class SBEMDecoder:
                 logging.debug("ID: %s, Tag: %s, Value: %s", descriptor_id, tag, value)
 
                 if tag == "<PTH>":
-                    self.sbem_blocks[descriptor_id] = SBEMPath(value)
+                    self._sbem_blocks[descriptor_id] = SBEMPath(value)
 
                 elif tag == "<FRM>":
-                    self.sbem_blocks[descriptor_id].type = self.SBEM_TYPES[value]
+                    self._sbem_blocks[descriptor_id].type = self.SBEM_TYPES[value]
 
                 elif tag == "<GRP>":
-                    self.sbem_blocks[descriptor_id] = SBEMGroup(value, self.sbem_blocks)
+                    self._sbem_blocks[descriptor_id] = SBEMGroup(
+                        value, self._sbem_blocks
+                    )
 
                 else:
                     logging.warning("Unknown tag: %s", tag)
 
         return
 
-    def decode(self, standardize=True):
+    def decode(self, sbem_data, standardize=True):
+        self._sbem_blocks: dict[int, SBEMPath | SBEMGroup] = {}
+        self._decoded: dict[str, list] = defaultdict(list)
+
+        if isinstance(sbem_data, (bytearray, bytes)):
+            with io.BytesIO(sbem_data) as self._reader:
+                return self._decode(standardize=standardize)
+        else:
+            file = pathlib.Path(sbem_data)
+            with open(file, "rb") as self._reader:
+                return self._decode(standardize=standardize)
+
+    def _decode(self, standardize=True):
         # read data
-        with open(self.file, "rb") as self.reader:
-            sbem_version = self._parse_header()
+        sbem_version = self._parse_header()
 
-            if sbem_version != "SBEM0112":
-                raise NotImplementedError(f"Unsupported SBEM version: {sbem_version}")
+        if sbem_version != "SBEM0112":
+            raise NotImplementedError(f"Unsupported SBEM version: {sbem_version}")
 
-            while True:
-                (chunk_id, datasize) = self._read_chunk_header()
+        while True:
+            (chunk_id, datasize) = self._read_chunk_header()
 
-                if chunk_id is None:
-                    break
+            if chunk_id is None:
+                break
 
-                chunk_bytes = self.reader.read(datasize)
+            chunk_bytes = self._reader.read(datasize)
 
-                if len(chunk_bytes) != datasize:
-                    raise BufferError(
-                        f"Too few bytes returned, expected {datasize}, got {len(chunk_bytes)}."
-                    )
+            if len(chunk_bytes) != datasize:
+                raise BufferError(
+                    f"Too few bytes returned, expected {datasize}, got {len(chunk_bytes)}."
+                )
 
-                if chunk_id == self.RESERVED_SBEM_ID_E_DESCRIPTOR:
-                    self._parse_descriptor_chunk(chunk_bytes)
-
-                else:
-                    logging.debug("Decoding chunk %i", chunk_id)
-
-                    try:
-                        sbem_block = self.sbem_blocks[chunk_id]
-
-                        self.decoded[sbem_block.name].append(
-                            sbem_block.decode(chunk_bytes)
-                        )
-                    except KeyError as e:
-                        logging.warning(f"Unknown SBEM block ID: {chunk_id}, {e}")
-
-            if not standardize:
-                # Return the raw decoded data as a dicts of lists
-                for key, decoded in self.decoded.items():
-                    self.decoded[key] = {
-                        k: [d[k] for d in decoded] for k in decoded[0].keys()
-                    }
+            if chunk_id == self.RESERVED_SBEM_ID_E_DESCRIPTOR:
+                self._parse_descriptor_chunk(chunk_bytes)
 
             else:
-                # Convert the dictionary keys to a standard format for sensor names
-                standardized = defaultdict(dict)
-                for key, decoded in self.decoded.items():
-                    sensor = None
-                    for part in key.split("."):
-                        if part.startswith("Meas"):
-                            sensor = part[
-                                4:
-                            ].upper()  # TODO test for IMU6 and IMU9 and ECGMV
-                            break
+                logging.debug("Decoding chunk %i", chunk_id)
 
-                    if sensor is None:
-                        raise NotImplementedError(
-                            f"Could not identify sensor for key {key}, set standardize=False"
-                        )
+                try:
+                    sbem_block = self._sbem_blocks[chunk_id]
 
-                    # Assumes that all sensors contain only Timestamp and Data
-                    if len(decoded) and len(decoded[0].keys()) != 2:
-                        # TODO test for IMU6 and IMU9
-                        raise NotImplementedError(
-                            "Invalid number of keys in decoded SBEM for standardization, set standardize=False"
-                        )
+                    self._decoded[sbem_block.name].append(
+                        sbem_block.decode(chunk_bytes)
+                    )
+                except KeyError as e:
+                    logging.warning(f"Unknown SBEM block ID: {chunk_id}, {e}")
 
-                    def time_or_sample(k):  # TODO test for IMU6 and IMU9
-                        tail = k.split(".")[-1]
-                        if tail == "Timestamp":
-                            return "timestamps"
-                        else:
-                            return "samples"
+        if not standardize:
+            # Return the raw decoded data as a dicts of lists
+            for key, decoded in self._decoded.items():
+                self._decoded[key] = {
+                    k: [d[k] for d in decoded] for k in decoded[0].keys()
+                }
 
-                    standardized[sensor] = {
-                        time_or_sample(k): [v[k] for v in decoded]
-                        for k in decoded[0].keys()
-                    }
+        else:
+            # Convert the dictionary keys to a standard format for sensor names
+            standardized = defaultdict(dict)
+            for key, decoded in self._decoded.items():
+                sensor = None
+                for part in key.split("."):
+                    if part.startswith("Meas"):
+                        sensor = part[
+                            4:
+                        ].upper()  # TODO test for IMU6 and IMU9 and ECGMV
+                        break
 
-                self.decoded = standardized
+                if sensor is None:
+                    raise NotImplementedError(
+                        f"Could not identify sensor for key {key}, set standardize=False"
+                    )
 
-        return self.decoded
+                # Assumes that all sensors contain only Timestamp and Data
+                if len(decoded) and len(decoded[0].keys()) != 2:
+                    # TODO test for IMU6 and IMU9
+                    raise NotImplementedError(
+                        "Invalid number of keys in decoded SBEM for standardization, set standardize=False"
+                    )
+
+                def time_or_sample(k):  # TODO test for IMU6 and IMU9
+                    tail = k.split(".")[-1]
+                    if tail == "Timestamp":
+                        return "timestamps"
+                    else:
+                        return "samples"
+
+                standardized[sensor] = {
+                    time_or_sample(k): [v[k] for v in decoded]
+                    for k in decoded[0].keys()
+                }
+
+            self._decoded = standardized
+
+        return self._decoded
 
 
 if __name__ == "__main__":
@@ -336,6 +344,6 @@ if __name__ == "__main__":
     parser.add_argument("data_path", type=str, help="Path to the SBEM file to decode")
     args = parser.parse_args()
     data_path = pathlib.Path(args.data_path)
-    decoder = SBEMDecoder(data_path)
-    data = decoder.decode()
+    decoder = SBEMDecoder()
+    data = decoder.decode(data_path)
     print(data)

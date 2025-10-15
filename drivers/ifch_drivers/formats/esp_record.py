@@ -115,6 +115,7 @@ class ESPRecordConverter:
             self._read_metadata()
 
         bin_decoder = ESPBinReader(self.config["sensorPaths"])
+        sbem_decoder = SBEMDecoder()
         sbem_list = sorted(self.record_path.glob("*.sbem"))
         bin_list = sorted(self.record_path.glob("*.bin"))
 
@@ -134,16 +135,14 @@ class ESPRecordConverter:
             if len(sbem_files) > 1:
                 for sbem_file in sbem_files[1:]:
                     logging.warning(f"Backup SBEM file found: {sbem_file.name}")
-                    sbem_decoder = SBEMDecoder(sbem_file)
-                    sbem_decoded = sbem_decoder.decode()
+                    sbem_decoded = sbem_decoder.decode(sbem_file)
                     self._append_chunk(sbem_decoded)
 
             if not sbem_files:
                 logging.warning(f"Missing SBEM file for chunk ID: {chunk_id}")
             else:
                 logging.info(f"Decoding SBEM file: {sbem_files[0].name}")
-                sbem_decoder = SBEMDecoder(sbem_files[0])
-                sbem_decoded = sbem_decoder.decode()
+                sbem_decoded = sbem_decoder.decode(sbem_files[0])
                 self._append_chunk(sbem_decoded)
 
             bin_files = sorted(self.record_path.glob(f"{chunk_id:03d}*bin*"))
