@@ -20,6 +20,19 @@ class BoundedQueue(asyncio.Queue):
 
         await super().put(item)
 
+    def put_nowait(self, item):
+        if self.full():
+            try:
+                dropped = self.get_nowait()
+                logging.log(
+                    self.level, "Queue is full, discarding oldest item: %s", dropped
+                )
+
+            except asyncio.QueueEmpty:
+                pass
+
+        super().put_nowait(item)
+
     def clear(self):
         while not self.empty():
             try:

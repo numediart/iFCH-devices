@@ -69,6 +69,7 @@ class MovesenseGatt:
     LOG_CHAR_UUID = "34800004-7185-4d5d-b431-630e7050e8f0"
 
     RX_QUEUE_SIZE = 32
+    LOG_QUEUE_SIZE = 256
     BLE_CONNECT_TIMEOUT = 10
     BLE_TIMEOUT = 2
     MAX_SUBSCRIPTIONS = 4
@@ -95,6 +96,10 @@ class MovesenseGatt:
         self._stream_decoder = MovesenseStreamDecoder(self._stream_subscribtions)
         self._stream_callback = stream_callback
 
+        self._log_subscriptions = {}
+        self._log_listening = False
+        self._log_queue = BoundedQueue(self.LOG_QUEUE_SIZE)
+
     @property
     def address(self):
         return self._address
@@ -102,6 +107,10 @@ class MovesenseGatt:
     @property
     def movesense_id(self):
         return self._movesense_id
+
+    @property
+    def is_ifch_firmware(self):
+        return self._is_ifch_firmware
 
     async def start(self):
         self.connected.clear()
@@ -170,7 +179,7 @@ class MovesenseGatt:
 
                 while True:
                     command: GATTCommand = await self._send_queue.get()
-                    logging.info(
+                    logging.debug(
                         "Sending command %s (ref=%d)",
                         command.command,
                         command.reference,
@@ -212,7 +221,7 @@ class MovesenseGatt:
                 data[0] = Responses.COMMAND_RESULT.value
 
             if data[0] == Responses.COMMAND_RESULT.value:
-                logging.info(
+                logging.debug(
                     "Response/data notification from %s: %s", self.address, data
                 )
                 self._decode_response(data)
@@ -223,12 +232,28 @@ class MovesenseGatt:
             self._stream_callback(self, decoded)
 
     def _log_notification_handler(self, _, data):
-        logging.info("Log notification from %s: %s", self.address, data)
+        logging.debug("Log notification from %s: %s", self.address, data)
+        self.decode_log(data)
 
-        # TODO for iFCH Movesense firmware
+    def set_log_listening(self, listening: bool):
+        if not self._log_listening and listening:
+            if not self._log_queue.empty():
+                logging.warning(
+                    "Enabling log listening, but log queue not empty, discarding old data"
+                )
+                self._log_queue.clear()
+
+        self._log_listening = listening
+
+        if not self._log_listening:
+            if not self._log_queue.empty():
+                logging.warning(
+                    "Disabling log listening, but log queue not empty, discarding data"
+                )
+                self._log_queue.clear()
 
     def _response_notification_handler(self, _, data):
-        logging.info("Response notification from %s: %s", self.address, data)
+        logging.debug("Response notification from %s: %s", self.address, data)
         self._decode_response(data)
 
     def _decode_response(self, data: bytes):
@@ -252,8 +277,30 @@ class MovesenseGatt:
                 payload = data[4:] if len(data) > 4 else None
 
             self._rx_queue.put_nowait((reference, code, payload))
+
         except ValueError:
             logging.warning("Unknown status code in response: %s", data[2:4])
+
+    def _decode_log(self, data: bytes):
+        data_type = data[0]
+        if data_type not in (Responses.DATA.value, Responses.DATA_PART2.value):
+            logging.warning("Unexpected log message type: %s", data_type)
+            return
+
+        if len(data) < 2:
+            logging.warning("Response too short: %s", data)
+            return
+
+        reference = data[1]
+
+        payload = data[2:] if len(data) > 2 else None
+
+        if self._log_listening:
+            self._log_queue.put_nowait((reference, None, payload))
+        else:
+            logging.warning(
+                "Received log data while not listening, discarding: ref %s", reference
+            )
 
     async def _send_command(
         self, command: Commands, reference: int, data: bytes | None = None
@@ -264,6 +311,7 @@ class MovesenseGatt:
         gatt_command = GATTCommand(command, reference, data)
         await self._send_queue.put(gatt_command)
 
+    # TODO allow wait for log message
     async def _wait_for_response(self, reference: int, timeout: float = BLE_TIMEOUT):
         # Enforce a single active waiter. Cancel the previous one if present.
         this_task = asyncio.current_task()
@@ -319,10 +367,14 @@ class MovesenseGatt:
     async def send_and_wait(
         self,
         command: Commands,
-        reference: int,
+        reference: int | None = None,
         data: bytes | None = None,
         timeout: float = BLE_TIMEOUT,
     ):
+        # If no reference is provided, generate one from the command
+        if reference is None:
+            reference = min(command.value + 10, 254)
+
         await self._send_command(command, reference, data)
         return await self._wait_for_response(reference, timeout)
 
@@ -335,7 +387,7 @@ class MovesenseGatt:
         else:
             return None
 
-    async def subscribe(self, path):
+    async def subscribe(self, path: str):
         if path in self._stream_subscribtions.values():
             logging.warning("Already subscribed to %s", path)
             return False
@@ -357,6 +409,205 @@ class MovesenseGatt:
             return True
 
         return None
+
+    async def unsubscribe(self, path: str):
+        reference = None
+        for key, value in self._stream_subscribtions.items():
+            if value == path:
+                reference = key
+                break
+
+        if reference is None:
+            logging.warning("Path not subscribed to: %s", path)
+            return False
+
+        byte_path = bytearray(path, "utf-8")
+        result = await self.send_and_wait(Commands.UNSUBSCRIBE, reference, byte_path)
+        success, _, _ = result
+
+        if success:
+            del self._stream_subscribtions[reference]
+            self._stream_decoder.subscriptions = self._stream_subscribtions
+            return True
+
+        return None
+
+    async def unsubscribe_all(self):
+        if not self._is_ifch_firmware:
+            logging.warning(
+                "Unsubscribe all command not supported on standard Movesense firmware"
+            )
+            raise RuntimeError("Not iFCH Movesense firmware")
+
+        result = await self.send_and_wait(Commands.UNSUBSCRIBE_ALL)
+        success, _, _ = result
+
+        if success:
+            self._stream_subscribtions.clear()
+            self._stream_decoder.subscriptions = self._stream_subscribtions
+
+        return success
+
+    async def clear_logs(self):
+        if not self._is_ifch_firmware:
+            logging.warning(
+                "Clear logs command not supported on standard Movesense firmware"
+            )
+            raise RuntimeError("Not iFCH Movesense firmware")
+
+        result = await self.send_and_wait(Commands.CLEAR_LOGS)
+        success, _, _ = result
+
+        return success
+
+    async def sub_log(self, path):
+        if not self._is_ifch_firmware:
+            logging.warning(
+                "Subscribe log command not supported on standard Movesense firmware"
+            )
+            raise RuntimeError("Not iFCH Movesense firmware")
+
+        if path in self._log_subscriptions.values():
+            logging.warning("Already subscribed to log %s", path)
+            return False
+
+        reference = 1
+        while reference in self._log_subscriptions:
+            reference += 1
+
+        byte_path = bytearray(path, "utf-8")
+        result = await self.send_and_wait(Commands.SUB_LOG, reference, byte_path)
+        success, _, _ = result
+
+        if success:
+            self._log_subscriptions[reference] = path
+            return True
+
+        return None
+
+    async def unsub_log(self, path):
+        if not self._is_ifch_firmware:
+            logging.warning(
+                "Unsubscribe log command not supported on standard Movesense firmware"
+            )
+            raise RuntimeError("Not iFCH Movesense firmware")
+
+        reference = None
+        for key, value in self._log_subscriptions.items():
+            if value == path:
+                reference = key
+                break
+
+        if reference is None:
+            logging.warning("Log path not subscribed to: %s", path)
+            return False
+
+        byte_path = bytearray(path, "utf-8")
+        result = await self.send_and_wait(Commands.UNSUB_LOG, reference, byte_path)
+        success, _, _ = result
+
+        if success:
+            del self._log_subscriptions[reference]
+            return True
+
+        return None
+
+    async def start_log(self):
+        if not self._is_ifch_firmware:
+            logging.warning(
+                "Start log command not supported on standard Movesense firmware"
+            )
+            raise RuntimeError("Not iFCH Movesense firmware")
+
+        result = await self.send_and_wait(Commands.START_LOG)
+        success, _, _ = result
+
+        return success
+
+    async def stop_log(self):
+        if not self._is_ifch_firmware:
+            logging.warning(
+                "Stop log command not supported on standard Movesense firmware"
+            )
+            raise RuntimeError("Not iFCH Movesense firmware")
+
+        result = await self.send_and_wait(Commands.STOP_LOG)
+        success, _, _ = result
+
+        return success
+
+    async def list_logs(self): ...  # TODO
+
+    async def fetch_log(self, log_id): ...  # TODO
+
+    async def get_time(self):
+        if not self._is_ifch_firmware:
+            logging.warning(
+                "Get time command not supported on standard Movesense firmware"
+            )
+            raise RuntimeError("Not iFCH Movesense firmware")
+
+        result = await self.send_and_wait(Commands.GET_TIME)
+        success, _, payload = result
+
+        if success and payload:
+            if len(payload) == 4:
+                return int.from_bytes(payload, byteorder="little")
+            else:
+                logging.error("Unexpected payload for GET_TIME: %s", payload)
+                return None
+        else:
+            return None
+
+    async def reset(self):
+        if not self._is_ifch_firmware:
+            logging.warning(
+                "Reset command not supported on standard Movesense firmware"
+            )
+            raise RuntimeError("Not iFCH Movesense firmware")
+
+        result = await self.send_and_wait(Commands.RESET)
+        success, _, _ = result
+
+        return success
+
+    async def get_logging_state(self):
+        if not self._is_ifch_firmware:
+            logging.warning(
+                "Get logging state command not supported on standard Movesense firmware"
+            )
+            raise RuntimeError("Not iFCH Movesense firmware")
+
+        result = await self.send_and_wait(Commands.GET_LOGGING_STATE)
+        success, _, payload = result
+
+        if success and payload:
+            if len(payload) == 1:
+                return payload[0] == 3
+            else:
+                logging.error("Unexpected payload for GET_LOGGING_STATE: %s", payload)
+                return None
+        else:
+            return None
+
+    async def get_battery(self):
+        if not self._is_ifch_firmware:
+            logging.warning(
+                "Get battery command not supported on standard Movesense firmware"
+            )
+            raise RuntimeError("Not iFCH Movesense firmware")
+
+        result = await self.send_and_wait(Commands.GET_BATTERY)
+        success, _, payload = result
+
+        if success and payload:
+            if len(payload) == 1:
+                return payload[0]
+            else:
+                logging.error("Unexpected payload for GET_BATTERY: %s", payload)
+                return None
+        else:
+            return None
 
     @staticmethod
     async def detect_devices():
