@@ -783,24 +783,24 @@ void handleSerialCommand(CmdType cmd)
     }
 
     // Send the Movesense logging status
-    case CmdType::CMD_MOV_GET_LOGGING_STATUS:
+    case CmdType::CMD_MOV_GET_LOGGING_STATE:
     {
         uint8_t loggingStatus;
 
         if (!isMovesenseConnected)
         {
-            logError("CMD_MOV_GET_LOGGING_STATUS", "Movesense not connected");
-            sendERR(CmdType::CMD_MOV_GET_LOGGING_STATUS);
+            logError("CMD_MOV_GET_LOGGING_STATE", "Movesense not connected");
+            sendERR(CmdType::CMD_MOV_GET_LOGGING_STATE);
             break;
         }
         else if (movGetLoggingStatus(loggingStatus))
         {
-            sendFrame(CmdType::CMD_MOV_GET_LOGGING_STATUS, &loggingStatus, sizeof(loggingStatus));
+            sendFrame(CmdType::CMD_MOV_GET_LOGGING_STATE, &loggingStatus, sizeof(loggingStatus));
         }
         else
         {
-            logError("CMD_MOV_GET_LOGGING_STATUS", "Failed to get Movesense logging status");
-            sendERR(CmdType::CMD_MOV_GET_LOGGING_STATUS);
+            logError("CMD_MOV_GET_LOGGING_STATE", "Failed to get Movesense logging status");
+            sendERR(CmdType::CMD_MOV_GET_LOGGING_STATE);
         }
         break;
     }

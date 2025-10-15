@@ -47,7 +47,7 @@ enum Commands
     GET_TIME = 10,
     RESET = 11,
     UNSUBSCRIBE_ALL = 12,
-    GET_LOGGING_STATUS = 13,
+    GET_LOGGING_STATE = 13,
     GET_BATTERY = 14,
 };
 
@@ -1068,7 +1068,7 @@ bool movGetLoggingStatus(uint8_t &loggingStatus)
     uint8_t responseBuffer[1];
     uint8_t responseLength = sizeof(responseBuffer);
 
-    bool success = writeMovesenseCommand(Commands::GET_LOGGING_STATUS, Commands::GET_LOGGING_STATUS + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
+    bool success = writeMovesenseCommand(Commands::GET_LOGGING_STATE, Commands::GET_LOGGING_STATE + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
 
     if (!success)
     {

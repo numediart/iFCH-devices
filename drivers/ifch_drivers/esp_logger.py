@@ -50,7 +50,7 @@ class Commands(enum.IntEnum):
     CMD_MOV_UNSTREAM = 0x43
     CMD_MOV_LOG_START = 0x44
     CMD_MOV_LOG_END = 0x45
-    CMD_MOV_GET_LOGGING_STATUS = 0x46
+    CMD_MOV_GET_LOGGING_STATE = 0x46
     CMD_MOV_FULL_RESET = 0x47
     # Errors
     CMD_TIMEOUT = 0xFE
@@ -948,9 +948,9 @@ class ESPLogger:
             return -1
 
     async def get_mov_islogging(self):
-        self._proto.send_frame(Commands.CMD_MOV_GET_LOGGING_STATUS)
+        self._proto.send_frame(Commands.CMD_MOV_GET_LOGGING_STATE)
         result = await self._proto.wait_for_cmd(
-            Commands.CMD_MOV_GET_LOGGING_STATUS, timeout=self.BLE_TIMEOUT_S
+            Commands.CMD_MOV_GET_LOGGING_STATE, timeout=self.BLE_TIMEOUT_S
         )
         if result is not None:
             if len(result) == 1:
