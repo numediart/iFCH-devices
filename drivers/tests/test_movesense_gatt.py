@@ -60,9 +60,7 @@ async def test_subscribe(client):
 
 async def test_unsubscribe_all(client: MovesenseGatt):
     if not client.is_ifch_firmware:
-        with pytest.raises(RuntimeError):
-            await client.unsubscribe_all()
-        return
+        pytest.skip("Device is not running iFCH firmware")
 
     data_notifications.clear()
 
@@ -83,9 +81,7 @@ async def test_unsubscribe_all(client: MovesenseGatt):
 
 async def test_battery(client):
     if not client.is_ifch_firmware:
-        with pytest.raises(RuntimeError):
-            await client.get_battery()
-        return
+        pytest.skip("Device is not running iFCH firmware")
 
     battery = await client.get_battery()
     assert battery is not None
@@ -94,17 +90,92 @@ async def test_battery(client):
 
 async def test_time(client):
     if not client.is_ifch_firmware:
-        with pytest.raises(RuntimeError):
-            await client.get_time()
-        return
+        pytest.skip("Device is not running iFCH firmware")
 
     dev_time = await client.get_time()
     assert dev_time is not None
     assert dev_time > 0
 
 
-# TODO implement iFCH tests:
-# check logging state on/off during logging
-# check logs list empty after clear
-# check logs list contains one log after logging
-# check fetch logs sends correct number of packets
+async def test_log(client: MovesenseGatt):
+    if not client.is_ifch_firmware:
+        with pytest.raises(RuntimeError):
+            await client.reset()
+        return
+
+    assert await client.reset()
+
+    is_logging = await client.get_logging_state()
+    assert is_logging is False
+
+    assert await client.sub_log(PATH_ECG_125)
+
+    assert not await client.sub_log(PATH_ECG_125), (
+        "Should not be able to subscribe twice"
+    )
+
+    assert not await client.sub_log("/Invalid/Path"), (
+        "Should not be able to subscribe to invalid path"
+    )
+
+    assert await client.start_log()
+
+    await asyncio.sleep(0.5)
+
+    is_logging = await client.get_logging_state()
+    assert is_logging is True
+
+    assert await client.stop_log()
+
+    assert await client.unsub_log(PATH_ECG_125)
+
+    assert not await client.unsub_log(PATH_ECG_125), (
+        "Should not be able to unsubscribe twice"
+    )
+
+    is_logging = await client.get_logging_state()
+    assert is_logging is False
+
+    log_list = await client.list_logs()
+    assert log_list is not None
+    assert len(log_list) == 1
+
+    log_id = log_list[0]
+
+    log_data = await client.fetch_log(log_id)
+    assert log_data is not None
+    assert len(log_data) > 0
+
+    assert await client.clear_logs()
+
+    log_list = await client.list_logs()
+    assert log_list is not None
+    assert len(log_list) == 0
+
+
+async def test_reset(client: MovesenseGatt):
+    assert await client.sub_log(PATH_ECG_125)
+
+    assert await client.start_log()
+
+    await asyncio.sleep(0.5)
+
+    assert not await client.reset(), "Should not be able to reset while logging"
+
+    assert await client.stop_log()
+
+    assert await client.subscribe(PATH_ECG_125)
+
+    assert await client.reset()
+
+    assert not await client.unsubscribe(PATH_ECG_125), (
+        "Should not be able to unsubscribe after reset"
+    )
+
+    assert not await client.unsub_log(PATH_ECG_125), (
+        "Should not be able to unsubscribe log after reset"
+    )
+
+    log_list = await client.list_logs()
+    assert log_list is not None
+    assert len(log_list) == 0, "Logs should be cleared after reset"

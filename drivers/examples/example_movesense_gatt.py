@@ -1,27 +1,8 @@
 import asyncio
 import logging
 
+from ifch_drivers.formats.movesense_sbem import SBEMDecoder
 from ifch_drivers.movesense_gatt import MovesenseGatt
-
-# def save_sbem(data, path: pathlib.Path, client_ref: int | None = None):
-#     with open(path, "wb") as f:
-#         for packet in data:
-#             packet_type = Responses(packet[0])
-#             if packet_type == Responses.COMMAND_RESULT:
-#                 logging.error(f"Invalid packet type in stream decode: {packet[0]}")
-#                 continue
-
-#             reference = packet[1]
-#             if client_ref is None:
-#                 client_ref = reference
-#             if reference != client_ref:
-#                 continue
-
-#             offset = int.from_bytes(packet[2:6], byteorder="little")
-
-#             # Write data in file at offset
-#             f.seek(offset)
-#             f.write(packet[6:])
 
 PATH_ECG_125 = "/Meas/ECG/125"
 
@@ -34,9 +15,7 @@ def process_notification(device: MovesenseGatt, data):
 
 
 async def main():
-    # found = await MovesenseGatt.detect_devices()
-    # TODO remove debug
-    found = [("0C:8C:DC:3F:B0:D7", "test")]
+    found = await MovesenseGatt.detect_devices()
     if not found:
         logging.error("No Movesense device found.")
         return
@@ -73,6 +52,18 @@ async def main():
         else:
             logging.error("Failed to get device time")
 
+        if not await device.subscribe(PATH_ECG_125):
+            logging.error(f"Failed to subscribe to {PATH_ECG_125}")
+
+        else:
+            await asyncio.sleep(0.2)
+
+            if not await device.unsubscribe_all():
+                logging.error("Failed to unsubscribe from all")
+
+        if not await device.reset():
+            logging.error("Failed to reset device")
+
         is_logging = await device.get_logging_state()
         if is_logging is not None:
             logging.info(f"Logging state: {'ON' if is_logging else 'OFF'}")
@@ -80,16 +71,13 @@ async def main():
             logging.error("Failed to get logging state")
             return
 
-        if not await device.reset():
-            logging.error("Failed to reset device")
-
         if not await device.sub_log(PATH_ECG_125):
             logging.error(f"Failed to subscribe to log {PATH_ECG_125}")
 
         if not await device.start_log():
             logging.error("Failed to start logging")
 
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.2)
 
         is_logging = await device.get_logging_state()
         if is_logging is not None:
@@ -100,16 +88,24 @@ async def main():
         if not await device.stop_log():
             logging.error("Failed to stop logging")
 
-        # TODO list logs, fetch log, clear logs
-
-        if not await device.subscribe(PATH_ECG_125):
-            logging.error(f"Failed to subscribe to {PATH_ECG_125}")
-
+        log_list = await device.list_logs()
+        if log_list is None:
+            logging.error("Failed to list logs")
         else:
-            await asyncio.sleep(1)
+            logging.info(f"Logs on device: {log_list}")
 
-            if not await device.unsubscribe_all():
-                logging.error("Failed to unsubscribe from all")
+            if len(log_list) > 0:
+                log_id = log_list[0]
+                log_data = await device.fetch_log(log_id)
+                if not log_data:
+                    logging.error(f"Failed to fetch log {log_id}")
+
+                decoder = SBEMDecoder()
+                data = decoder.decode(log_data)
+                logging.info(f"Retrieved log data from sensors: {list(data.keys())}")
+
+                if not await device.clear_logs():
+                    logging.error("Failed to clear logs")
 
     finally:
         await device.stop()
