@@ -110,9 +110,6 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mDataCharHandle(0),
                                    mResponseCharHandle(0),
                                    mLogCharHandle(0),
-                                   //    mNotificationsEnabled(false),
-                                   //    mResponseNotificationsEnabled(false),
-                                   //    mLogNotificationsEnabled(false),
                                    mLogIdToFetch(0),
                                    mLogFetchOffset(0),
                                    mLogFetchReference(0),
@@ -922,10 +919,6 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         // Subscribe to listen to intervalChar notifications (someone writes new value to intervalChar)
         asyncSubscribe(mCommandCharResource, AsyncRequestOptions(NULL, 0, true));
 
-        // Subscribe to listen to measChar notifications (someone enables/disables the INDICATE characteristic)
-        // asyncSubscribe(mDataCharResource, AsyncRequestOptions(NULL, 0, true));
-        // asyncSubscribe(mResponseCharResource, AsyncRequestOptions(NULL, 0, true));
-        // asyncSubscribe(mLogCharResource, AsyncRequestOptions(NULL, 0, true));
         break;
     }
 
