@@ -35,6 +35,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+__version__ = "0.1.0"
+
 
 class GUIState(Enum):
     ERROR = "error"
@@ -2128,7 +2130,7 @@ class CmdSaveRecord:
             raise RuntimeError("Save record called without metadata")
 
         self.metadata.update(back.record_meta)
-        self.metadata["source"] = "esp_logger"
+        self.metadata["source"] = f"esp_logger-{__version__}"
 
         output_dir = back.ui.settings.value(
             "output_dir",

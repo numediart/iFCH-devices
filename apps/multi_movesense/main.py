@@ -36,6 +36,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+__version__ = "1.0.0"
+
 
 class GUIState(Enum):
     ERROR = "error"
@@ -650,7 +652,7 @@ class FormView(QWidget):
             pos_text = pos_input.text().strip()
             devices[movesense_id] = pos_text
 
-        form_data["devices"] = devices
+        form_data["device_positions"] = devices
         return form_data
 
     def clear(self):
@@ -1650,6 +1652,7 @@ class Backend:
 
         self.sensor_log = {}
         self.metadata_log = {}
+        self.device_infos = {}
 
     def stream_callback(self, device: MovesenseGatt, data):
         timestamps, samples, sensor = data
@@ -1713,6 +1716,7 @@ class Backend:
         self.ecg_data.clear()
         self.imu_data.clear()
         self.time_origins.clear()
+        self.device_infos.clear()
 
     # ---- Public API (GUI calls) -> commands enqueued -------------------
 
@@ -1809,6 +1813,7 @@ class Backend:
         self.ecg_data.clear()
         self.imu_data.clear()
         self.time_origins.clear()
+        self.device_infos.clear()
         self._logging = False
 
     def schedule_after(self, delay: float, cmd: Any):
@@ -1848,8 +1853,6 @@ class Backend:
             logging.warning("Failed to connect to device %s (%s)", device_id, address)
             return False
 
-        self.devices.append(device)
-
         # Watch for physical disconnect; only enqueues CmdOnDisconnected
 
         async def _watch_disconnect():
@@ -1863,6 +1866,23 @@ class Backend:
         disconnect_watch = asyncio.create_task(_watch_disconnect())
         self._disconnect_watchers.append(disconnect_watch)
 
+        device_repr = await device.hello()
+
+        if device_repr is None:
+            raise RuntimeError(
+                "Failed to get device info, check Movesense firmware >= 2.3.1"
+            )
+
+        if len(device_repr) > 2:
+            device_repr = device_repr.replace(b"\x00", b";")[1:-1]
+            device_repr = device_repr.decode("utf-8")
+        else:
+            logging.warning("Invalid device info received from %s", device_id)
+            device_repr = ""
+
+        self.device_infos[device_id] = device_repr
+
+        self.devices.append(device)
         self.ecg_data[device_id] = collections.deque(maxlen=self.PLOT_DURATION * 200)
         self.imu_data[device_id] = collections.deque(maxlen=self.PLOT_DURATION * 208)
 
@@ -1880,7 +1900,7 @@ class Backend:
     async def start_logging(self):
         # Prepare logs
         self.sensor_log = {}
-        self.metadata_log = {"source": "multi_movesense"}
+        self.metadata_log = {"source": f"multi_movesense-{__version__}"}
 
         def sensor_dict():
             return collections.defaultdict(list)
@@ -2048,19 +2068,22 @@ class CmdSaveRecord:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         self.metadata.update(back.metadata_log)
-        self.metadata["format"] = "movesense"
-        self.metadata["source"] = "multi_movesense"
+        self.metadata["source"] = f"multi_movesense-{__version__}"
         self.metadata["sensor_paths"] = back.SENSOR_PATHS
+        self.metadata["device_infos"] = back.device_infos
 
         with open(output_dir / "metadata.json", "w") as f:
             json.dump(self.metadata, f, indent=4)
 
         for device in back.devices:
+            device_metadata = self.metadata.copy()
+            device_metadata["device_id"] = device.movesense_id
+
             output_file = output_dir / f"{device.movesense_id}"
             movesense_record.write(
                 output_file,
                 back.sensor_log[device.movesense_id],
-                metadata=self.metadata,
+                metadata=device_metadata,
                 sensor_paths=back.SENSOR_PATHS,
             )
 

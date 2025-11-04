@@ -258,8 +258,6 @@ class ESPRecordConverter:
             output_path = pathlib.Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        self.metadata["format"] = "movesense"
-
         with open(output_path / "metadata.json", "w") as f:
             json.dump(self.metadata, f, indent=4)
 

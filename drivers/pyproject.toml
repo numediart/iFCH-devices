@@ -1,6 +1,6 @@
 [project]
 name = "ifch-drivers"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Drivers for iFCH devices"
 authors = [{ name = "M. Francois", email = "francois.marelli@umons.ac.be" }]
 requires-python = ">=3.12"
@@ -9,6 +9,9 @@ dependencies = []
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "ifch_drivers/__init__.py"
 
 [dependency-groups]
 dev = ["pytest", "pytest-asyncio"]

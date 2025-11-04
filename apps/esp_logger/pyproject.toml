@@ -1,6 +1,6 @@
 [project]
 name = "iFCH_logger_gui"
-version = "0.1"
+dynamic = ["version"]
 description = "GUI for iFCH Logger"
 requires-python = ">=3.12"
 dependencies = [
@@ -9,6 +9,13 @@ dependencies = [
     "numpy",
     "ifch_drivers[esp_logger, formats]",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "main.py"
 
 [tool.uv.sources]
 ifch_drivers = { path = "../../drivers/", editable = true }

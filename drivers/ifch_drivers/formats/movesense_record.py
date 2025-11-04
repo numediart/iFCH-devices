@@ -4,6 +4,10 @@ import pathlib
 import h5py
 import numpy as np
 
+from ifch_drivers import __version__
+
+FORMAT_TAG = f"ifch_movesense_record-{__version__}"
+
 
 class MovesenseDataTypes(enum.Enum):
     ECG = "/Meas/ECG".upper()
@@ -94,6 +98,10 @@ def write(
                     add_attr(group, composed_key, sub_value)
             else:
                 group.attrs[key] = value
+
+        if "format" in metadata:
+            raise ValueError("'format' is a reserved metadata key and cannot be used.")
+        metadata["format"] = FORMAT_TAG
 
         # Store the metadata as attributes of the root group
         for key, value in metadata.items():
