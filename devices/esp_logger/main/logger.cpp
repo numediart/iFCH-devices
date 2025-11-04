@@ -494,6 +494,42 @@ bool startMovesenseLogging()
 
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
+    uint8_t helloBuffer[NOTIF_LEN];
+    uint8_t helloLength = sizeof(helloBuffer);
+
+    if (!movHello(helloBuffer, helloLength))
+    {
+        logError("startMovesenseLogging", "Failed to send Movesense hello");
+        rremove(recordDir);
+        record.logging = false;
+        return false;
+    }
+
+    std::string hello_file = std::format("{}/hello.txt", recordDir);
+    FILE *f = fopen(hello_file.c_str(), "w");
+    if (f == NULL)
+    {
+        logError("startMovesenseLogging", "Failed to open device info file for writing: %s", hello_file.c_str());
+        rremove(recordDir);
+        record.logging = false;
+        return false;
+    }
+
+    size_t written = fwrite(helloBuffer, 1, helloLength, f);
+    if (written != helloLength)
+    {
+        logError("startMovesenseLogging", "Failed to write device info to file");
+        rremove(recordDir);
+        record.logging = false;
+        fclose(f);
+        return false;
+    }
+
+    fflush(f);
+    fclose(f);
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
     uint32_t currentEpoch;
     // Save the starting timestamps and battery levels checkpoint
     if (!saveCheckpoint(currentEpoch))

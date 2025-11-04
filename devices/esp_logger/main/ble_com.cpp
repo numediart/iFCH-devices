@@ -1011,11 +1011,8 @@ bool getMovesenseBattery(uint8_t &batteryLevel)
     return true;
 }
 
-bool movHello()
+bool movHello(uint8_t *responseBuffer, uint8_t &responseLength)
 {
-    uint8_t responseBuffer[5];
-    uint8_t responseLength = sizeof(responseBuffer);
-
     bool success = writeMovesenseCommand(Commands::HELLO, Commands::HELLO + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
 
     if (!success)
@@ -1024,16 +1021,7 @@ bool movHello()
         return false;
     }
 
-    // Check that the response contains "Hello"
-    if (responseLength == 5 && memcmp(responseBuffer, "Hello", 5) == 0)
-    {
-        return true;
-    }
-    else
-    {
-        logError("movHello", "Unexpected hello response: %.*s", responseLength, responseBuffer);
-        return false;
-    }
+    return true;
 }
 
 bool movGetTime(int32_t &time)

@@ -605,15 +605,18 @@ void handleSerialCommand(CmdType cmd)
     // Send a hello message to the Movesense
     case CmdType::CMD_BLE_HELLO:
     {
+        uint8_t helloBuffer[NOTIF_LEN];
+        uint8_t helloLength = sizeof(helloBuffer);
+
         if (!isMovesenseConnected)
         {
             logError("CMD_BLE_HELLO", "Movesense not connected");
             sendERR(CmdType::CMD_BLE_HELLO);
             break;
         }
-        else if (movHello())
+        else if (movHello(helloBuffer, helloLength))
         {
-            sendCMD(CmdType::CMD_BLE_HELLO);
+            sendFrame(CmdType::CMD_BLE_HELLO, helloBuffer, helloLength);
         }
         else
         {

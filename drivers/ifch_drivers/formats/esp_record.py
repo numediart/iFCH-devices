@@ -175,6 +175,19 @@ class ESPRecordConverter:
             self.config = json.load(f)
             self.metadata["config"] = self.config
 
+        hello_file = self.record_path / "hello.txt"
+        with open(hello_file, "rb") as f:
+            hello = f.read()
+            if len(hello) < 2:
+                logging.warning("Invalid hello file")
+                hello = ""
+            else:
+                hello = hello.replace(b"\x00", b";")[1:-1]
+                hello = hello.decode("utf-8")
+
+            self.metadata["movesense_info"] = hello
+            # TODO test the hole hello pipeline with ESP
+
     def _read_checkpoints(self, ignored=["metadata.json", "config.json"]):
         excpect_id = 0
         checkpoints = collections.defaultdict(list)

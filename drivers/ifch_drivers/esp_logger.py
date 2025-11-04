@@ -893,7 +893,7 @@ class ESPLogger:
         elif result:
             if require_hello:
                 hello = await self.hello_movesense()
-                if not hello:
+                if hello is None:
                     logging.warning("Failed to greet Movesense")
                     return False
 
@@ -925,8 +925,8 @@ class ESPLogger:
             Commands.CMD_BLE_HELLO, timeout=self.BLE_TIMEOUT_S
         )
         if result is not None:
-            logging.debug("Received hello from Movesense")
-            return True
+            logging.debug("Received hello from Movesense, response: %s", result)
+            return result
         else:
             logging.warning("Hello Movesense failed")
             return None

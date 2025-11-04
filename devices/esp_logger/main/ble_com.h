@@ -46,8 +46,8 @@ bool disconnectMovesense();
 // Get the Movesense battery level
 bool getMovesenseBattery(uint8_t &batteryLevel);
 
-// Send the Movesense HELLO command
-bool movHello();
+// Send the Movesense HELLO command and save the response
+bool movHello(uint8_t *responseBuffer, uint8_t &responseLength);
 
 // Get the Movesense time
 bool movGetTime(int32_t &time);

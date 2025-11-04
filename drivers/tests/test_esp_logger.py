@@ -122,7 +122,16 @@ async def test_movesense(device: ESPLogger):
             "Movesense is currently logging. Please stop logging before testing."
         )
 
-    assert await device.hello_movesense()
+    result = await device.hello_movesense()
+    assert result is not None
+
+    assert result[0] == 1
+    parts = result[1:].split(b"\x00")[:-1]
+    parts = [part.decode("utf-8") for part in parts]
+    assert len(parts) == 5  # Movesense ID, HW version, BLE address, FW name, FW version
+
+    assert len(parts[0]) == 12  # Movesense ID
+    assert len(parts[2]) == 17 and parts[2].count(":") == 5  # BLE address
 
     assert await device.get_mov_battery()
 
