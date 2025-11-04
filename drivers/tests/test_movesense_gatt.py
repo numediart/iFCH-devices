@@ -31,7 +31,16 @@ async def client():
 
 
 async def test_hello(client):
-    assert await client.hello()
+    result = await client.hello()
+    assert result
+
+    assert result[0] == 1
+    parts = result[1:].split(b"\x00")[:-1]
+    parts = [part.decode("utf-8") for part in parts]
+    assert len(parts) == 5  # Movesense ID, HW version, BLE address, FW name, FW version
+
+    assert len(parts[0]) == 12  # Movesense ID
+    assert len(parts[2]) == 17 and parts[2].count(":") == 5  # BLE address
 
 
 async def test_subscribe(client):
