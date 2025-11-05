@@ -1,4 +1,3 @@
-*.bin
-*.exe
-pysidedeploy.spec
-deployment/
+*.egg-info/
+*.spec
+dist/

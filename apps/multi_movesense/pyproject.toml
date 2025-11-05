@@ -1,5 +1,5 @@
 [project]
-name = "multi_movesense"
+name = "iFCH_multi_movesense"
 dynamic = ["version"]
 description = "GUI for iFCH multi-Movesense recorder"
 requires-python = ">=3.12"
@@ -10,16 +10,5 @@ dependencies = [
     "ifch_drivers[movesense_gatt, formats]",
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
 [tool.uv.sources]
 ifch_drivers = { path = "../../drivers/", editable = true }
-
-[tool.hatch.version]
-path = "main.py"
-
-[tool.hatch.build.targets.wheel]
-packages = ["."]
-only-include = ["main.py"]
