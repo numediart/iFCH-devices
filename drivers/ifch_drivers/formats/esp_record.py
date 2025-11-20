@@ -186,7 +186,6 @@ class ESPRecordConverter:
                 hello = hello.decode("utf-8")
 
             self.metadata["movesense_info"] = hello
-            # TODO test the hole hello pipeline with ESP
 
     def _read_checkpoints(self, ignored=["metadata.json", "config.json"]):
         excpect_id = 0

@@ -161,7 +161,6 @@ async def test_movesense(device: ESPLogger):
 
     assert await device.disconnect()
 
-    await asyncio.sleep(0.5)
     status = await device.get_status()
     assert status is not None
     assert not status["logging"]

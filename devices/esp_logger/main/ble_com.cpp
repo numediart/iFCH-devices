@@ -972,6 +972,7 @@ bool disconnectMovesense()
     else if (rc == 2)
     {
         ESP_LOGW("disconnectMovesense", "Warning: Disconnect already in progress (rc=0x02)");
+        isMovesenseConnected = false;
         return true;
     }
     else if (rc != 0)
@@ -982,6 +983,7 @@ bool disconnectMovesense()
     else
     {
         ESP_LOGI("disconnectMovesense", "Disconnected from Movesense");
+        isMovesenseConnected = false;
         return true;
     }
 }

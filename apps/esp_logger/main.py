@@ -1580,6 +1580,7 @@ class Backend:
 
         while True:
             cmd = await self._cmd_q.get()
+            logging.debug("Processing actor command: %s", cmd)
             try:
                 # If USB is connected, cancel current task on disconnect
                 if self.device:
@@ -1643,8 +1644,11 @@ class Backend:
 
         async def _watch_disconnect():
             try:
-                await self.device.proto.disconnected.wait()
-            except Exception:
+                await self.device.disconnected.wait()
+                logging.debug("Device disconnected detected by watcher")
+            except Exception as e:
+                logging.debug("Disconnect watcher error: %s", e)
+                logging.exception(e)
                 pass
 
             await self.disconnect()
@@ -1737,9 +1741,6 @@ class CmdProbeUSB:
                 logging.debug("Found iFCH-logger on %s", port)
                 await back.start_device(port)
 
-                # After device starts, move to scanning
-
-                # If so, attempt to connect to corresponding Movesense
                 status = await back.device.get_status()
 
                 if status["logging"]:

@@ -239,8 +239,7 @@ class FrameProtocol(asyncio.Protocol):
                         )
 
                         if self._stream_callback:
-                            decoded = self._decoder.decode_stream_packet(payload)
-                            self._stream_callback(self, decoded)
+                            self._stream_callback(payload)
 
                     else:
                         # Non‑blocking publish to whoever is interested
@@ -536,7 +535,12 @@ class ESPLogger:
         }
 
         self._decoder = MovesenseStreamDecoder(self._config["sensorPaths"])
-        self._stream_callback = stream_callback
+        self._stream_callback_ext = stream_callback
+
+    def _stream_callback(self, payload):
+        if self._stream_callback_ext:
+            decoded = self._decoder.decode_stream_packet(payload)
+            self._stream_callback_ext(self, decoded)
 
     @property
     def disconnected(self):
