@@ -206,6 +206,10 @@ class MovesenseGatt:
                 logging.exception(e)
 
         finally:
+            try:
+                await self._client.disconnect()
+            except Exception:
+                pass
             self._client = None
 
             self.connected.clear()
