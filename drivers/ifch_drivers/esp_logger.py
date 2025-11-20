@@ -79,7 +79,7 @@ class FrameProtocol(asyncio.Protocol):
     NOTIF_QUEUE_SIZE = 64
     RX_QUEUE_SIZE = 32
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, notification_callback=None):
+    def __init__(self, loop: asyncio.AbstractEventLoop, stream_callback=None):
         self._transport = None
         self._buffer = bytearray()
         self._rx_queue = BoundedQueue(self.RX_QUEUE_SIZE)
@@ -92,7 +92,7 @@ class FrameProtocol(asyncio.Protocol):
         self._other_rx: list[str] = []
         self._current_waiter: typing.Optional[asyncio.Task] = None
 
-        self.notification_callback = notification_callback
+        self._stream_callback = stream_callback
 
     @property
     def is_connected(self):
@@ -492,12 +492,12 @@ class FrameProtocol(asyncio.Protocol):
             return None
 
     @staticmethod
-    async def open_connection(port: str, baud: int = BAUD):
+    async def open_connection(port: str, baud: int = BAUD, stream_callback=None):
         loop = asyncio.get_running_loop()
         try:
             _, protocol = await serial_asyncio.create_serial_connection(
                 loop,
-                lambda: FrameProtocol(loop),
+                lambda: FrameProtocol(loop, stream_callback=stream_callback),
                 port,
                 baudrate=baud,
                 timeout=FrameProtocol.SERIAL_TIMEOUT_S,
@@ -552,7 +552,9 @@ class ESPLogger:
         return await self._put_config()
 
     async def start(self):
-        self._proto = await FrameProtocol.open_connection(self._port)
+        self._proto = await FrameProtocol.open_connection(
+            self._port, stream_callback=self._stream_callback
+        )
         if self._proto is None:
             raise RuntimeError(f"Failed to open serial port {self._port}")
 

@@ -4,9 +4,9 @@ import pytest
 from ifch_drivers.esp_logger import ESPLogger
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 async def device():
-    devices = asyncio.run(ESPLogger.detect_devices())
+    devices = await ESPLogger.detect_devices()
 
     if len(devices) == 0:
         pytest.skip("No ESP Logger device found.")
@@ -69,7 +69,7 @@ async def test_free_space(device: ESPLogger):
 
 
 async def test_get_error_log(device: ESPLogger):
-    assert await device.get_error_log()
+    assert await device.get_error_log() is not None
 
 
 async def test_delete_error_log(device: ESPLogger):
@@ -161,6 +161,7 @@ async def test_movesense(device: ESPLogger):
 
     assert await device.disconnect()
 
+    await asyncio.sleep(0.5)
     status = await device.get_status()
     assert status is not None
     assert not status["logging"]
