@@ -567,6 +567,9 @@ class FormView(QWidget):
 
         self.form_layout = QFormLayout(form_widget, verticalSpacing=20)
         self.form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self.form_layout.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
 
         # Name
         self.name_input = QLineEdit()
@@ -831,18 +834,14 @@ class DeviceSelectionView(QWidget):
     def set_devices(self, devices):
         """Populate the device list"""
         self.device_list.clear()
-        for device in devices:
-            # Parse device string (format: "name;address")
-            parts = device
+        for parts in devices:
             if len(parts) >= 2:
                 name = parts[-1]
                 address = parts[0]
                 item_text = f"{name} ({address})"
-            else:
-                item_text = device
 
             item = QListWidgetItem(item_text)
-            item.setData(Qt.ItemDataRole.UserRole, device)  # Store full device string
+            item.setData(Qt.ItemDataRole.UserRole, parts)  # Store full device string
             self.device_list.addItem(item)
 
         if self.device_list.count() > 0:
@@ -852,7 +851,11 @@ class DeviceSelectionView(QWidget):
         """Get the selected device string"""
         selected_items = self.device_list.selectedItems()
         if selected_items:
-            return selected_items[0].data(Qt.ItemDataRole.UserRole)
+            selection = selected_items[0].data(Qt.ItemDataRole.UserRole)
+            device_addr = str(selection[0])
+            device_id = str(selection[1])
+
+            return (device_addr, device_id)
         return None
 
 
@@ -1720,9 +1723,9 @@ class Backend:
 
     # ---- Public API (GUI calls) -> commands enqueued -------------------
 
-    async def connect_to_device(self, device_string: str):
+    async def connect_to_device(self, device_tuple: tuple):
         """GUI calls this when the user clicks Connect."""
-        await self.queue_command(CmdConnect(device=device_string))
+        await self.queue_command(CmdConnect(device=device_tuple))
 
     async def refresh_devices(self):
         """GUI calls this when the user clicks Refresh."""
@@ -1965,7 +1968,7 @@ class CmdScanBLE:
 
 @dataclass
 class CmdConnect:
-    device: str
+    device: tuple
 
     async def handle(self, back: Backend):
         back.ui.update_info_status(

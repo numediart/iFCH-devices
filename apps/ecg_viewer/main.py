@@ -338,6 +338,9 @@ class MonitoringView(QWidget):
         )
         self.metadata_form = QFormLayout(metadata_widget)
         self.metadata_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self.metadata_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
 
         self.metadata_form.addRow("", QLabel("Please open a record file"))
 

@@ -546,6 +546,9 @@ class FormView(QWidget):
         )
 
         form_layout = QFormLayout(form_widget, verticalSpacing=20)
+        form_layout.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
 
         # Name
         self.name_input = QLineEdit()
@@ -798,7 +801,8 @@ class DeviceSelectionView(QWidget):
         """Get the selected device string"""
         selected_items = self.device_list.selectedItems()
         if selected_items:
-            return selected_items[0].data(Qt.ItemDataRole.UserRole)
+            selection = selected_items[0].data(Qt.ItemDataRole.UserRole)
+            return str(selection)
         return None
 
 
@@ -960,6 +964,9 @@ class MonitoringView(QWidget):
             """
         )
         form_layout = QFormLayout(form_widget)
+        form_layout.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
 
         self.fields = {}
         for field in self.STATE_FIELDS:
