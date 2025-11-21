@@ -724,7 +724,9 @@ class MovesenseGatt:
             )
             raise RuntimeError("Not iFCH Movesense firmware")
 
-        result = await self.send_and_wait(Commands.GET_BATTERY)
+        result = await self.send_and_wait(
+            Commands.GET_BATTERY, timeout=self.BLE_CONNECT_TIMEOUT
+        )
         success, _, payload = result
 
         if success:
