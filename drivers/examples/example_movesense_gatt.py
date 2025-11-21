@@ -9,9 +9,12 @@ PATH_ECG_125 = "/Meas/ECG/125"
 
 def process_notification(device: MovesenseGatt, data):
     timestamps, samples, sensor = data
-    logging.info(
-        f"Notification from {device.movesense_id} - {sensor}: {len(samples)} samples, t0 = {timestamps[0]:.3f}s"
-    )
+    if samples is None or timestamps is None or len(timestamps) == 0:
+        return
+    else:
+        logging.info(
+            f"Notification from {device.movesense_id} - {sensor}: {len(samples)} samples, t0 = {timestamps[0]:.3f}s"
+        )
 
 
 async def main():

@@ -156,7 +156,7 @@ class SBEMDecoder:
         "int32": SBEMType(4, "<i"),
         "float32": SBEMType(4, "<f"),
     }
-    RESERVED_SBEM_ID_E_ESCAPE = b"\255"
+    RESERVED_SBEM_ID_E_ESCAPE = b"\xff"
     RESERVED_SBEM_ID_E_DESCRIPTOR = 0
 
     # reads sbem ID upto uint16 from file
@@ -303,9 +303,7 @@ class SBEMDecoder:
                 sensor = None
                 for part in key.split("."):
                     if part.startswith("Meas"):
-                        sensor = part[
-                            4:
-                        ].upper()  # TODO test for IMU6 and IMU9 and ECGMV
+                        sensor = part[4:].upper()  # TODO test for IMU6 and IMU9
                         break
 
                 if sensor is None:

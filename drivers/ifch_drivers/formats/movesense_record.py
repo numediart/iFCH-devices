@@ -15,6 +15,8 @@ class MovesenseDataTypes(enum.Enum):
     IMU6 = "/Meas/IMU6".upper()
     IMU9 = "/Meas/IMU9".upper()
     ACC = "/Meas/Acc".upper()
+    GYRO = "/Meas/Gyro".upper()
+    MAGN = "/Meas/Magn".upper()
 
     @classmethod
     def from_path(cls, path):

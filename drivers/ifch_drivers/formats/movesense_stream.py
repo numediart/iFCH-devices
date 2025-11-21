@@ -13,6 +13,8 @@ class Responses(enum.IntEnum):
 
 
 class MovesenseStreamDecoder:
+    MAX_PAYLOAD_SIZE = 155
+
     def __init__(self, subscriptions: dict | list):
         if isinstance(subscriptions, list):
             subscriptions = {
@@ -78,7 +80,11 @@ class MovesenseStreamDecoder:
                     for i in range(0, len(packet), stride)
                 ]
 
-        elif data_type == MovesenseDataTypes.ACC:
+        elif data_type in (
+            MovesenseDataTypes.ACC,
+            MovesenseDataTypes.GYRO,
+            MovesenseDataTypes.MAGN,
+        ):
             if packet_type != Responses.DATA:
                 logging.error("Invalid packet type for %s: %s", data_type, packet_type)
 
@@ -94,8 +100,11 @@ class MovesenseStreamDecoder:
                         data_type,
                         sensor_path,
                     )
-                self._partial_data[reference] = packet
-                return None, None, sensor_path
+
+                # If the packet is incomplete, store it and wait for part 2
+                if len(packet) >= self.MAX_PAYLOAD_SIZE:
+                    self._partial_data[reference] = packet
+                    return None, None, sensor_path
 
             elif packet_type == Responses.DATA_PART2:
                 part_1 = self._partial_data[reference]
@@ -111,16 +120,73 @@ class MovesenseStreamDecoder:
                 packet = part_1 + packet[2:]
                 self._partial_data[reference] = None
 
-                timestamp = int.from_bytes(packet[2:6], byteorder="little")
-                packet = packet[6:]
-                extent = len(packet) // 2
-                acc_samples = self._unpack_vectors(packet[:extent], size=3, stride=4)
-                gyr_samples = self._unpack_vectors(packet[extent:], size=3, stride=4)
+            else:
+                logging.error("Invalid packet type for %s: %s", data_type, packet_type)
 
-                samples = list(zip(acc_samples, gyr_samples))
+            timestamp = int.from_bytes(packet[2:6], byteorder="little")
+            packet = packet[6:]
+            extent = len(packet) // 2
+            acc_samples = self._unpack_vectors(packet[:extent], size=3, stride=4)
+            gyr_samples = self._unpack_vectors(packet[extent:], size=3, stride=4)
+
+            samples = list(zip(acc_samples, gyr_samples))
+
+        elif data_type == MovesenseDataTypes.IMU9:
+            if packet_type == Responses.DATA:
+                if self._partial_data[reference] is not None:
+                    logging.warning(
+                        "%s: DATA_PART2 never arrived for sensor_path %s, discarding partial",
+                        data_type,
+                        sensor_path,
+                    )
+
+                # If the packet is incomplete, store it and wait for part 2
+                if len(packet) >= self.MAX_PAYLOAD_SIZE:
+                    self._partial_data[reference] = packet
+                    return None, None, sensor_path
+
+            elif packet_type == Responses.DATA_PART2:
+                part_1 = self._partial_data[reference]
+                if part_1 is None:
+                    logging.warning(
+                        "%s: DATA_PART_2 without DATA for sensor_path %s",
+                        data_type,
+                        sensor_path,
+                    )
+                    return None, None, sensor_path
+
+                # Reconstruct full packet
+                packet = part_1 + packet[2:]
+                self._partial_data[reference] = None
 
             else:
                 logging.error("Invalid packet type for %s: %s", data_type, packet_type)
+
+            timestamp = int.from_bytes(packet[2:6], byteorder="little")
+            packet = packet[6:]
+            extent = len(packet) // 3
+            acc_samples = self._unpack_vectors(packet[:extent], size=3, stride=4)
+            gyr_samples = self._unpack_vectors(
+                packet[extent : 2 * extent], size=3, stride=4
+            )
+            mag_samples = self._unpack_vectors(packet[2 * extent :], size=3, stride=4)
+
+            samples = list(zip(acc_samples, gyr_samples, mag_samples))
+
+        elif data_type == MovesenseDataTypes.ECGMV:
+            if packet_type != Responses.DATA:
+                logging.error("Invalid packet type for %s: %s", data_type, packet_type)
+
+            else:
+                timestamp = int.from_bytes(packet[2:6], byteorder="little")
+
+                packet = packet[6:]
+                stride = 4
+
+                samples = [
+                    struct.unpack("<f", packet[i : i + stride])[0]
+                    for i in range(0, len(packet), stride)
+                ]
 
         else:
             logging.warning("Stream decoding of %s not implemented.", data_type)
