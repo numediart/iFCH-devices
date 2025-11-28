@@ -5,7 +5,7 @@ iFCH Logger
 
 Use SparkFun ESP32-S3 Thing Plus (C6 also works but BLE is bugged in 5.4.1)
 
-Solder 56k resistor between GND and IO15, and 100k between IO15 and VUSB
+Solder 22k resistor between GND and IO15, and 33k between IO15 and VUSB
 
 If using C6, solder 220k between GND and IO4, and 100k between IO2 and VUSB
 
