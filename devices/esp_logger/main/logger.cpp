@@ -399,6 +399,11 @@ bool saveCheckpoint(uint32_t &currentEpoch)
 
     std::string checkpoint = std::format("{}/{:03}.jsn", recordDir, record.part);
 
+    if (!backupIfExists(checkpoint))
+    {
+        logError("saveCheckpoint", "Failed to backup checkpoint file %s, overwriting", checkpoint.c_str());
+    }
+
     cJSON *json = cJSON_CreateObject();
     cJSON_AddNumberToObject(json, "battery", battery);
     cJSON_AddNumberToObject(json, "mov_battery", mov_battery);
