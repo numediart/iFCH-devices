@@ -303,7 +303,7 @@ class SBEMDecoder:
                 sensor = None
                 for part in key.split("."):
                     if part.startswith("Meas"):
-                        sensor = part[4:].upper()  # TODO test for IMU6 and IMU9
+                        sensor = part[4:].upper()
                         break
 
                 if sensor is None:
@@ -311,19 +311,28 @@ class SBEMDecoder:
                         f"Could not identify sensor for key {key}, set standardize=False"
                     )
 
+                is_multisensor = sensor.startswith("IMU")
+
                 # Assumes that all sensors contain only Timestamp and Data
-                if len(decoded) and len(decoded[0].keys()) != 2:
-                    # TODO test for IMU6 and IMU9
+                if len(decoded) and len(decoded[0].keys()) != 2 and not is_multisensor:
                     raise NotImplementedError(
                         "Invalid number of keys in decoded SBEM for standardization, set standardize=False"
                     )
 
-                def time_or_sample(k):  # TODO test for IMU6 and IMU9
-                    tail = k.split(".")[-1]
+                def time_or_sample(k):
+                    parts = k.split(".")
+                    tail = parts[-1]
                     if tail == "Timestamp":
                         return "timestamps"
+                    elif is_multisensor:
+                        sub_sensor = parts[-2]
+                        if not sub_sensor.startswith("Array"):
+                            raise NotImplementedError(
+                                f"Could not identify sub-sensor for key {k}, set standardize=False"
+                            )
+                        return sub_sensor[5:].upper()
                     else:
-                        return "samples"
+                        return sensor
 
                 standardized[sensor] = {
                     time_or_sample(k): [v[k] for v in decoded]
