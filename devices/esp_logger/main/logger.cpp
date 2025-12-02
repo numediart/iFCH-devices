@@ -450,7 +450,7 @@ bool startMovesenseLogging()
     std::string recordDir;
     for (uint8_t i = 1; i < 255; i++)
     {
-        record.id = (record.id + i) % 256; // Keep the record ID in the range [0, 255]
+        record.id = (record.id + i) % 1000; // Keep the record ID in the range [0, 999]
         recordDir = std::format(MOUNT_POINT "/{:03}", record.id);
         if (!exists(recordDir))
             break;

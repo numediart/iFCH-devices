@@ -33,8 +33,8 @@ struct Config
 struct Record
 {
     uint32_t lastFetch = 0; // Last time data was fetched in UNIX format
-    uint8_t id = 0;         // Current record ID
-    uint8_t part = 0;       // Current part of the record
+    uint16_t id = 0;        // Current record ID
+    uint16_t part = 0;      // Current part of the record
     bool logging = false;   // Are we currently logging
 };
 

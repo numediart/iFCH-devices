@@ -515,6 +515,7 @@ class ESPLogger:
     BLE_TIMEOUT_S = 2.5
     BLE_CONNECT_TIMEOUT_S = 10
     BLE_BATTERY_TIMEOUT_S = 5
+    ERROR_LOG_DELETE_TIMEOUT_S = 5
     END_LOG_TIMEOUT_S = 300
 
     CONFIG_FILE = "/sdcard/config.jsn"
@@ -683,8 +684,8 @@ class ESPLogger:
             Commands.CMD_GET_RECORD_ID, timeout=FrameProtocol.SERIAL_TIMEOUT_S
         )
         if result:
-            if len(result) == 1:
-                record_id = result[0]
+            if len(result) == 2:
+                record_id = struct.unpack("<H", result)[0]
                 logging.debug("Received record ID: %d", record_id)
                 return record_id
             else:
@@ -875,7 +876,7 @@ class ESPLogger:
     async def delete_error_log(self):
         self._proto.send_frame(Commands.CMD_DELETE_ERROR_LOG)
         result = await self._proto.wait_for_cmd(
-            Commands.CMD_DELETE_ERROR_LOG, timeout=FrameProtocol.SERIAL_TIMEOUT_S
+            Commands.CMD_DELETE_ERROR_LOG, timeout=self.ERROR_LOG_DELETE_TIMEOUT_S
         )
         if result is None:
             logging.warning("Delete error log failed")
@@ -1023,9 +1024,10 @@ class ESPLogger:
         if result is None:
             logging.warning("Stop Movesense logging failed")
             return None
-        elif len(result) == 1:
+        elif len(result) == 2:
             logging.debug("Stopped Movesense logging, log ID: %d", result[0])
-            return int(result[0])
+            rid = struct.unpack("<H", result)[0]
+            return rid
         else:
             logging.error("Invalid Movesense logging stop response: %s", result)
             return None

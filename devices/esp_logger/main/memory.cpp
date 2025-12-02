@@ -500,8 +500,8 @@ bool loadRecordState()
     esp_err_t ret;
 
     uint32_t lastFetch = 0;
-    uint8_t id = 0;
-    uint8_t part = 0;
+    uint16_t id = 0;
+    uint16_t part = 0;
     uint8_t logging = 0;
 
     ret = nvs_get_u32(nvs_record, "lastFetch", &lastFetch);
@@ -511,14 +511,14 @@ bool loadRecordState()
         return false;
     }
 
-    ret = nvs_get_u8(nvs_record, "id", &id);
+    ret = nvs_get_u16(nvs_record, "id", &id);
     if (ret != ESP_OK)
     {
         ESP_LOGW("loadRecordState", "Failed to get id from NVS");
         return false;
     }
 
-    ret = nvs_get_u8(nvs_record, "part", &part);
+    ret = nvs_get_u16(nvs_record, "part", &part);
     if (ret != ESP_OK)
     {
         ESP_LOGW("loadRecordState", "Failed to get part from NVS");
@@ -553,14 +553,14 @@ bool saveRecordState()
         errorReset(COLOR_RUNTIME_ERROR);
         return false;
     }
-    ret = nvs_set_u8(nvs_record, "id", record.id);
+    ret = nvs_set_u16(nvs_record, "id", record.id);
     if (ret != ESP_OK)
     {
         logError("saveRecordState", "Failed to save id to NVS");
         errorReset(COLOR_RUNTIME_ERROR);
         return false;
     }
-    ret = nvs_set_u8(nvs_record, "part", record.part);
+    ret = nvs_set_u16(nvs_record, "part", record.part);
     if (ret != ESP_OK)
     {
         logError("saveRecordState", "Failed to save part to NVS");

@@ -37,7 +37,8 @@ async def test_version(device: ESPLogger):
 
 
 async def test_rid(device: ESPLogger):
-    assert await device.get_record_id()
+    rid = await device.get_record_id()
+    assert rid is not None
 
 
 async def test_status(device: ESPLogger):
