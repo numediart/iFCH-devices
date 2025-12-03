@@ -8,6 +8,7 @@
 #include "logger.h"
 
 #include <esp_sleep.h>
+#include <esp_mac.h>
 
 Config config;
 Record record;
@@ -218,8 +219,21 @@ void handleSerialCommand(CmdType cmd)
     {
     case CmdType::CMD_VERSION:
     {
+
+        uint8_t mac[6];
+        char serial[18];
+
+        // Get base MAC address (unique for each device)
+        esp_efuse_mac_get_default(mac);
+
+        // Format as string (e.g., "A1:B2:C3:D4:E5:F6")
+        snprintf(serial, sizeof(serial), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+        std::string desc = std::string(serial) + ";" + std::string(VERSION);
+
         // Send the version of the firmware (useful for automatic detection)
-        sendFrame(CmdType::CMD_VERSION, (uint8_t *)VERSION, std::strlen(VERSION));
+        sendFrame(CmdType::CMD_VERSION, (uint8_t *)desc.c_str(), desc.length());
         break;
     }
 
