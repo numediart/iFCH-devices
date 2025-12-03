@@ -1,4 +1,4 @@
-import asyncio
+import warnings
 
 import pytest
 from ifch_drivers.esp_logger import ESPLogger
@@ -84,9 +84,19 @@ async def test_get_logs(device: ESPLogger):
     if logs is not None and len(logs) > 0:
         log_id = logs[0]
 
-        assert await device.get_log(log_id)
+        assert await device.list_dir(log_id)
 
         assert await device.archive_log(log_id)
+
+    else:
+        warnings.warn("No logs found to test archiving.")
+        logs = await device.list_logs(show_archived=True)
+        if logs is None or len(logs) == 0:
+            pytest.skip("No logs found to test directory listing.")
+
+        log_id = logs[0]
+
+        assert await device.list_dir(log_id)
 
 
 async def test_config(device: ESPLogger):

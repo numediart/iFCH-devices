@@ -32,10 +32,10 @@ class Commands(enum.IntEnum):
     CMD_BLE_HELLO = 0x15
     # File transfer
     CMD_FILE_CHUNK = 0x20
-    CMD_CONFIG_GET = 0x21
+    CMD_GET_FILE = 0x21
     CMD_CONFIG_PUT = 0x22
     CMD_LIST_LOG = 0x23
-    CMD_GET_LOG = 0x24
+    CMD_LIST_DIR = 0x24
     CMD_DIR_CHUNK = 0x25
     CMD_ARCHIVE_LOG = 0x26
     CMD_GET_ERROR_LOG = 0x27
@@ -349,7 +349,7 @@ class FrameProtocol(asyncio.Protocol):
         logging.debug("Timeout waiting for ACK %d", seq)
         return False
 
-    async def wait_for_file(self):
+    async def _wait_for_file(self):
         file_name = None
         expected_seq = 0
         file_chunks = []
@@ -395,10 +395,10 @@ class FrameProtocol(asyncio.Protocol):
 
         return file_name, b"".join(file_chunks)
 
-    async def wait_for_dir(self):
+    async def _wait_for_dir(self):
         dir_name = None
         expected_seq = 0
-        dir_files = {}
+        dir_files = []
 
         while True:
             payload = await self.wait_for_cmd(Commands.CMD_DIR_CHUNK)
@@ -415,7 +415,7 @@ class FrameProtocol(asyncio.Protocol):
                     self.send_frame(Commands.CMD_ACK, seq.to_bytes(1))
                     expected_seq = (expected_seq + 1) % 256
 
-                    if seq == 0:
+                    if dir_name is None and seq == 0:
                         dir_name = chunk.decode()
                         logging.debug("Received directory name: %s", dir_name)
 
@@ -428,23 +428,7 @@ class FrameProtocol(asyncio.Protocol):
                             dir_name,
                         )
 
-                        rec_name, file_data = await self.wait_for_file()
-
-                        if rec_name is None:
-                            logging.error(
-                                "Failed to retrieve file data for %s", file_name
-                            )
-                            return None, None
-
-                        if rec_name.split("/")[-1] != file_name:
-                            logging.error(
-                                "File name mismatch: expected %s, got %s",
-                                file_name,
-                                rec_name.split("/")[-1],
-                            )
-                            return None, None
-
-                        dir_files[file_name] = file_data
+                        dir_files.append(file_name)
 
                     if len(chunk) == 0:
                         logging.debug("Received EOF marker for directory %s", dir_name)
@@ -518,8 +502,8 @@ class ESPLogger:
     ERROR_LOG_DELETE_TIMEOUT_S = 5
     END_LOG_TIMEOUT_S = 300
 
-    CONFIG_FILE = "/sdcard/config.jsn"
-    ERROR_LOG_FILE = "/sdcard/log.txt"
+    CONFIG_FILE = "config.jsn"
+    ERROR_LOG_FILE = "log.txt"
 
     def __init__(self, port: str, stream_callback=None):
         self._port = port
@@ -649,12 +633,9 @@ class ESPLogger:
     async def get_config(self):
         logging.debug("Requesting config file")
 
-        self._proto.send_frame(Commands.CMD_CONFIG_GET)
-
-        file_name, data = await self._proto.wait_for_file()
-
-        if file_name is None or file_name != self.CONFIG_FILE:
-            logging.warning("Failed to get config file")
+        data = await self.get_file(self.CONFIG_FILE)
+        if data is None:
+            logging.warning("Get config file failed")
             return None
 
         try:
@@ -826,18 +807,35 @@ class ESPLogger:
             else:
                 return log_list
 
-    async def get_log(self, log_id: str):
-        self._proto.send_frame(Commands.CMD_GET_LOG, log_id.encode("utf-8"))
-        dir_name, dir_files = await self._proto.wait_for_dir()
+    async def list_dir(self, dir_name: str):
+        self._proto.send_frame(Commands.CMD_LIST_DIR, dir_name.encode("utf-8"))
+        rx_name, dir_files = await self._proto._wait_for_dir()
 
-        if dir_name is None:
-            logging.warning("Get log failed")
+        if rx_name is None:
+            logging.warning("List dir failed")
             return None
-        elif dir_name.split("/")[-1] != log_id:
-            logging.error("Get log failed, expected %s, got %s", log_id, dir_name)
+        elif rx_name != dir_name:
+            logging.error("List dir failed, expected %s, got %s", dir_name, rx_name)
             return None
 
         return dir_files
+
+    async def get_file(self, file_path: str):
+        self._proto.send_frame(Commands.CMD_GET_FILE, file_path.encode("utf-8"))
+        file_name, data = await self._proto._wait_for_file()
+
+        if file_name is None:
+            logging.warning("Failed to get file: %s", file_path)
+            return None
+        elif file_name != file_path:
+            logging.error(
+                "Get file failed, expected %s, got %s",
+                file_path,
+                file_name,
+            )
+            return None
+
+        return data
 
     async def archive_log(self, log_id: str):
         self._proto.send_frame(Commands.CMD_ARCHIVE_LOG, log_id.encode("utf-8"))
@@ -853,8 +851,7 @@ class ESPLogger:
 
     async def get_error_log(self):
         self._proto.send_frame(Commands.CMD_GET_ERROR_LOG)
-
-        file_name, data = await self._proto.wait_for_file()
+        file_name, data = await self._proto._wait_for_file()
 
         if file_name is None:
             logging.warning("Failed to get error log file")

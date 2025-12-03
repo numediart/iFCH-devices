@@ -45,8 +45,9 @@ bool sendFile(std::string filename)
 
         // Start by sending the filename
         tx_buffer[0] = seqNum;
-        memcpy(tx_buffer + 1, filename.c_str(), filename.length());
-        if (!sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, filename.length() + 1, seqNum))
+        std::string baseName = filename.substr(strlen(MOUNT_POINT) + 1);
+        memcpy(tx_buffer + 1, baseName.c_str(), baseName.length());
+        if (!sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, baseName.length() + 1, seqNum))
         {
             sendERR(CmdType::CMD_FILE_CHUNK);
             return false;
@@ -146,31 +147,22 @@ bool sendDir(std::string folderName)
 
     // Send the directory name
     tx_buffer[0] = dirSeqNum;
-    memcpy(tx_buffer + 1, folderName.c_str(), folderName.length());
-    sendProtectedFrame(CmdType::CMD_DIR_CHUNK, tx_buffer, folderName.length() + 1, dirSeqNum);
+    std::string baseName = folderName.substr(strlen(MOUNT_POINT) + 1);
+    memcpy(tx_buffer + 1, baseName.c_str(), baseName.length());
+    sendProtectedFrame(CmdType::CMD_DIR_CHUNK, tx_buffer, baseName.length() + 1, dirSeqNum);
 
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL)
     {
         if (entry->d_type == DT_REG)
         {
-            // Inform that we are sending a file
+            // Send the file name
             dirSeqNum++;
             tx_buffer[0] = dirSeqNum;
             memcpy(tx_buffer + 1, entry->d_name, strlen(entry->d_name));
             if (!sendProtectedFrame(CmdType::CMD_DIR_CHUNK, tx_buffer, strlen(entry->d_name) + 1, dirSeqNum))
             {
                 logError("sendDir", "Failed to send file header for %s/%s", folderName.c_str(), entry->d_name);
-                sentOK = false;
-                break;
-            }
-
-            // Send the file
-            ESP_LOGI("sendDir", "Sending file: %s/%s", folderName.c_str(), entry->d_name);
-            std::string filePath = folderName + "/" + entry->d_name;
-            if (!sendFile(filePath))
-            {
-                logError("sendDir", "Failed to send file: %s/%s", folderName.c_str(), entry->d_name);
                 sentOK = false;
                 break;
             }
@@ -293,6 +285,8 @@ std::string receiveFile(std::string filename)
         ESP_LOGI("receiveFile", "Failed to receive file, deleting file: %s", filename.c_str());
         rremove(filename);
     }
+
+    receivedName = std::string(MOUNT_POINT) + "/" + receivedName;
 
     return receivedName;
 }

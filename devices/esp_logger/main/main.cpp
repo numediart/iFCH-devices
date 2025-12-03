@@ -247,11 +247,21 @@ void handleSerialCommand(CmdType cmd)
     }
 
     // Send the config file
-    case CmdType::CMD_CONFIG_GET:
+    case CmdType::CMD_GET_FILE:
     {
-        if (!sendFile(CONFIG_FILE))
+        // Receive the file name
+        if (rx_payload_len < 1)
         {
-            logError("CMD_CONFIG_GET", "Failed to send config file");
+            logError("CMD_GET_FILE", "Invalid file name payload");
+            break;
+        }
+
+        // Convert the file name to local path
+        std::string fileName((char *)rx_payload, rx_payload_len);
+        fileName = std::string(MOUNT_POINT) + "/" + fileName;
+        if (!sendFile(fileName))
+        {
+            logError("CMD_GET_FILE", "Failed to send file");
         }
         break;
     }
@@ -281,7 +291,8 @@ void handleSerialCommand(CmdType cmd)
             // If the config file is valid, send a confirmation
             if (receivedName == CONFIG_FILE && loadJsonConfig())
             {
-                sendFrame(CmdType::CMD_CONFIG_PUT, (uint8_t *)receivedName.c_str(), receivedName.length());
+                std::string baseName = receivedName.substr(strlen(MOUNT_POINT) + 1);
+                sendFrame(CmdType::CMD_CONFIG_PUT, (uint8_t *)baseName.c_str(), baseName.length());
             }
             else
             {
@@ -321,36 +332,23 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
-    case CmdType::CMD_GET_LOG:
+    case CmdType::CMD_LIST_DIR:
     {
-        if (isStreaming)
+        // Receive the dir name
+        if (rx_payload_len < 1)
         {
-            logError("CMD_GET_LOG", "Movesense currently streaming, cannot get log");
+            logError("CMD_LIST_DIR", "Invalid dir name payload");
             break;
         }
-        else if (record.logging)
-        {
-            logError("CMD_GET_LOG", "Movesense currently logging, cannot get log");
-            break;
-        }
-        else
-        {
-            // Receive the log name
-            if (rx_payload_len < 1)
-            {
-                logError("CMD_GET_LOG", "Invalid log file name payload");
-                break;
-            }
 
-            // Convert the log name to local path
-            std::string logName((char *)rx_payload, rx_payload_len);
-            std::string dirPath = std::string(MOUNT_POINT) + "/" + logName;
+        // Convert the log name to local path
+        std::string dirName((char *)rx_payload, rx_payload_len);
+        std::string dirPath = std::string(MOUNT_POINT) + "/" + dirName;
 
-            // Send the log directory
-            if (!sendDir(dirPath))
-            {
-                logError("CMD_GET_LOG", "Failed to send log directory");
-            }
+        // Send the log directory
+        if (!sendDir(dirPath))
+        {
+            logError("CMD_LIST_DIR", "Failed to send directory");
         }
         break;
     }
@@ -395,7 +393,7 @@ void handleSerialCommand(CmdType cmd)
             // Archive the log directory
             if (!move(dirPath, archivePath))
             {
-                logError("CMD_GET_LOG", "Failed to archive log directory");
+                logError("CMD_LIST_DIR", "Failed to archive log directory");
                 sendERR(CmdType::CMD_ARCHIVE_LOG);
             }
             else

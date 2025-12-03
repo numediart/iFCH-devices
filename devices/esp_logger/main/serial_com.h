@@ -36,10 +36,10 @@ enum class CmdType : uint8_t
     CMD_BLE_HELLO = 0x15,
     // File transfer
     CMD_FILE_CHUNK = 0x20,
-    CMD_CONFIG_GET = 0x21,
+    CMD_GET_FILE = 0x21,
     CMD_CONFIG_PUT = 0x22,
     CMD_LIST_LOG = 0x23,
-    CMD_GET_LOG = 0x24,
+    CMD_LIST_DIR = 0x24,
     CMD_DIR_CHUNK = 0x25,
     CMD_ARCHIVE_LOG = 0x26,
     CMD_GET_ERROR_LOG = 0x27,
