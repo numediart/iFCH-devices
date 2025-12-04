@@ -522,6 +522,8 @@ class ESPLogger:
         self._decoder = MovesenseStreamDecoder(self._config["sensorPaths"])
         self._stream_callback_ext = stream_callback
 
+        self._device_info = None
+
     def _stream_callback(self, payload):
         if self._stream_callback_ext:
             decoded = self._decoder.decode_stream_packet(payload)
@@ -533,6 +535,10 @@ class ESPLogger:
             return self._proto.disconnected
         else:
             return None
+
+    @property
+    def device_info(self):
+        return self._device_info
 
     async def set_address(self, address: str, movesense_id: str):
         self._config["address"] = address
@@ -546,6 +552,16 @@ class ESPLogger:
         )
         if self._proto is None:
             raise RuntimeError(f"Failed to open serial port {self._port}")
+
+        else:
+            device_info = await self.get_version()
+            if device_info is None:
+                raise RuntimeError(
+                    "Failed to get device version on port %s", self._port
+                )
+            else:
+                logging.debug("Connected to device: %s", device_info)
+                self._device_info = device_info
 
     async def stop(self):
         logging.debug("Stopping device service")
@@ -818,7 +834,7 @@ class ESPLogger:
             logging.error("List dir failed, expected %s, got %s", dir_name, rx_name)
             return None
 
-        return dir_files
+        return sorted(dir_files)
 
     async def get_file(self, file_path: str):
         self._proto.send_frame(Commands.CMD_GET_FILE, file_path.encode("utf-8"))

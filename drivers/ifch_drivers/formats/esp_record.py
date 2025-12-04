@@ -167,25 +167,33 @@ class ESPRecordConverter:
         if metadata_file.exists():
             with open(metadata_file, "r") as f:
                 self.metadata = json.load(f)
-
-        self.config = {}
+        else:
+            logging.warning("ESP Record Converter: metadata file not found")
 
         config_file = self.record_path / "config.json"
-        with open(config_file, "r") as f:
-            self.config = json.load(f)
-            self.metadata["config"] = self.config
+        if config_file.exists():
+            with open(config_file, "r") as f:
+                self.config = json.load(f)
+                self.metadata["config"] = self.config
+        else:
+            raise RuntimeError(
+                f"ESPRecord Converter: missing config file: {config_file}"
+            )
 
         hello_file = self.record_path / "hello.txt"
-        with open(hello_file, "rb") as f:
-            hello = f.read()
-            if len(hello) < 2:
-                logging.warning("Invalid hello file")
-                hello = ""
-            else:
-                hello = hello.replace(b"\x00", b";")[1:-1]
-                hello = hello.decode("utf-8")
+        if hello_file.exists():
+            with open(hello_file, "rb") as f:
+                hello = f.read()
+                if len(hello) < 2:
+                    logging.warning("Invalid hello file")
+                    hello = ""
+                else:
+                    hello = hello.replace(b"\x00", b";")[1:-1]
+                    hello = hello.decode("utf-8")
 
-            self.metadata["movesense_info"] = hello
+                self.metadata["movesense_info"] = hello
+        else:
+            logging.warning("ESP Record Converter: hello file not found")
 
     def _read_checkpoints(self, ignored=["metadata.json", "config.json"]):
         excpect_id = 0
