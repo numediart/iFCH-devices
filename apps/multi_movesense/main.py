@@ -1282,7 +1282,7 @@ class MainWindow(QWidget):
             self.form_view.clear()
 
             # First remove all existing position input fields
-            for inform in self.form_view.position_inputs:
+            for inform in self.form_view.position_inputs.values():
                 self.form_view.form_layout.removeRow(inform)
             self.form_view.position_inputs.clear()
 
@@ -1849,7 +1849,7 @@ class Backend:
         self.clear_commands()
 
     async def add_device(self, address: str, device_id: str):
-        device = MovesenseGatt(address, device_id, self.stream_callback)
+        device = MovesenseGatt(address, self.stream_callback)
         success = await device.start()
 
         if not success:
@@ -1869,25 +1869,15 @@ class Backend:
         disconnect_watch = asyncio.create_task(_watch_disconnect())
         self._disconnect_watchers.append(disconnect_watch)
 
-        device_repr = await device.hello()
-
-        if device_repr is None:
-            raise RuntimeError(
-                "Failed to get device info, check Movesense firmware >= 2.3.1"
-            )
-
-        if len(device_repr) > 2:
-            device_repr = device_repr.replace(b"\x00", b";")[1:-1]
-            device_repr = device_repr.decode("utf-8")
-        else:
-            logging.warning("Invalid device info received from %s", device_id)
-            device_repr = ""
-
-        self.device_infos[device_id] = device_repr
+        self.device_infos[device.movesense_id] = device.device_info
 
         self.devices.append(device)
-        self.ecg_data[device_id] = collections.deque(maxlen=self.PLOT_DURATION * 200)
-        self.imu_data[device_id] = collections.deque(maxlen=self.PLOT_DURATION * 208)
+        self.ecg_data[device.movesense_id] = collections.deque(
+            maxlen=self.PLOT_DURATION * 200
+        )
+        self.imu_data[device.movesense_id] = collections.deque(
+            maxlen=self.PLOT_DURATION * 208
+        )
 
         return True
 

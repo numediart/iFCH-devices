@@ -78,9 +78,9 @@ class MovesenseGatt:
 
     HELLO_REF = 0xFF
 
-    def __init__(self, address: str, movesense_id: str, stream_callback=None):
+    def __init__(self, address: str, stream_callback=None):
         self._address = address
-        self._movesense_id = movesense_id
+        self._device_info = None
 
         self.connected = asyncio.Event()
         self.disconnected = asyncio.Event()
@@ -108,7 +108,13 @@ class MovesenseGatt:
 
     @property
     def movesense_id(self):
-        return self._movesense_id
+        if self._device_info is None:
+            return None
+        return self._device_info.split(";")[0]
+
+    @property
+    def device_info(self):
+        return self._device_info
 
     @property
     def is_ifch_firmware(self):
@@ -139,7 +145,18 @@ class MovesenseGatt:
             return False
 
         else:
-            return True
+            device_info = await self.hello()
+            if device_info is None or len(device_info) <= 2:
+                self._device_info = None
+                logging.warning(
+                    "Failed to get Movesense info, check that firmware version is >= 2.3.1"
+                )
+                await self.stop()
+                return False
+            else:
+                device_info = device_info.replace(b"\x00", b";")[1:-1]
+                self._device_info = device_info.decode("utf-8")
+                return True
 
     async def stop(self):
         logging.info("Stopping Movesense GATT service")
