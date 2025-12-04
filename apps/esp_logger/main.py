@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
@@ -1050,6 +1051,53 @@ class MonitoringView(QWidget):
 
 
 # ----------------------------------------------------------------------
+class DownloadView(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Main message
+        self.message = QLabel("Downloading record")
+        self.message.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 28px;
+                font-weight: bold;
+                color: {BLUE_L};
+            }}
+        """
+        )
+        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.message)
+        layout.addSpacing(30)
+
+        # Status label
+        self.status_label = QLabel(
+            "Downloading recorded data from device...\nThis may take up to 1 hour for 10 days of recording."
+        )
+        self.status_label.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+        """
+        )
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        layout.addWidget(self.status_label)
+
+        layout.addSpacing(20)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMaximumWidth(700)
+        layout.addWidget(self.progress_bar)
+
+
+# ----------------------------------------------------------------------
 class MainWindow(QWidget):
     FORCE_SHUTDOWN_ATTEMPTS = 3
 
@@ -1081,6 +1129,7 @@ class MainWindow(QWidget):
         self.form_view = FormView()
         self.warning_view = WarningView()
         self.success_view = SuccessView()
+        self.download_view = DownloadView()
 
         # Add views to stack
         self.stacked_widget.addWidget(self.error_view)
@@ -1092,6 +1141,7 @@ class MainWindow(QWidget):
         self.stacked_widget.addWidget(self.form_view)
         self.stacked_widget.addWidget(self.warning_view)
         self.stacked_widget.addWidget(self.success_view)
+        self.stacked_widget.addWidget(self.download_view)
 
         # Set main layout
         views_widget = QWidget(self)
@@ -1207,6 +1257,10 @@ class MainWindow(QWidget):
 
         elif new_state == GUIState.SUCCESS:
             self.stacked_widget.setCurrentIndex(8)  # Show success view
+
+        elif new_state == GUIState.DOWNLOAD:
+            self.download_view.progress_bar.setValue(0)
+            self.stacked_widget.setCurrentIndex(9)  # Show download view
 
     @Slot()
     def select_output_dir(self):
@@ -1558,9 +1612,6 @@ class Backend:
         await self.queue_command(CmdForceStopLogging())
 
     async def save_record(self, form_data: dict):
-        self.ui.update_info_status("Saving record", "Saving data to computer...")
-        self.ui.update_ui_state(GUIState.INFO)
-
         await self.queue_command(CmdSaveRecord(metadata=form_data))
 
     async def connect_to_device(self, device_string: str):
@@ -1737,8 +1788,8 @@ class CmdProbeUSB:
                 found = []
 
             if found:
-                port, *_ = found[0]
-                logging.debug("Found iFCH-logger on %s", port)
+                port, dev_id = found[0]
+                logging.debug("Found iFCH-logger %s on %s", dev_id, port)
                 await back.start_device(port)
 
                 status = await back.device.get_status()
@@ -2032,7 +2083,7 @@ class CmdStopLogging:
             await back.show_error()
             return
 
-        await back.queue_command(CmdDownloadLog(log_id=log_id))
+        await back.queue_command(CmdListLog(log_id=log_id))
 
 
 class CmdForceStopLogging:
@@ -2067,23 +2118,23 @@ class CmdForceStopLogging:
             await back.show_error()
             return
 
-        await back.queue_command(CmdDownloadLog(log_id=log_id))
+        await back.queue_command(CmdListLog(log_id=log_id))
 
 
 @dataclass
-class CmdDownloadLog:
+class CmdListLog:
     log_id: int | str
 
     async def handle(self, back: Backend):
         if not back.device:
-            raise RuntimeError("Download log called without USB device")
+            raise RuntimeError("List log called without USB device")
 
         if not self.log_id:
-            raise RuntimeError("Download log called without log ID")
+            raise RuntimeError("List log called without log ID")
 
         back.ui.update_info_status(
-            "Saving record",
-            "Saving data to computer...\nThis might take up to 1 hour for 10 days of recording. Please do not disconnect the device.",
+            "Listing record files",
+            "Fetching file list from device...",
         )
 
         record_list = await retry(back.device.list_logs)
@@ -2109,24 +2160,14 @@ class CmdDownloadLog:
 
         back.ui.update_ui_state(GUIState.FORM)
 
-        dir_files = await back.device.get_log(self.log_id)
+        dir_files = await back.device.list_dir(self.log_id)
         if dir_files is None:
-            logging.warning("Get log data failed")
+            logging.warning("List log files failed")
             await back.show_error()
             return
 
         back.record_files = dir_files
         back.record_meta = {"ID": self.log_id}
-
-        error_log = await back.device.get_error_log()
-        if error_log is None:
-            logging.warning("Get error log failed")
-        else:
-            back.record_files["log.txt"] = error_log.encode("utf-8")
-
-            deleted = await back.device.delete_error_log()
-            if not deleted:
-                logging.warning("Delete error log failed")
 
 
 @dataclass
@@ -2136,6 +2177,8 @@ class CmdSaveRecord:
     async def handle(self, back: Backend):
         if not self.metadata:
             raise RuntimeError("Save record called without metadata")
+
+        back.ui.update_ui_state(GUIState.DOWNLOAD)
 
         self.metadata.update(back.record_meta)
         self.metadata["source"] = f"esp_logger-{__version__}"
@@ -2169,7 +2212,24 @@ class CmdSaveRecord:
         raw_dir = record_dir / "raw"
 
         raw_dir.mkdir(parents=True, exist_ok=False)
-        for filename, data in back.record_files.items():
+
+        self.metadata["esp_info"] = back.device.device_info
+        with open(raw_dir / METADATA_FILENAME, "w") as f:
+            json.dump(self.metadata, f, indent=4)
+
+        for idx, filename in enumerate(back.record_files):
+            # TODO implement resume
+            data = await back.device.get_file(f"{self.metadata['ID']}/{filename}")
+            if data is None:
+                logging.warning(
+                    "Get file %s of log %s failed", filename, self.metadata["ID"]
+                )
+                await back.show_error(
+                    "File download error",
+                    f"Failed to download file {self.metadata['ID']}/{filename} from the iFCH device.",
+                )
+                return
+
             # Optional: convert short names to standard ones
             filename = filename.lower()
             filename = filename.replace("sbm", "sbem")
@@ -2179,13 +2239,25 @@ class CmdSaveRecord:
             with open(file_path, "wb") as f:
                 f.write(data)
 
-        with open(raw_dir / METADATA_FILENAME, "w") as f:
-            json.dump(self.metadata, f, indent=4)
+            back.ui.download_view.progress_bar.setValue(
+                int((idx + 1) / len(back.record_files) * 100)
+            )
 
         archived = await back.device.archive_log(self.metadata["ID"])
         if not archived:
             logging.warning("Archive log failed for ID %s", self.metadata["ID"])
             # Not critical, continue
+
+        error_log = await back.device.get_error_log()
+        if error_log is None:
+            logging.warning("Get error log failed")
+        else:
+            with open(raw_dir / ESPLogger.ERROR_LOG_FILE, "w") as f:
+                f.write(error_log)
+
+            deleted = await back.device.delete_error_log()
+            if not deleted:
+                logging.warning("Delete error log failed")
 
         convert_dir = record_dir / "converted"
 
@@ -2193,15 +2265,26 @@ class CmdSaveRecord:
             "Saving record",
             "Converting to standard format...\nThis might take a few minutes. Please do not disconnect the device.",
         )
+        back.ui.update_ui_state(GUIState.INFO)
 
-        converter = ESPRecordConverter(raw_dir)
-        converter.write(convert_dir)
+        try:
+            converter = ESPRecordConverter(raw_dir)
+            converter.write(convert_dir)
 
-        back.ui.prevent_close = False
-        back.ui.update_success_status(
-            "Record saved", f"The data were successfully saved to:\n{str(record_dir)}"
-        )
-        back.ui.update_ui_state(GUIState.SUCCESS)
+            back.ui.prevent_close = False
+            back.ui.update_success_status(
+                "Record saved",
+                f"The data were successfully saved to:\n{str(record_dir)}",
+            )
+            back.ui.update_ui_state(GUIState.SUCCESS)
+
+        except Exception as e:
+            logging.error("Record conversion failed: %s", e)
+            logging.exception(e)
+            await back.show_error(
+                "Conversion error",
+                "An error occurred while converting the record files.\nData will not be lost, but it will need to be converted manually to a readable format.",
+            )
 
 
 # ----------------------------------------------------------------------
