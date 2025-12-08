@@ -561,7 +561,7 @@ class MonitoringView(QWidget):
         utc_start = datetime.datetime.fromisoformat(metadata["start_time"])
         self.ecg_timestamps += utc_start.timestamp() * 1000
 
-        self.ecg_samples = ecg_sensor["samples"] * 1000  # Convert to mV
+        self.ecg_samples = ecg_sensor["ECG"] * 1000  # Convert to mV
 
         if "scale" in properties["ECG"]:
             self.ecg_samples = self.ecg_samples * properties["ECG"]["scale"]

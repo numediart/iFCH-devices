@@ -29,10 +29,7 @@ class ESPBinReader:
 
     @staticmethod
     def empty_stream():
-        return {
-            "timestamps": [],
-            "samples": [],
-        }
+        return collections.defaultdict(list)
 
     def read(self, bin_file: str | pathlib.Path) -> dict:
         """
@@ -57,10 +54,11 @@ class ESPBinReader:
                         )
                         break
 
-                    time, samples, sensor = self.stream_decoder(packet)
-                    if sensor is not None and samples is not None and time is not None:
-                        decoded[sensor]["timestamps"].append(int(time[0]))
-                        decoded[sensor]["samples"].append(samples)
+                    decoded_packet = self.stream_decoder(packet, flatten=False)
+                    if decoded_packet is not None:
+                        sensor, sensor_dict = decoded_packet
+                        for key, values in sensor_dict.items():
+                            decoded[sensor][key].append(values)
 
                 except IndexError:
                     break

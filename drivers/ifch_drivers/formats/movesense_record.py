@@ -159,21 +159,25 @@ def load(file_path: pathlib.Path | str, flatten=True) -> tuple[dict, dict, dict]
 
     if flatten:
         for sensor_name, sensor_dict in record.items():
+            n_samples = -1
+            for key, samples in sensor_dict.items():
+                if key == "timestamps":
+                    continue
+
+                n_samples = samples.shape[1]
+                samples = np.concatenate(samples, axis=0)
+                sensor_dict[key] = samples
+
             timestamps = sensor_dict["timestamps"]
             delta_t = np.diff(timestamps)
             delta_t = np.append(delta_t, delta_t[-1])
-
-            samples = sensor_dict["samples"]
-            n_samples = samples.shape[1]
 
             delta_t = (
                 delta_t.reshape(-1, 1) / n_samples * np.arange(n_samples).reshape(1, -1)
             )
 
             timestamps = (timestamps.reshape(-1, 1) + delta_t).flatten()
-            samples = np.concatenate(samples, axis=0)
 
             sensor_dict["timestamps"] = timestamps
-            sensor_dict["samples"] = samples
 
     return record, metadata, properties

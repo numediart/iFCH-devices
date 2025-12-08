@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-__version__ = "1.0.0"
+__version__ = "0.2.0"
 
 
 class GUIState(Enum):
@@ -1470,22 +1470,19 @@ class MainWindow(QWidget):
         t = time.time() * 1000
 
         for ms_id, chart in self.monitoring_view.charts.items():
-            ecg_data = np.asarray(self.backend.ecg_data[ms_id])
-            if len(ecg_data) != 0:
-                x_time = ecg_data[:, 0] - t
-                samples = ecg_data[:, 1]
+            ecg_data = self.backend.sensors_data[ms_id]["ECG"]
+            if len(ecg_data["timestamps"]) != 0:
+                x_time = np.asarray(ecg_data["timestamps"]) - t
+                samples = np.asarray(ecg_data["ECG"])
                 chart.series_ecg.replaceNp(x_time.astype(float), samples.astype(float))
                 max_ecg = np.abs(samples).max()
                 chart.axis_ecg.setRange(-max_ecg, max_ecg)
 
-            imu_data = [
-                (time, *acc) for time, (acc, gyro) in self.backend.imu_data[ms_id]
-            ]
-            imu_data = np.asarray(imu_data)
+            imu_data = self.backend.sensors_data[ms_id]["IMU6"]
 
-            if len(imu_data) != 0:
-                x_time = imu_data[:, 0] - t
-                y_acc = imu_data[:, 3]
+            if len(imu_data["timestamps"]) != 0:
+                x_time = np.asarray(imu_data["timestamps"]) - t
+                y_acc = np.asarray(imu_data["ACC"])[:, 2]
 
                 chart.series_acc.replaceNp(x_time.astype(float), y_acc.astype(float))
                 chart.axis_acc.setRange(y_acc.min(), y_acc.max())
@@ -1649,8 +1646,7 @@ class Backend:
         self._timers: set[asyncio.Task] = set()
         self._disconnect_watchers: list[asyncio.Task] = []
 
-        self.ecg_data = {}
-        self.imu_data = {}
+        self.sensors_data = {}
         self.time_origins = {}
 
         self.sensor_log = {}
@@ -1658,27 +1654,31 @@ class Backend:
         self.device_infos = {}
 
     def stream_callback(self, device: MovesenseGatt, data):
-        timestamps, samples, sensor = data
-        if timestamps is not None and samples is not None:
-            if device.movesense_id not in self.time_origins:
-                self.time_origins[device.movesense_id] = (
-                    time.time() * 1000 - timestamps[0]
-                )
+        if data is None:
+            return
 
-            origin = self.time_origins[device.movesense_id]
+        sensor, sensor_dict = data
 
-            if self._logging:
-                self.sensor_log[device.movesense_id][sensor]["timestamps"].append(
-                    int(timestamps[0])
-                )
-                self.sensor_log[device.movesense_id][sensor]["samples"].append(samples)
+        timestamps = sensor_dict["timestamps"]
+        del sensor_dict["timestamps"]
 
-            timestamps = [t + origin for t in timestamps]
+        if device.movesense_id not in self.time_origins:
+            self.time_origins[device.movesense_id] = time.time() * 1000 - timestamps[0]
 
-            if sensor == "ECG":
-                self.ecg_data[device.movesense_id].extend(zip(timestamps, samples))
-            elif sensor == "IMU6":
-                self.imu_data[device.movesense_id].extend(zip(timestamps, samples))
+        origin = self.time_origins[device.movesense_id]
+
+        if self._logging:
+            self.sensor_log[device.movesense_id][sensor]["timestamps"].append(
+                int(timestamps[0])
+            )
+            for key, value in sensor_dict.items():
+                self.sensor_log[device.movesense_id][sensor][key].append(value)
+
+        timestamps = [t + origin for t in timestamps]
+
+        self.sensors_data[device.movesense_id][sensor]["timestamps"].extend(timestamps)
+        for key, value in sensor_dict.items():
+            self.sensors_data[device.movesense_id][sensor][key].extend(value)
 
     async def run(self):
         """Start the actor and bootstrap probing."""
@@ -1716,8 +1716,7 @@ class Backend:
             await asyncio.gather(*[device.stop() for device in self.devices])
             self.devices = None
 
-        self.ecg_data.clear()
-        self.imu_data.clear()
+        self.sensors_data.clear()
         self.time_origins.clear()
         self.device_infos.clear()
 
@@ -1813,8 +1812,7 @@ class Backend:
         self.devices = []
         self.ui.prevent_close = False
 
-        self.ecg_data.clear()
-        self.imu_data.clear()
+        self.sensors_data.clear()
         self.time_origins.clear()
         self.device_infos.clear()
         self._logging = False
@@ -1872,12 +1870,14 @@ class Backend:
         self.device_infos[device.movesense_id] = device.device_info
 
         self.devices.append(device)
-        self.ecg_data[device.movesense_id] = collections.deque(
-            maxlen=self.PLOT_DURATION * 200
-        )
-        self.imu_data[device.movesense_id] = collections.deque(
-            maxlen=self.PLOT_DURATION * 208
-        )
+
+        def sensor_dict():
+            def sensor_deque():
+                return collections.deque(maxlen=self.PLOT_DURATION * 250)
+
+            return collections.defaultdict(sensor_deque)
+
+        self.sensors_data[device.movesense_id] = collections.defaultdict(sensor_dict)
 
         return True
 

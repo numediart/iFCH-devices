@@ -36,7 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 class GUIState(Enum):
@@ -1601,15 +1601,16 @@ class Backend:
         self.record_dir = None
 
     def stream_callback(self, _, data):
-        timestamps, samples, sensor = data
-        if timestamps is not None and samples is not None:
+        if data is not None:
+            sensor, sensor_dict = data
+            timestamps = sensor_dict["timestamps"]
             if self.time_origin is None:
                 self.time_origin = time.time() * 1000 - timestamps[0]
 
             timestamps = [t + self.time_origin for t in timestamps]
 
             if sensor == "ECG":
-                self.ecg_data.extend(zip(timestamps, samples))
+                self.ecg_data.extend(zip(timestamps, sensor_dict["ECG"]))
 
     async def run(self):
         """Start the actor and bootstrap probing."""

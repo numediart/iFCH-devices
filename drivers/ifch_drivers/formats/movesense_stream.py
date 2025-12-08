@@ -35,14 +35,14 @@ class MovesenseStreamDecoder:
         ]
         return samples
 
-    def __call__(self, packet):
-        return self.decode_stream_packet(packet)
+    def __call__(self, packet, flatten=True):
+        return self.decode_stream_packet(packet, flatten=flatten)
 
-    def decode_stream_packet(self, packet):
+    def decode_stream_packet(self, packet, flatten=True):
         packet_type = Responses(packet[0])
         if packet_type == Responses.COMMAND_RESULT:
             logging.error("Invalid packet type in stream decode: %s", packet[0])
-            return None, None, None
+            return None
 
         reference = packet[1]
         if reference not in self.subscriptions:
@@ -51,7 +51,7 @@ class MovesenseStreamDecoder:
                 reference,
                 self.subscriptions,
             )
-            return None, None, None
+            return None
 
         sensor_path = self.subscriptions[reference]
         data_type, sampling = MovesenseDataTypes.from_path(sensor_path)
@@ -63,11 +63,10 @@ class MovesenseStreamDecoder:
             data_type,
         )
 
-        time, samples, sensor_path = None, None, sensor_path
-
         if data_type == MovesenseDataTypes.ECG:
             if packet_type != Responses.DATA:
                 logging.error("Invalid packet type for %s: %s", data_type, packet_type)
+                return None
 
             else:
                 timestamp = int.from_bytes(packet[2:6], byteorder="little")
@@ -75,10 +74,12 @@ class MovesenseStreamDecoder:
                 packet = packet[6:]
                 stride = 4
 
-                samples = [
-                    struct.unpack("<i", packet[i : i + stride])[0]
-                    for i in range(0, len(packet), stride)
-                ]
+                samples = {
+                    data_type.name: [
+                        struct.unpack("<i", packet[i : i + stride])[0]
+                        for i in range(0, len(packet), stride)
+                    ]
+                }
 
         elif data_type in (
             MovesenseDataTypes.ACC,
@@ -87,10 +88,13 @@ class MovesenseStreamDecoder:
         ):
             if packet_type != Responses.DATA:
                 logging.error("Invalid packet type for %s: %s", data_type, packet_type)
+                return None
 
             else:
                 timestamp = int.from_bytes(packet[2:6], byteorder="little")
-                samples = self._unpack_vectors(packet[6:], size=3, stride=4)
+                samples = {
+                    data_type.name: self._unpack_vectors(packet[6:], size=3, stride=4)
+                }
 
         elif data_type == MovesenseDataTypes.IMU6:
             if packet_type == Responses.DATA:
@@ -104,7 +108,7 @@ class MovesenseStreamDecoder:
                 # If the packet is incomplete, store it and wait for part 2
                 if len(packet) >= self.MAX_PAYLOAD_SIZE:
                     self._partial_data[reference] = packet
-                    return None, None, sensor_path
+                    return None
 
             elif packet_type == Responses.DATA_PART2:
                 part_1 = self._partial_data[reference]
@@ -114,7 +118,7 @@ class MovesenseStreamDecoder:
                         data_type,
                         sensor_path,
                     )
-                    return None, None, sensor_path
+                    return None
 
                 # Reconstruct full packet
                 packet = part_1 + packet[2:]
@@ -122,6 +126,7 @@ class MovesenseStreamDecoder:
 
             else:
                 logging.error("Invalid packet type for %s: %s", data_type, packet_type)
+                return None
 
             timestamp = int.from_bytes(packet[2:6], byteorder="little")
             packet = packet[6:]
@@ -129,7 +134,10 @@ class MovesenseStreamDecoder:
             acc_samples = self._unpack_vectors(packet[:extent], size=3, stride=4)
             gyr_samples = self._unpack_vectors(packet[extent:], size=3, stride=4)
 
-            samples = list(zip(acc_samples, gyr_samples))
+            samples = {
+                MovesenseDataTypes.ACC.name: acc_samples,
+                MovesenseDataTypes.GYRO.name: gyr_samples,
+            }
 
         elif data_type == MovesenseDataTypes.IMU9:
             if packet_type == Responses.DATA:
@@ -143,7 +151,7 @@ class MovesenseStreamDecoder:
                 # If the packet is incomplete, store it and wait for part 2
                 if len(packet) >= self.MAX_PAYLOAD_SIZE:
                     self._partial_data[reference] = packet
-                    return None, None, sensor_path
+                    return None
 
             elif packet_type == Responses.DATA_PART2:
                 part_1 = self._partial_data[reference]
@@ -153,7 +161,7 @@ class MovesenseStreamDecoder:
                         data_type,
                         sensor_path,
                     )
-                    return None, None, sensor_path
+                    return None
 
                 # Reconstruct full packet
                 packet = part_1 + packet[2:]
@@ -161,6 +169,7 @@ class MovesenseStreamDecoder:
 
             else:
                 logging.error("Invalid packet type for %s: %s", data_type, packet_type)
+                return None
 
             timestamp = int.from_bytes(packet[2:6], byteorder="little")
             packet = packet[6:]
@@ -171,11 +180,16 @@ class MovesenseStreamDecoder:
             )
             mag_samples = self._unpack_vectors(packet[2 * extent :], size=3, stride=4)
 
-            samples = list(zip(acc_samples, gyr_samples, mag_samples))
+            samples = {
+                MovesenseDataTypes.ACC.name: acc_samples,
+                MovesenseDataTypes.GYRO.name: gyr_samples,
+                MovesenseDataTypes.MAGN.name: mag_samples,
+            }
 
         elif data_type == MovesenseDataTypes.ECGMV:
             if packet_type != Responses.DATA:
                 logging.error("Invalid packet type for %s: %s", data_type, packet_type)
+                return None
 
             else:
                 timestamp = int.from_bytes(packet[2:6], byteorder="little")
@@ -183,15 +197,23 @@ class MovesenseStreamDecoder:
                 packet = packet[6:]
                 stride = 4
 
-                samples = [
-                    struct.unpack("<f", packet[i : i + stride])[0]
-                    for i in range(0, len(packet), stride)
-                ]
+                samples = {
+                    data_type.name: [
+                        struct.unpack("<f", packet[i : i + stride])[0]
+                        for i in range(0, len(packet), stride)
+                    ]
+                }
 
         else:
             logging.warning("Stream decoding of %s not implemented.", data_type)
+            return None
 
-        if samples is not None and timestamp is not None:
-            time = [timestamp + 1000 * i / sampling for i in range(len(samples))]
+        if flatten:
+            samples_len = len(next(iter(samples.values())))
+            samples["timestamps"] = [
+                timestamp + 1000 * i / sampling for i in range(samples_len)
+            ]
+        else:
+            samples["timestamps"] = timestamp
 
-        return time, samples, data_type.name
+        return (data_type.name, samples)
