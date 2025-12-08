@@ -135,15 +135,25 @@ class ESPRecordConverter:
             if len(sbem_files) > 1:
                 for sbem_file in sbem_files[1:]:
                     logging.warning(f"Backup SBEM file found: {sbem_file.name}")
-                    sbem_decoded = sbem_decoder.decode(sbem_file)
-                    self._append_chunk(sbem_decoded)
+                    try:
+                        sbem_decoded = sbem_decoder.decode(sbem_file)
+                        self._append_chunk(sbem_decoded)
+                    except Exception as e:
+                        logging.warning(
+                            f"Error decoding SBEM file {sbem_file.name}: {e}, skipping"
+                        )
 
             if not sbem_files:
                 logging.warning(f"Missing SBEM file for chunk ID: {chunk_id}")
             else:
                 logging.info(f"Decoding SBEM file: {sbem_files[0].name}")
-                sbem_decoded = sbem_decoder.decode(sbem_files[0])
-                self._append_chunk(sbem_decoded)
+                try:
+                    sbem_decoded = sbem_decoder.decode(sbem_files[0])
+                    self._append_chunk(sbem_decoded)
+                except Exception as e:
+                    logging.warning(
+                        f"Error decoding SBEM file {sbem_files[0].name}: {e}, skipping"
+                    )
 
             bin_files = sorted(self.record_path.glob(f"{chunk_id:03d}*bin*"))
             if len(bin_files) > 1:

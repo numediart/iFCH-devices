@@ -208,6 +208,9 @@ class SBEMDecoder:
         header_bytes = self._reader.read(8)
         logging.debug("SBEM Header: %s", header_bytes)
 
+        if len(header_bytes) != 8:
+            return None
+
         return header_bytes.decode()
 
     def _parse_descriptor_chunk(self, data_bytes):
@@ -257,6 +260,9 @@ class SBEMDecoder:
     def _decode(self, standardize=True):
         # read data
         sbem_version = self._parse_header()
+
+        if sbem_version is None:
+            raise RuntimeError("Could not read SBEM header, file may be corrupted")
 
         if sbem_version != "SBEM0112":
             raise NotImplementedError(f"Unsupported SBEM version: {sbem_version}")
