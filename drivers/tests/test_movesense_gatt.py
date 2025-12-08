@@ -17,9 +17,7 @@ async def client():
     if not devices:
         pytest.skip("No Movesense device found.")
 
-    device = MovesenseGatt(
-        devices[0][0], movesense_id=devices[0][1], stream_callback=process_notification
-    )
+    device = MovesenseGatt(devices[0][0], stream_callback=process_notification)
     connected = await device.start()
 
     if not connected:

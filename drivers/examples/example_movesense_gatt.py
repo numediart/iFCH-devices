@@ -23,9 +23,7 @@ async def main():
         logging.error("No Movesense device found.")
         return
 
-    device = MovesenseGatt(
-        found[0][0], movesense_id=found[0][1], stream_callback=process_notification
-    )
+    device = MovesenseGatt(found[0][0], stream_callback=process_notification)
 
     connected = await device.start()
     if not connected:
@@ -103,9 +101,12 @@ async def main():
                 if not log_data:
                     logging.error(f"Failed to fetch log {log_id}")
 
-                decoder = SBEMDecoder()
-                data = decoder.decode(log_data)
-                logging.info(f"Retrieved log data from sensors: {list(data.keys())}")
+                else:
+                    decoder = SBEMDecoder()
+                    data = decoder.decode(log_data)
+                    logging.info(
+                        f"Retrieved log data from sensors: {list(data.keys())}"
+                    )
 
                 if not await device.clear_logs():
                     logging.error("Failed to clear logs")

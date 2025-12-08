@@ -4,7 +4,7 @@ dynamic = ["version"]
 description = "Drivers for iFCH devices"
 authors = [{ name = "M. Francois", email = "francois.marelli@umons.ac.be" }]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["h5py", "numpy"]
 
 [build-system]
 requires = ["hatchling"]
@@ -19,7 +19,6 @@ dev = ["pytest", "pytest-asyncio"]
 [project.optional-dependencies]
 esp_logger = ["pyserial", "pyserial-asyncio"]
 movesense_gatt = ["bleak"]
-formats = ["h5py", "numpy"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "session"
