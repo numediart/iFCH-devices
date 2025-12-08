@@ -49,6 +49,8 @@ class GUIState(Enum):
     FORM = "form"
     WARNING = "warning"
     SUCCESS = "success"
+    DOWNLOAD = "download"
+    CONNECTION_LOST = "connection_lost"
 
 
 METADATA_FILENAME = "metadata.json"
@@ -99,8 +101,6 @@ class DisconnectedView(QWidget):
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Large icon or image placeholder
-
         # Main message
         message = QLabel("Please connect your iFCH device via USB")
         message.setStyleSheet(
@@ -128,6 +128,42 @@ class DisconnectedView(QWidget):
         )
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_label)
+
+
+# ----------------------------------------------------------------------
+class ConnectionLostView(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Main message
+        message = QLabel("Connection lost")
+        message.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 28px;
+                font-weight: bold;
+                color: {RED_D};
+            }}
+        """
+        )
+        message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(message)
+        layout.addSpacing(30)
+
+        # Status label
+        status_label = QLabel("Please reconnect your iFCH device to resume")
+        status_label.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+        """
+        )
+        status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(status_label)
 
 
 class ErrorView(QWidget):
@@ -1074,7 +1110,7 @@ class DownloadView(QWidget):
 
         # Status label
         self.status_label = QLabel(
-            "Downloading recorded data from device...\nThis may take up to 1 hour for 10 days of recording."
+            "Downloading recorded data from device...\nThis may take up to 1 hour."
         )
         self.status_label.setStyleSheet(
             f"""
@@ -1110,8 +1146,6 @@ class MainWindow(QWidget):
         self._shutdown_attempts = 0
         self._shutdown_complete = False
 
-        self.prevent_close = False
-
         self.settings_stack = QStackedWidget(self)
         self.settings_view = SettingsView()
         self.settings_stack.addWidget(self.settings_view)
@@ -1130,6 +1164,7 @@ class MainWindow(QWidget):
         self.warning_view = WarningView()
         self.success_view = SuccessView()
         self.download_view = DownloadView()
+        self.connection_lost_view = ConnectionLostView()
 
         # Add views to stack
         self.stacked_widget.addWidget(self.error_view)
@@ -1142,6 +1177,7 @@ class MainWindow(QWidget):
         self.stacked_widget.addWidget(self.warning_view)
         self.stacked_widget.addWidget(self.success_view)
         self.stacked_widget.addWidget(self.download_view)
+        self.stacked_widget.addWidget(self.connection_lost_view)
 
         # Set main layout
         views_widget = QWidget(self)
@@ -1261,6 +1297,9 @@ class MainWindow(QWidget):
         elif new_state == GUIState.DOWNLOAD:
             self.download_view.progress_bar.setValue(0)
             self.stacked_widget.setCurrentIndex(9)  # Show download view
+
+        elif new_state == GUIState.CONNECTION_LOST:
+            self.stacked_widget.setCurrentIndex(10)  # Show connection lost view
 
     @Slot()
     def select_output_dir(self):
@@ -1443,15 +1482,15 @@ class MainWindow(QWidget):
                 self.monitoring_view.fields[key].setText(kwargs[key])
 
     def closeEvent(self, event):
-        if self.prevent_close:
+        if self.backend and self.backend.ending_record:
             event.ignore()
 
             # Open a popup or dialog to inform the user
-            logging.warning("Close event ignored due to prevent_close flag.")
+            logging.debug("Close event ignored due to prevent_close flag.")
             msg = QMessageBox(
                 QMessageBox.Icon.Warning,
                 "Warning",
-                "Potential data loss if closed now!",
+                "Data could be lost if closing now!",
                 QMessageBox.StandardButton.Ignore | QMessageBox.StandardButton.Cancel,
                 modal=True,
                 parent=self,
@@ -1488,7 +1527,8 @@ class MainWindow(QWidget):
             pressed = msg.exec()
             if pressed == QMessageBox.StandardButton.Ignore:
                 logging.warning("User confirmed close, proceeding with shutdown.")
-                self.prevent_close = False
+                self.backend.ending_record = False
+                self.closeEvent(event)
             return
 
         if self._shutdown_complete:
@@ -1556,6 +1596,10 @@ class Backend:
         self.ecg_data = None
         self.time_origin = None
 
+        self.ending_record = False
+        self.previous_device = None
+        self.record_dir = None
+
     def stream_callback(self, _, data):
         timestamps, samples, sensor = data
         if timestamps is not None and samples is not None:
@@ -1573,6 +1617,7 @@ class Backend:
             self._actor_task = asyncio.create_task(self._actor_loop())
 
         # Kick off initial probe
+        self.ui.update_ui_state(GUIState.DISCONNECTED)
         await self.queue_command(CmdProbeUSB())
 
         # Keep this task alive until actor exits
@@ -1612,7 +1657,8 @@ class Backend:
         await self.queue_command(CmdForceStopLogging())
 
     async def save_record(self, form_data: dict):
-        await self.queue_command(CmdSaveRecord(metadata=form_data))
+        self.record_meta.update(form_data)
+        await self.queue_command(CmdSaveRecord())
 
     async def connect_to_device(self, device_string: str):
         """GUI calls this when the user clicks Connect."""
@@ -1735,9 +1781,14 @@ class Backend:
                 await self.device.stop()
 
         self.device = None
-        self.ui.prevent_close = False
-        self.record_files = None
-        self.record_meta = {}
+
+        # Keep record info if connection was lost during end of record
+        if not self.ending_record:
+            self.record_files = None
+            self.record_meta = {}
+
+            self.previous_device = None
+            self.record_dir = None
 
     def schedule_after(self, delay: float, cmd: Any):
         """Schedule a one-shot task that enqueues cmd after delay."""
@@ -1778,7 +1829,6 @@ class CmdProbeUSB:
 
     async def handle(self, back: Backend):
         """One-shot USB probe; schedule next probe only if still disconnected."""
-        back.ui.update_ui_state(GUIState.DISCONNECTED)
 
         if back.device is None:
             try:
@@ -1790,7 +1840,29 @@ class CmdProbeUSB:
             if found:
                 port, dev_id = found[0]
                 logging.debug("Found iFCH-logger %s on %s", dev_id, port)
+
+                if (
+                    back.ending_record
+                    and back.previous_device
+                    and back.previous_device != dev_id
+                ):
+                    logging.warning(
+                        "Different device connected during end of record: %s != %s",
+                        back.previous_device,
+                        dev_id,
+                    )
+                    await back.show_error(
+                        "Incorrect device connected",
+                        "The device connected is different from the one used in the current download.\nPlease reconnect the correct device to avoid data loss.\nTo proceed anyway, please restart the application.",
+                    )
+                    return
+
                 await back.start_device(port)
+
+                if back.ending_record:
+                    # Resume end of record
+                    await back.queue_command(CmdResume())
+                    return
 
                 status = await back.device.get_status()
 
@@ -1879,11 +1951,19 @@ class CmdLogging:
 class CmdOnDisconnected:
     async def handle(self, back: Backend):
         """Serial disconnected; stop device and schedule next probe."""
-        back.ui.update_ui_state(GUIState.DISCONNECTED)
-        back.ui.update_disconnected_status("Disconnected, waiting for device...")
+
+        if back.device:
+            back.previous_device = back.device.device_info
 
         await back.clear_state()
         back.clear_commands()
+
+        if not back.ending_record:
+            back.ui.update_ui_state(GUIState.DISCONNECTED)
+            back.ui.update_disconnected_status("Disconnected, waiting for device...")
+
+        else:
+            back.ui.update_ui_state(GUIState.CONNECTION_LOST)
 
         await back.queue_command(CmdProbeUSB())
 
@@ -2075,7 +2155,7 @@ class CmdStopLogging:
         )
         back.ui.update_ui_state(GUIState.INFO)
 
-        back.ui.prevent_close = True
+        back.ending_record = True
 
         log_id = await back.device.stop_movesense_logging()
         if log_id is None:
@@ -2105,7 +2185,7 @@ class CmdForceStopLogging:
         )
         back.ui.update_ui_state(GUIState.INFO)
 
-        back.ui.prevent_close = True
+        back.ending_record = True
 
         if not await back.device.force_reset_state():
             logging.warning("Force reset state failed")
@@ -2137,7 +2217,10 @@ class CmdListLog:
             "Fetching file list from device...",
         )
 
-        record_list = await retry(back.device.list_logs)
+        async def list_all_logs():
+            return await back.device.list_logs(show_archived=True)
+
+        record_list = await retry(list_all_logs)
         if record_list is None:
             logging.warning("Get log list failed")
             await back.show_error()
@@ -2172,16 +2255,13 @@ class CmdListLog:
 
 @dataclass
 class CmdSaveRecord:
-    metadata: dict
-
     async def handle(self, back: Backend):
-        if not self.metadata:
-            raise RuntimeError("Save record called without metadata")
+        if "ID" not in back.record_meta:
+            raise RuntimeError("Save record called without ID metadata")
 
         back.ui.update_ui_state(GUIState.DOWNLOAD)
 
-        self.metadata.update(back.record_meta)
-        self.metadata["source"] = f"esp_logger-{__version__}"
+        back.record_meta["source"] = f"esp_logger-{__version__}"
 
         output_dir = back.ui.settings.value(
             "output_dir",
@@ -2195,57 +2275,70 @@ class CmdSaveRecord:
         output_dir = pathlib.Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        record_dir = output_dir / self.metadata["ID"]
-        if record_dir.exists():
-            logging.warning("Record directory already exists: %s", record_dir)
-            for i in range(1, 100):
-                new_dir = output_dir / f"{self.metadata['ID']}_{i:02d}"
-                if not new_dir.exists():
-                    record_dir = new_dir
-                    break
-            else:
-                raise RuntimeError(
-                    "Failed to find unique record directory name, too many copies of %s exist"
-                    % self.metadata["ID"]
-                )
+        if back.record_dir is None:
+            record_dir = output_dir / back.record_meta["ID"]
+            if record_dir.exists():
+                logging.warning("Record directory already exists: %s", record_dir)
+                for i in range(1, 100):
+                    new_dir = output_dir / f"{back.record_meta['ID']}_{i:02d}"
+                    if not new_dir.exists():
+                        record_dir = new_dir
+                        break
+                else:
+                    raise RuntimeError(
+                        "Failed to find unique record directory name, too many copies of %s exist"
+                        % back.record_meta["ID"]
+                    )
+            back.record_dir = record_dir
 
-        raw_dir = record_dir / "raw"
+        raw_dir = back.record_dir / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
 
-        raw_dir.mkdir(parents=True, exist_ok=False)
-
-        self.metadata["esp_info"] = back.device.device_info
+        back.record_meta["esp_info"] = back.device.device_info
         with open(raw_dir / METADATA_FILENAME, "w") as f:
-            json.dump(self.metadata, f, indent=4)
+            json.dump(back.record_meta, f, indent=4)
 
         for idx, filename in enumerate(back.record_files):
-            # TODO implement resume
-            data = await back.device.get_file(f"{self.metadata['ID']}/{filename}")
+            filename_local = filename.lower()
+            filename_local = filename_local.replace("sbm", "sbem")
+            filename_local = filename_local.replace("jsn", "json")
+
+            file_path = raw_dir / filename_local
+            if file_path.exists():
+                logging.debug(
+                    "File %s already exists, skipping download", file_path.name
+                )
+                back.ui.download_view.progress_bar.setValue(
+                    int((idx + 1) / len(back.record_files) * 100)
+                )
+                continue
+
+            data = await back.device.get_file(f"{back.record_meta['ID']}/{filename}")
             if data is None:
                 logging.warning(
-                    "Get file %s of log %s failed", filename, self.metadata["ID"]
+                    "Get file %s of log %s failed", filename, back.record_meta["ID"]
                 )
                 await back.show_error(
                     "File download error",
-                    f"Failed to download file {self.metadata['ID']}/{filename} from the iFCH device.",
+                    f"Failed to download file {back.record_meta['ID']}/{filename} from the iFCH device.",
                 )
                 return
 
-            # Optional: convert short names to standard ones
-            filename = filename.lower()
-            filename = filename.replace("sbm", "sbem")
-            filename = filename.replace("jsn", "json")
+            temp_file = file_path.with_suffix(".tmp")
 
-            file_path = raw_dir / filename
-            with open(file_path, "wb") as f:
+            # Write to temporary file first
+            with open(temp_file, "wb") as f:
                 f.write(data)
+            # Rename to final file once done
+            temp_file.rename(file_path)
 
             back.ui.download_view.progress_bar.setValue(
                 int((idx + 1) / len(back.record_files) * 100)
             )
 
-        archived = await back.device.archive_log(self.metadata["ID"])
+        archived = await back.device.archive_log(back.record_meta["ID"])
         if not archived:
-            logging.warning("Archive log failed for ID %s", self.metadata["ID"])
+            logging.warning("Archive log failed for ID %s", back.record_meta["ID"])
             # Not critical, continue
 
         error_log = await back.device.get_error_log()
@@ -2271,7 +2364,6 @@ class CmdSaveRecord:
             converter = ESPRecordConverter(raw_dir)
             converter.write(convert_dir)
 
-            back.ui.prevent_close = False
             back.ui.update_success_status(
                 "Record saved",
                 f"The data were successfully saved to:\n{str(record_dir)}",
@@ -2283,8 +2375,55 @@ class CmdSaveRecord:
             logging.exception(e)
             await back.show_error(
                 "Conversion error",
-                "An error occurred while converting the record files.\nData will not be lost, but it will need to be converted manually to a readable format.",
+                "An error occurred while converting the record files.\nData will not be lost, but the files must be checked manually for corruption.",
             )
+
+        finally:
+            back.ending_record = False
+
+
+@dataclass
+class CmdResume:
+    async def handle(self, back: Backend):
+        """Resume end of record after reconnecting the same device."""
+
+        if not back.device:
+            raise RuntimeError("Resume called without USB device")
+
+        if not back.ending_record:
+            raise RuntimeError("Resume called when not ending record")
+
+        back.ui.update_info_status(
+            "Resuming",
+            "Reconnecting to device to resume data transfer procedure...",
+        )
+        back.ui.update_ui_state(GUIState.INFO)
+
+        status = await back.device.get_status()
+        if not status:
+            logging.warning("Status check failed")
+            await back.show_error()
+            return
+
+        # Resume from the start if still logging
+        if status["logging"]:
+            await back.queue_command(CmdLogging())
+            return
+
+        if "ID" in back.record_meta:
+            log_id = back.record_meta["ID"]
+        else:
+            log_id = await back.device.get_record_id()
+            if log_id is None:
+                logging.warning("Get record ID failed")
+                await back.show_error()
+                return
+
+        if "source" not in back.record_meta:
+            await back.queue_command(CmdListLog(log_id=log_id))
+            return
+
+        await back.queue_command(CmdSaveRecord())
 
 
 # ----------------------------------------------------------------------
