@@ -239,7 +239,12 @@ class FrameProtocol(asyncio.Protocol):
                         )
 
                         if self._stream_callback:
-                            self._stream_callback(payload)
+                            try:
+                                self._stream_callback(payload)
+                            except Exception as e:
+                                logging.warning(
+                                    "Stream callback error: %s", e, exc_info=True
+                                )
 
                     else:
                         # Non‑blocking publish to whoever is interested
