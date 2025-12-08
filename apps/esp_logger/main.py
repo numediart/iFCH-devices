@@ -1781,6 +1781,7 @@ class Backend:
                 await self.device.stop()
 
         self.device = None
+        self.time_origin = None
 
         # Keep record info if connection was lost during end of record
         if not self.ending_record:
