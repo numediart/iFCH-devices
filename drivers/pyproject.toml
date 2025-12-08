@@ -1,0 +1,26 @@
+[project]
+name = "ifch-drivers"
+dynamic = ["version"]
+description = "Drivers for iFCH devices"
+authors = [{ name = "M. Francois", email = "francois.marelli@umons.ac.be" }]
+requires-python = ">=3.12"
+dependencies = ["h5py", "numpy"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "ifch_drivers/__init__.py"
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio"]
+
+[project.optional-dependencies]
+esp_logger = ["pyserial", "pyserial-asyncio"]
+movesense_gatt = ["bleak"]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+asyncio_mode = "auto"
