@@ -96,6 +96,7 @@ class ESPRecordConverter:
         self.checkpoints = None
         self.metadata = None
         self.config = None
+        self.esp_filenames = False
 
     def _append_chunk(self, chunk):
         for key, data in chunk.items():
@@ -116,8 +117,10 @@ class ESPRecordConverter:
 
         bin_decoder = ESPBinReader(self.config["sensorPaths"])
         sbem_decoder = SBEMDecoder()
-        sbem_list = sorted(self.record_path.glob("*.sbem"))
-        bin_list = sorted(self.record_path.glob("*.bin"))
+        sbem_glob = "*.SBM" if self.esp_filenames else "*.sbem"
+        bin_glob = "*.BIN" if self.esp_filenames else "*.bin"
+        sbem_list = sorted(self.record_path.glob(sbem_glob))
+        bin_list = sorted(self.record_path.glob(bin_glob))
 
         if len(sbem_list):
             max_sbem = int(sbem_list[-1].stem.split("_")[0])
@@ -130,7 +133,8 @@ class ESPRecordConverter:
         max_id = max(max_sbem, max_bin)
 
         for chunk_id in range(1, max_id + 1):
-            sbem_files = sorted(self.record_path.glob(f"{chunk_id:03d}*sbem*"))
+            sbem_ext = "SBM" if self.esp_filenames else "sbem"
+            sbem_files = sorted(self.record_path.glob(f"{chunk_id:03d}*{sbem_ext}*"))
 
             if len(sbem_files) > 1:
                 for sbem_file in sbem_files[1:]:
@@ -155,7 +159,8 @@ class ESPRecordConverter:
                         f"Error decoding SBEM file {sbem_files[0].name}: {e}, skipping"
                     )
 
-            bin_files = sorted(self.record_path.glob(f"{chunk_id:03d}*bin*"))
+            bin_ext = "BIN" if self.esp_filenames else "bin"
+            bin_files = sorted(self.record_path.glob(f"{chunk_id:03d}*{bin_ext}*"))
             if len(bin_files) > 1:
                 for bin_file in bin_files[1:]:
                     logging.warning(f"Backup BIN file found: {bin_file.name}")
@@ -181,16 +186,22 @@ class ESPRecordConverter:
             logging.warning("ESP Record Converter: metadata file not found")
 
         config_file = self.record_path / "config.json"
-        if config_file.exists():
-            with open(config_file, "r") as f:
-                self.config = json.load(f)
-                self.metadata["config"] = self.config
-        else:
-            raise RuntimeError(
-                f"ESPRecord Converter: missing config file: {config_file}"
-            )
 
-        hello_file = self.record_path / "hello.txt"
+        if not config_file.exists():
+            logging.info("Missing config.json, trying ESP-style filenames")
+            config_file = self.record_path / "CONFIG.JSN"
+            self.esp_filenames = True
+
+        if not config_file.exists():
+            raise RuntimeError("ESPRecord Converter: missing config file")
+
+        with open(config_file, "r") as f:
+            self.config = json.load(f)
+            self.metadata["config"] = self.config
+
+        hello_name = "HELLO.TXT" if self.esp_filenames else "hello.txt"
+
+        hello_file = self.record_path / hello_name
         if hello_file.exists():
             with open(hello_file, "rb") as f:
                 hello = f.read()
@@ -205,11 +216,16 @@ class ESPRecordConverter:
         else:
             logging.warning("ESP Record Converter: hello file not found")
 
-    def _read_checkpoints(self, ignored=["metadata.json", "config.json"]):
+    def _read_checkpoints(self):
+        ignored = ["metadata.json", "config.json"]
+        if self.esp_filenames:
+            ignored = ["metadata.json", "CONFIG.JSN"]
+
         excpect_id = 0
         checkpoints = collections.defaultdict(list)
 
-        for p in sorted(self.record_path.glob("*.json")):
+        json_glob = "*.JSN" if self.esp_filenames else "*.json"
+        for p in sorted(self.record_path.glob(json_glob)):
             if p.name in ignored:
                 continue
             else:
