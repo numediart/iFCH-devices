@@ -7,3 +7,6 @@ dependencies = ["PySide6>=6.9.2", "numpy", "scipy", "ifch_drivers"]
 
 [tool.uv.sources]
 ifch_drivers = { path = "../../drivers/", editable = true }
+
+[dependency-groups]
+dev = ["pyinstaller"]

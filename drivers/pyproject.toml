@@ -14,7 +14,14 @@ build-backend = "hatchling.build"
 path = "ifch_drivers/__init__.py"
 
 [dependency-groups]
-dev = ["pytest", "pytest-asyncio"]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    { include-group = "esp_logger" },
+    { include-group = "movesense_gatt" },
+]
+esp_logger = ["pyserial", "pyserial-asyncio"]
+movesense_gatt = ["bleak"]
 
 [project.optional-dependencies]
 esp_logger = ["pyserial", "pyserial-asyncio"]
