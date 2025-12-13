@@ -1286,6 +1286,9 @@ class MainWindow(QWidget):
                 self.form_view.form_layout.removeRow(inform)
             self.form_view.position_inputs.clear()
 
+            # For the Tab order, previous field in form
+            prev_input = self.form_view.name_input
+
             for idx, device in enumerate(self.backend.devices):
                 pos_input = QLineEdit()
                 pos_input.setPlaceholderText("Position")
@@ -1295,12 +1298,8 @@ class MainWindow(QWidget):
                 self.form_view.position_inputs[device.movesense_id] = pos_input
 
                 # Set tab order
-                if idx == 0:
-                    self.form_view.setTabOrder(self.form_view.name_input, pos_input)
-                else:
-                    self.form_view.setTabOrder(
-                        self.form_view.position_inputs[idx - 1], pos_input
-                    )
+                self.form_view.setTabOrder(prev_input, pos_input)
+                prev_input = pos_input
 
             self.form_view.save_button.setEnabled(False)
             self.form_view.name_input.setEnabled(True)
@@ -1676,6 +1675,7 @@ class Backend:
 
         timestamps = [t + origin for t in timestamps]
 
+        # TODO add threading.Lock() to secure sensors_data access?
         self.sensors_data[device.movesense_id][sensor]["timestamps"].extend(timestamps)
         for key, value in sensor_dict.items():
             self.sensors_data[device.movesense_id][sensor][key].extend(value)
