@@ -12,3 +12,6 @@ dependencies = [
 
 [tool.uv.sources]
 ifch_drivers = { path = "../../drivers/", editable = true }
+
+[dependency-groups]
+dev = ["pyinstaller"]

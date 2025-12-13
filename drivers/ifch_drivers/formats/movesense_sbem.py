@@ -13,6 +13,8 @@ class SBEMPath:
     def __init__(self, name: str):
         self.name = name.replace("+", ".")
         self.type: typing.Optional[SBEMType] = None
+        self.modifier: callable | None = None
+        self.modifier_source: str | None = None
 
     @property
     def size(self):
@@ -30,7 +32,17 @@ class SBEMPath:
         if self.type is None:
             raise ValueError("Format not set")
 
-        return {self.name: struct.unpack(self.type.format, data_buffer)[0]}
+        decoded = struct.unpack(self.type.format, data_buffer)[0]
+
+        if self.modifier is not None:
+            try:
+                decoded = self.modifier(decoded)
+            except Exception as e:
+                logging.warning(
+                    f"Modifier function failed for {self.name} with value {decoded}: {e}\n\t{self.modifier_source}"
+                )
+
+        return {self.name: decoded}
 
     def __repr__(self):
         return f"SBEMPath - name {self.name}, size {self.size}"
@@ -151,9 +163,11 @@ class SBEMGroup:
 class SBEMDecoder:
     SBEM_TYPES = {
         "uint8": SBEMType(1, "B"),
+        "int16": SBEMType(2, "<h"),
         "uint16": SBEMType(2, "<H"),
         "uint32": SBEMType(4, "<I"),
         "int32": SBEMType(4, "<i"),
+        "int64": SBEMType(8, "<q"),
         "float32": SBEMType(4, "<f"),
     }
     RESERVED_SBEM_ID_E_ESCAPE = b"\xff"
@@ -239,9 +253,15 @@ class SBEMDecoder:
                     self._sbem_blocks[descriptor_id] = SBEMGroup(
                         value, self._sbem_blocks
                     )
+                elif tag == "<MOD>":
+                    decoder_str = value.split(",")[0]
+                    decoder_str = f"lambda x: {decoder_str}"
+                    decoder_fun = eval(decoder_str)
+                    self._sbem_blocks[descriptor_id].modifier = decoder_fun
+                    self._sbem_blocks[descriptor_id].modifier_source = decoder_str
 
                 else:
-                    logging.warning("Unknown tag: %s", tag)
+                    logging.warning("Unknown tag: %s in %s", tag, descriptor)
 
         return
 
@@ -313,8 +333,10 @@ class SBEMDecoder:
                         break
 
                 if sensor is None:
-                    raise NotImplementedError(
-                        f"Could not identify sensor for key {key}, set standardize=False"
+                    sensor = key
+                    logging.warning(
+                        "Could not standardize key %s",
+                        key,
                     )
 
                 is_multisensor = sensor.startswith("IMU")
