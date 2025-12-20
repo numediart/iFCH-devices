@@ -13,7 +13,9 @@ class Responses(enum.IntEnum):
 
 
 class MovesenseStreamDecoder:
-    MAX_PAYLOAD_SIZE = 155
+    # FIXME investigate why 152 in default firmware and 155 in custom
+    # MAX_PAYLOAD_SIZE = 155
+    MAX_PAYLOAD_SIZE = 152
 
     def __init__(self, subscriptions: dict | list):
         if isinstance(subscriptions, list):
@@ -105,6 +107,7 @@ class MovesenseStreamDecoder:
                         sensor_path,
                     )
 
+                # TODO check if there is a better way to determine if packet is incomplete
                 # If the packet is incomplete, store it and wait for part 2
                 if len(packet) >= self.MAX_PAYLOAD_SIZE:
                     self._partial_data[reference] = packet
