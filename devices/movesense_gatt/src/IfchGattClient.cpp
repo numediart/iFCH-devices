@@ -862,11 +862,15 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         // Add app name
         helloResponse.insert(helloResponse.end(), g_appInfo_name, g_appInfo_name + strlen(g_appInfo_name));
+
+        // Add lib version
+        helloResponse.push_back('/');
+        const char *sw = deviceInfo.sw;
+        helloResponse.insert(helloResponse.end(), sw, sw + strlen(sw));
         helloResponse.push_back(0);
 
         // Add software version
-        const char *sw = deviceInfo.sw;
-        helloResponse.insert(helloResponse.end(), sw, sw + strlen(sw));
+        helloResponse.insert(helloResponse.end(), g_appInfo_version, g_appInfo_version + strlen(g_appInfo_version));
         helloResponse.push_back(0);
 
         asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true),

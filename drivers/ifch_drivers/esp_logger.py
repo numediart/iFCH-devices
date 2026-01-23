@@ -517,10 +517,10 @@ class ESPLogger:
         self._config = {
             "address": None,
             "sensorPaths": [
-                "/Meas/ECG/200",
+                "/Meas/ECG/200/mV",
                 "/Meas/Acc/13",
             ],
-            "fetchIntervalMin": 20,
+            "fetchIntervalMin": 30,
             "MovesenseID": None,
         }
 
