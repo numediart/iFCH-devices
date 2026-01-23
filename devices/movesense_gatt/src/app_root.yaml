@@ -18,3 +18,8 @@ executionContexts:
     numberOfResponses: 10
     stackSize: 768
     priority: normal
+  
+apis:
+  datastorage.*:
+    apiId: 102
+    defaultExecutionContext: application

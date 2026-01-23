@@ -195,11 +195,29 @@ class MovesenseStreamDecoder:
                 timestamp = int.from_bytes(packet[2:6], byteorder="little")
 
                 packet = packet[6:]
-                stride = 4
+
+                # Packets should contain 16 samples of 4 or 2 bytes each
+                pack_len = len(packet)
+                stride = pack_len // 16
+
+                match stride:
+                    # If samples are 2 bytes
+                    case 2:
+                        fmt = "<h"
+                        scale = 1e-3
+                    case 4:
+                        fmt = "<f"
+                        scale = 1
+
+                    case _:
+                        # If not, this is a new scenario to handle
+                        raise NotImplementedError(
+                            f"Unexpected sample size {stride} bytes for {data_type}"
+                        )
 
                 samples = {
                     data_type.name: [
-                        struct.unpack("<f", packet[i : i + stride])[0]
+                        struct.unpack(fmt, packet[i : i + stride])[0] * scale
                         for i in range(0, len(packet), stride)
                     ]
                 }

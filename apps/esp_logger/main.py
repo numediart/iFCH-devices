@@ -1609,8 +1609,8 @@ class Backend:
 
             timestamps = [t + self.time_origin for t in timestamps]
 
-            if sensor == "ECG":
-                self.ecg_data.extend(zip(timestamps, sensor_dict["ECG"]))
+            if sensor in ("ECG", "ECGMV"):
+                self.ecg_data.extend(zip(timestamps, sensor_dict[sensor]))
 
     async def run(self):
         """Start the actor and bootstrap probing."""

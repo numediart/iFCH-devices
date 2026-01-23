@@ -1,0 +1,42 @@
+# This file defines Suunto Whiteboard API for default firmware
+#
+swagger: '2.0'
+
+# Document metadata
+info:
+  version: "1.0"
+  title: Movesense Default Firmware API
+  description: |
+    This file defines the API for the Movesense sensor firmware
+  termsOfService: https://www.movesense.com/
+  contact:
+    name: Movesense
+    url: https://www.movesense.com/
+
+paths:
+  /Dummy:
+    get:
+      description: |
+        Dummy endpoint to please WBRES tool
+      responses:
+        200:
+          description: Operation successfull
+          schema:
+            type: integer
+            format: int8
+
+# Storage format definitions
+datalogger:
+  version: "1.0"
+  type: "config"
+
+  resources:
+    /Meas/ECG/.*/mV:
+      array-lengths: 16
+
+      # Storage format is int16 in format 1LSB == 1uV. Range is -32.7 to +32.7 mV.
+      conversion:
+        Samples:  # Note: this must match exactly the name of the array in the resource path
+          to: int16
+          encoding: roundf(MIN(+32.767f, MAX(value, -32.767f)) * 1000.0f)
+          decoding: value * 0.001
