@@ -13,8 +13,6 @@ class Responses(enum.IntEnum):
 
 
 class MovesenseStreamDecoder:
-    # FIXME investigate why 152 in default firmware and 155 in custom
-    # MAX_PAYLOAD_SIZE = 155
     MAX_PAYLOAD_SIZE = 152
 
     def __init__(self, subscriptions: dict | list):

@@ -5,7 +5,7 @@
 #include <queue>
 
 #define MAX_PATH_LEN 32
-#define MTU 158
+#define MTU 155
 
 struct IndicateRequest
 {
