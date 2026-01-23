@@ -12,6 +12,19 @@ dist: compile
 compile: config
 	docker run --rm -w /movesense/build_${device}_${build}/ -v ${ROOT_DIR}:/movesense:delegated movesense/sensor-build-env:2.2 ninja
 
+# In order to run this target, you need to have nrfjprog and jlink installed
+# https://www.nordicsemi.com/Products/Development-tools/nRF-Command-Line-Tools/Download?lang=en#infotabs
+# https://www.segger.com/downloads/jlink
+# You might need to check that you have sufficient permissions
+# To check that JLink is working, run JLinkRTTViewer, and use the following settings:
+#  Connection: USB
+#  Device: NRF52832_XXAA
+#  Interface: SWD - Speed: 4000 kHz
+#  RTT Control Block: auto
+# If working, you will nog get any errors when connecting
+flash: compile
+	-docker run --rm -w /movesense/build_${device}_${build}/ -v ${ROOT_DIR}:/movesense:delegated movesense/sensor-build-env:2.2 ninja Movesense_combined.hex
+	nrfjprog -f nrf52 --sectoranduicrerase --program build_${device}_${build}/Movesense_combined.hex --verify --reset
 	
 config:
 	mkdir -p ${BUILD_DIR}/
@@ -29,5 +42,6 @@ help:
 	@echo "  make dist build=Release device=SS2_NAND    # Build and create DFU package"
 	@echo "      build can be Release or Debug (default: Release)"
 	@echo "      device can be SS2 or SS2_NAND (default: SS2_NAND)"
+	@echo "  make flash (takes same arguments as dist)  # Flash the device (requires nrfjprog and jlink installed)"
 	@echo "  make clean                                 # Clean build directory"
 	
