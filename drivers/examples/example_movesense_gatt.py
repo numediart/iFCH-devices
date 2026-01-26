@@ -1,3 +1,20 @@
+# /// script
+# dependencies = [
+#   "asyncio",
+#   "ifch_drivers[movesense_gatt]",
+# ]
+# [tool.uv.sources]
+# ifch_drivers = { path = "../", editable = true }
+# ///
+
+"""
+Example script demonstrating the main funcionalities of the Movesense GATT driver:
+- connecting to a Movesense device with iFCH firmware
+- retrieving device information (description, battery level, time)
+- subscribing to real-time data streams
+- managing logging (start, stop, list, fetch, clear)
+"""
+
 import asyncio
 import logging
 
@@ -32,11 +49,7 @@ async def main():
         return
 
     try:
-        device_info = await device.hello()
-        if device_info:
-            logging.info(f"Movesense description: {device_info}")
-        else:
-            logging.error("Failed to communicate with Movesense device.")
+        logging.info(f"Movesense description: {device.device_info}")
 
         if not device.is_ifch_firmware:
             logging.warning("Device is not running iFCH firmware, exiting")
