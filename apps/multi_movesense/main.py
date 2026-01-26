@@ -1313,6 +1313,12 @@ class MainWindow(QWidget):
         elif new_state == GUIState.SUCCESS:
             self.success_view.more_button.setEnabled(True)
             self.success_view.monitor_button.setEnabled(True)
+
+            for device in self.backend.devices:
+                if not device.connected.is_set():
+                    self.success_view.monitor_button.setEnabled(False)
+                    break
+
             self.stacked_widget.setCurrentIndex(7)  # Show success view
 
     @Slot()
@@ -1581,7 +1587,8 @@ class MainWindow(QWidget):
             if pressed == QMessageBox.StandardButton.Ignore:
                 logging.warning("User confirmed close, proceeding with shutdown.")
                 self.prevent_close = False
-            return
+            else:
+                return
 
         if self._shutdown_complete:
             # If shutdown already complete, ignore the event to prevent further cleanup
@@ -1792,7 +1799,7 @@ class Backend:
         while not self._cmd_q.empty():
             self._cmd_q.get_nowait()
 
-    async def clear_state(self):
+    async def stop_devices(self):
         if self._disconnect_watchers:
             [
                 disconnect_watch.cancel()
@@ -1809,6 +1816,9 @@ class Backend:
                 with contextlib.suppress(Exception):
                     await device.stop()
 
+        self.clear_commands()
+
+    async def clear_state(self):
         self.devices = []
         self.ui.prevent_close = False
 
@@ -1843,8 +1853,8 @@ class Backend:
         self.ui.update_error_status(title, message)
         self.ui.update_ui_state(GUIState.ERROR)
 
+        await self.stop_devices()
         await self.clear_state()
-        self.clear_commands()
 
     async def add_device(self, address: str, device_id: str):
         device = MovesenseGatt(address, self.stream_callback)
@@ -1862,7 +1872,7 @@ class Backend:
             except Exception:
                 pass
 
-            await self.disconnect()
+            await self.disconnect(device.movesense_id)
 
         disconnect_watch = asyncio.create_task(_watch_disconnect())
         self._disconnect_watchers.append(disconnect_watch)
@@ -1881,11 +1891,11 @@ class Backend:
 
         return True
 
-    async def disconnect(self):
+    async def disconnect(self, device_id=None):
         """Disconnect from the device and reset state."""
 
         self.clear_commands()
-        await self.queue_command(CmdOnDisconnected())
+        await self.queue_command(CmdOnDisconnected(device_id=device_id))
 
     async def start_monitoring(self):
         await self.queue_command(CmdMonitor())
@@ -1918,13 +1928,23 @@ class Backend:
 
 @dataclass
 class CmdOnDisconnected:
+    device_id: Optional[str] = None
+
     async def handle(self, back: Backend):
         back.ui.update_ui_state(GUIState.DISCONNECTED)
 
-        await back.clear_state()
-        back.clear_commands()
+        await back.stop_devices()
 
-        await back.queue_command(CmdScanBLE(repeat=True))
+        if not back._logging:
+            await back.clear_state()
+            await back.queue_command(CmdScanBLE(repeat=True))
+        else:
+            back.ui.update_warning_status(
+                "Connection lost",
+                f"Connection with device {self.device_id} was lost. You can still save the already recorded data.",
+                ok_cb=back.stop_logging,
+            )
+            back.ui.update_ui_state(GUIState.WARNING)
 
 
 @dataclass

@@ -1756,19 +1756,19 @@ class Backend:
     async def disconnect(self):
         """Disconnect from the device and reset state."""
 
-        self.clear_commands()
+        self._clear_commands()
         await self.queue_command(CmdOnDisconnected())
 
     async def queue_command(self, cmd: Any):
         """Enqueue a command to be processed by the actor."""
         await self._cmd_q.put(cmd)
 
-    def clear_commands(self):
+    def _clear_commands(self):
         # Clear any pending commands
         while not self._cmd_q.empty():
             self._cmd_q.get_nowait()
 
-    async def clear_state(self):
+    async def clear_devices(self):
         if self._disconnect_watch:
             self._disconnect_watch.cancel()
             self._disconnect_watch = None
@@ -1781,16 +1781,17 @@ class Backend:
             with contextlib.suppress(Exception):
                 await self.device.stop()
 
+        self._clear_commands()
+
         self.device = None
         self.time_origin = None
 
-        # Keep record info if connection was lost during end of record
-        if not self.ending_record:
-            self.record_files = None
-            self.record_meta = {}
+    async def clear_state(self):
+        self.record_files = None
+        self.record_meta = {}
 
-            self.previous_device = None
-            self.record_dir = None
+        self.previous_device = None
+        self.record_dir = None
 
     def schedule_after(self, delay: float, cmd: Any):
         """Schedule a one-shot task that enqueues cmd after delay."""
@@ -1818,8 +1819,11 @@ class Backend:
         self.ui.update_error_status(title, message)
         self.ui.update_ui_state(GUIState.ERROR)
 
-        await self.clear_state()
-        self.clear_commands()
+        await self.clear_devices()
+
+        # If not ending record, clear state
+        if not self.ending_record:
+            await self.clear_state()
 
 
 # Internal command types
@@ -1957,10 +1961,11 @@ class CmdOnDisconnected:
         if back.device:
             back.previous_device = back.device.device_info
 
-        await back.clear_state()
-        back.clear_commands()
+        await back.clear_devices()
 
         if not back.ending_record:
+            # If not ending record, clear state
+            await back.clear_state()
             back.ui.update_ui_state(GUIState.DISCONNECTED)
             back.ui.update_disconnected_status("Disconnected, waiting for device...")
 
