@@ -32,7 +32,7 @@ MEAS_PATHS = [
 # Else, the first detected device will be used
 MOVESENSE_SERIAL = None
 
-OUT_DIR = "./out/"
+OUT_DIR = pathlib.Path(__file__).parent / "out"
 
 
 async def retry(func, retries=3, delay=0.3, *args, **kwargs):
@@ -60,30 +60,53 @@ async def main():
 
     device = MovesenseGatt(MOVESENSE_SERIAL)
 
+    logging.info(f"Connecting to Movesense device {MOVESENSE_SERIAL}...")
     connected = await device.start()
     if not connected:
         logging.error("Failed to connect to Movesense device.")
         return
 
     try:
-        logging.info(f"Movesense description: {device.device_info}")
+        tasks = [
+            asyncio.create_task(disconnect_watch(device)),
+            asyncio.create_task(manual_log(device)),
+        ]
+        await asyncio.wait(
+            tasks,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
 
-        if not device.is_ifch_firmware:
-            logging.warning("Device is not running iFCH firmware, exiting")
-            return
+        for task in tasks:
+            task.cancel()
 
-        battery = await device.get_battery()
-        if battery is not None:
-            logging.info(f"Battery Level: {battery}%")
-        else:
-            logging.error("Failed to get battery level")
+    finally:
+        await device.stop()
 
-        dev_time = await device.get_time()
-        if dev_time is not None:
-            logging.info(f"Device time: {dev_time}ms since boot")
-        else:
-            logging.error("Failed to get device time")
 
+async def disconnect_watch(device: MovesenseGatt):
+    await device.disconnected.wait()
+    logging.warning("Device disconnected")
+
+
+async def manual_log(device: MovesenseGatt):
+    logging.info(f"Movesense description: {device.device_info}")
+
+    if not device.is_ifch_firmware:
+        logging.warning("Device is not running iFCH firmware, exiting")
+        return
+
+    battery = await device.get_battery()
+    if battery is not None:
+        logging.info(f"Battery Level: {battery}%")
+    else:
+        logging.error("Failed to get battery level")
+
+    state = await device.get_logging_state()
+    if state is None:
+        logging.error("Failed to get logging state")
+        return
+
+    elif not state:
         if not await device.reset():
             logging.error("Failed to reset device")
             return
@@ -95,7 +118,9 @@ async def main():
             else:
                 logging.info(f"Subscribed to log {path}")
 
-        _ = input("\nPress ENTER to start logging...")
+        await asyncio.get_event_loop().run_in_executor(
+            None, input, "\nPress ENTER to start logging..."
+        )
 
         start_time = datetime.datetime.now(datetime.UTC)
 
@@ -104,76 +129,76 @@ async def main():
             return
         logging.info("Logging started")
 
-        _ = input("\nPress ENTER to stop logging...")
+    else:
+        logging.warning("Device is already logging, continuing existing session")
 
-        if not await retry(device.stop_log):
-            logging.error("Failed to stop logging")
-            return
+    await asyncio.get_event_loop().run_in_executor(
+        None, input, "\nPress ENTER to stop logging..."
+    )
 
-        end_time = datetime.datetime.now(datetime.UTC)
-        logging.info("Logging stopped, fetching log data...")
+    if not await retry(device.stop_log):
+        logging.error("Failed to stop logging")
+        return
 
-        log_list = await retry(device.list_logs)
-        if log_list is None:
-            logging.error("Failed to list logs")
-            return
-        else:
-            logging.info(f"Logs on device: {log_list}")
+    end_time = datetime.datetime.now(datetime.UTC)
+    logging.info("Logging stopped, fetching log data...")
 
-        if len(log_list) <= 0:
-            logging.error("No logs found on device")
-            return
+    log_list = await retry(device.list_logs)
+    if log_list is None:
+        logging.error("Failed to list logs")
+        return
+    else:
+        logging.info(f"Logs on device: {log_list}")
 
-        if len(log_list) > 1:
-            logging.warning(
-                "Multiple logs found on device, fetching the first one only"
-            )
+    if len(log_list) <= 0:
+        logging.error("No logs found on device")
+        return
 
-        logging.info(f"Fetching log {log_list[0]}...")
-        log_id = log_list[0]
-        log_data = await retry(device.fetch_log, log_id=log_id)
-        if not log_data:
-            logging.error(f"Failed to fetch log {log_id}")
-            return
+    if len(log_list) > 1:
+        logging.warning("Multiple logs found on device, fetching the first one only")
 
-        decoder = SBEMDecoder()
-        data = decoder.decode(log_data)
-        logging.info(f"Retrieved log data from sensors: {list(data.keys())}")
+    logging.info(f"Fetching log {log_list[0]}...")
+    log_id = log_list[0]
+    log_data = await retry(device.fetch_log, log_id=log_id)
+    if not log_data:
+        logging.error(f"Failed to fetch log {log_id}")
+        return
 
-        if not await device.clear_logs():
-            logging.warning("Failed to clear logs")
+    decoder = SBEMDecoder()
+    data = decoder.decode(log_data)
+    logging.info(f"Retrieved log data from sensors: {list(data.keys())}")
 
-        name = input("\nPlease enter patient name: ")
+    if not await device.clear_logs():
+        logging.warning("Failed to clear logs")
 
-        timestamp = end_time.astimezone().strftime("%Y-%m-%dT%H-%M-%S")
-        output_dir = pathlib.Path(OUT_DIR).absolute() / timestamp
-        output_dir.mkdir(parents=True, exist_ok=True)
+    name = input("\nPlease enter patient name: ")
 
-        logging.info(f"Saving log data to {output_dir}")
+    timestamp = end_time.astimezone().strftime("%Y-%m-%dT%H-%M-%S")
+    output_dir = pathlib.Path(OUT_DIR).absolute() / timestamp
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-        metadata = {
-            "name": name,
-            "source": "example_logger.py",
-            "sensor_paths": MEAS_PATHS,
-            "device_infos": {device.movesense_id: device.device_info},
-            "device_id": device.movesense_id,
-            "start_time": start_time.isoformat(),
-            "end_time": end_time.isoformat(),
-        }
+    logging.info(f"Saving log data to {output_dir}")
 
-        with open(output_dir / "metadata.json", "w") as f:
-            json.dump(metadata, f, indent=4)
+    metadata = {
+        "name": name,
+        "source": "example_logger.py",
+        "sensor_paths": MEAS_PATHS,
+        "device_infos": {device.movesense_id: device.device_info},
+        "device_id": device.movesense_id,
+        "start_time": start_time.isoformat(),
+        "end_time": end_time.isoformat(),
+    }
 
-        output_file = output_dir / f"{device.movesense_id}"
-        movesense_record.write(
-            output_file,
-            data,
-            metadata=metadata,
-            sensor_paths=MEAS_PATHS,
-        )
+    with open(output_dir / "metadata.json", "w") as f:
+        json.dump(metadata, f, indent=4)
 
-    finally:
-        await device.stop()
+    output_file = output_dir / f"{device.movesense_id}"
+    movesense_record.write(
+        output_file,
+        data,
+        metadata=metadata,
+        sensor_paths=MEAS_PATHS,
+    )
 
 
 if __name__ == "__main__":
