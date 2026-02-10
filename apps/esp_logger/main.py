@@ -2352,7 +2352,7 @@ class CmdSaveRecord:
         if error_log is None:
             logging.warning("Get error log failed")
         else:
-            with open(raw_dir / ESPLogger.ERROR_LOG_FILE, "w") as f:
+            with open(raw_dir / "esp_log.txt", "w") as f:
                 f.write(error_log)
 
             deleted = await back.device.delete_error_log()

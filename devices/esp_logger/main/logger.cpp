@@ -688,6 +688,12 @@ bool endMovesenseLogging()
         // Do not return false here, as the logging was stopped successfully
     }
 
+    if (!copy(LOG_FILE, std::format(MOUNT_POINT "/{:03}/log.txt", record.id)))
+    {
+        logError("endMovesenseLogging", "Failed to copy log file to record directory");
+        // Do not return false here, as the logging was stopped successfully
+    }
+
     return !record.logging;
 }
 
