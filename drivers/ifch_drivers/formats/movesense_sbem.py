@@ -287,6 +287,23 @@ class SBEMDecoder:
         if sbem_version != "SBEM0112":
             raise NotImplementedError(f"Unsupported SBEM version: {sbem_version}")
 
+        default_header = (
+            pathlib.Path(__file__).parent / "data" / "default_descriptors.bin"
+        )
+
+        if default_header.exists():
+            try:
+                with open(default_header, "rb") as f:
+                    data = f.read().split(b"\x00")
+                    for i in range(0, len(data), 2):
+                        if i + 1 < len(data):
+                            chunk_bytes = b"\x00".join([data[i], data[i + 1], b""])
+                            self._parse_descriptor_chunk(chunk_bytes)
+            except Exception as e:
+                logging.warning("Failed to read default descriptors: %s", e)
+        else:
+            logging.warning("Default descriptor file not found at %s", default_header)
+
         while True:
             (chunk_id, datasize) = self._read_chunk_header()
 
