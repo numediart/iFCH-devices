@@ -30,7 +30,7 @@ MEAS_PATHS = [
 
 # If specified, connect to this Movesense device serial number
 # Else, the first detected device will be used
-MOVESENSE_SERIAL = None
+MOVESENSE_ADDR = None
 
 OUT_DIR = pathlib.Path(__file__).parent / "out"
 
@@ -49,18 +49,18 @@ async def retry(func, retries=3, delay=0.3, *args, **kwargs):
 
 
 async def main():
-    global MOVESENSE_SERIAL
-    if MOVESENSE_SERIAL is None:
+    global MOVESENSE_ADDR
+    if MOVESENSE_ADDR is None:
         found = await MovesenseGatt.detect_devices()
         if not found:
             logging.error("No Movesense device found.")
             return
 
-        MOVESENSE_SERIAL = found[0][0]
+        MOVESENSE_ADDR = found[0][0]
 
-    device = MovesenseGatt(MOVESENSE_SERIAL)
+    device = MovesenseGatt(MOVESENSE_ADDR)
 
-    logging.info(f"Connecting to Movesense device {MOVESENSE_SERIAL}...")
+    logging.info(f"Connecting to Movesense device {MOVESENSE_ADDR}...")
     connected = await device.start()
     if not connected:
         logging.error("Failed to connect to Movesense device.")
@@ -122,7 +122,7 @@ async def manual_log(device: MovesenseGatt):
             None, input, "\nPress ENTER to start logging..."
         )
 
-        start_time = datetime.datetime.now(datetime.UTC)
+        start_time = datetime.datetime.now(datetime.UTC).isoformat()
 
         if not await device.start_log():
             logging.error("Failed to start logging")
@@ -130,6 +130,7 @@ async def manual_log(device: MovesenseGatt):
         logging.info("Logging started")
 
     else:
+        start_time = ""
         logging.warning("Device is already logging, continuing existing session")
 
     await asyncio.get_event_loop().run_in_executor(
@@ -185,7 +186,7 @@ async def manual_log(device: MovesenseGatt):
         "sensor_paths": MEAS_PATHS,
         "device_infos": {device.movesense_id: device.device_info},
         "device_id": device.movesense_id,
-        "start_time": start_time.isoformat(),
+        "start_time": start_time,
         "end_time": end_time.isoformat(),
     }
 
