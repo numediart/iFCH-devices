@@ -866,7 +866,7 @@ bool connectMovesense()
     uint8_t own_addr_type;
     int rc;
 
-    // Parse a “AA:BB:CC:DD:EE:FF”‐style String into a ble_addr_t
+    // Parse a "AA:BB:CC:DD:EE:FF"‐style String into a ble_addr_t
     ble_addr_t peer_addr;
     uint8_t mac[6];
     sscanf(config.address.c_str(),
@@ -882,6 +882,10 @@ bool connectMovesense()
         logError("connectMovesense", "error determining address type");
         return false;
     }
+
+    // Cancel any pending connections first
+    ble_gap_conn_cancel();
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Initiate a connection to the Movesense device
     rc = ble_gap_connect(own_addr_type, &peer_addr, BLE_CONNECT_TIMEOUT, NULL,
@@ -902,6 +906,7 @@ bool connectMovesense()
         if (xSemaphoreTake(bleConnectSemaphore, pdMS_TO_TICKS(BLE_CONNECT_TIMEOUT + BLE_TIMEOUT)) != pdTRUE)
         {
             logError("connectMovesense", "Connection timed out");
+            ble_gap_conn_cancel();
             return false;
         }
         else if (!isMovesenseConnected)

@@ -759,16 +759,21 @@ bool fetchMovesenseData()
         return false;
     }
 
+    // Add: Verify connection before proceeding
+    if (!isMovesenseConnected)
+    {
+        logError("fetchMovesenseData", "Movesense not connected");
+        return false;
+    }
+
     // Start by incrementing the record part number and checkpointing
     record.part++;
-    if (!saveCheckpoint(record.lastFetch)) // This saves the checkpoint epoch
+    if (!saveCheckpoint(record.lastFetch))
     {
         logError("fetchMovesenseData", "Failed to save checkpoint before ending logging");
         record.part--;
         return false;
     }
-
-    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Fetch the last Movesense log ID
     uint32_t logId;

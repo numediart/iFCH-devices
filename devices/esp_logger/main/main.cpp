@@ -122,7 +122,7 @@ void fetchLogic()
         }
 
         // Connect to the Movesense
-        if (!retry(connectMovesense, 3, 1000))
+        if (!retry(connectMovesense, 3, 5000))
         {
             logError("fetchStep", "Failed to connect to Movesense");
             // blink(COLOR_BLE, 5, 50);
@@ -132,7 +132,11 @@ void fetchLogic()
             connectFailureCount++;
             if (connectFailureCount >= MAX_CONNECT_FAILURES)
             {
+                connectFailureCount = 0;
                 logError("fetchStep", "Maximum connection failures reached");
+
+                // If we failed to connect many times, enter hibernation for a longer time and retry later
+                enterHibernation(LONG_FAILURE_DELAY_MIN);
             }
             else
             {
@@ -141,6 +145,8 @@ void fetchLogic()
             }
             return;
         }
+
+        connectFailureCount = 0; // Reset the failure count on successful connection
 
         vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 

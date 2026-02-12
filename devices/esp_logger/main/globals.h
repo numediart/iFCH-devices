@@ -14,8 +14,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
+#define MAX_CONNECT_FAILURES 5
 #define FAILURE_DELAY_MIN 2
-#define MAX_CONNECT_FAILURES 15
+#define LONG_FAILURE_DELAY_MIN 50
 #define BOOT_RTC_DELAY_S 30
 
 // Global configuration parameters
