@@ -66,6 +66,7 @@ class ESPBinReader:
         return decoded
 
 
+# TODO use ZIP files instead of folders to store the raw data
 class ESPRecordConverter:
     """
     This class allows to read a record stored in raw ESP logger format (SBEM and BIN files)
@@ -96,19 +97,122 @@ class ESPRecordConverter:
         self.config = None
         self.esp_filenames = False
 
+        self._time_offset = None
+        self._time_correct = (0, 0)
+
     def _append_chunk(self, chunk):
-        for key, data in chunk.items():
-            if key not in self.record:
-                self.record[key] = data
+        for sensor, sensor_dict in chunk.items():
+            if sensor not in self.record:
+                self.record[sensor] = sensor_dict
+
             else:
+                self._patch_timestamps(sensor, sensor_dict)
+
                 # Discard duplicates in incoming data
-                last_time = self.record[key]["timestamps"][-1]
-                overlap_index = bisect.bisect_right(data["timestamps"], last_time)
-                for column, values in data.items():
-                    self.record[key][column].extend(values[overlap_index:])
+                last_time = self.record[sensor]["timestamps"][-1]
+                overlap_index = bisect.bisect_right(
+                    sensor_dict["timestamps"], last_time
+                )
+                for column, values in sensor_dict.items():
+                    self.record[sensor][column].extend(values[overlap_index:])
+
+    def _patch_timestamps(self, sensor, sensor_dict):
+        # Patches the timestamps in case of a restart, then detects anomalies
+
+        # TODO save the detected anomalies in metadata
+
+        last_time = self.record[sensor]["timestamps"][-1]
+
+        if self._time_correct[-1] != 0:
+            corr_1 = [t + self._time_correct[-1] for t in sensor_dict["timestamps"]]
+            corr_2 = [t + self._time_correct[-2] for t in sensor_dict["timestamps"]]
+
+            # Detect which correction is the best
+            # This is because, when the sensor restarts, the recording
+            # might still be dated from the last boot
+            if (
+                corr_2[-1] - last_time > 0
+                and abs(corr_2[0] - last_time) < self.time_deviation_threshold * 1000
+            ):
+                sensor_dict["timestamps"] = corr_2
+            else:
+                sensor_dict["timestamps"] = corr_1
+
+        start_gap = sensor_dict["timestamps"][0] - last_time
+        end_gap = sensor_dict["timestamps"][-1] - last_time
+
+        delta_t_sample = (
+            self.record[sensor]["timestamps"][-1]
+            - self.record[sensor]["timestamps"][-2]
+        )
+
+        # Detect the fact that time went backwards between the last
+        # timestamp of the current record and the first timestamp of the
+        # new chunk, this would be due to a reset of the Movesense
+        if end_gap < 0:
+            logging.error(
+                f"Negative time gap detected at timestamp {last_time} for sensor {sensor}: {end_gap / 1000:.2f} seconds"
+            )
+
+        # Detect a large gap between the last timestamp of the current
+        # record and the first timestamp of the new chunk
+        if start_gap <= -self.time_deviation_threshold * 1000:
+            logging.error(
+                f"Large time gap detected at timestamp {last_time} for sensor {sensor}: {start_gap / 1000:.2f} seconds"
+            )
+
+        # Detect missing samples between the last timestamp of the
+        # current record and the first timestamp of the new chunk, using
+        # the sampling frequency of the current record
+        elif start_gap >= 2 * delta_t_sample:
+            logging.warning(
+                f"Missing samples detected at timestamp {last_time} for sensor {sensor}: missing {start_gap / 1000:.2f} seconds"
+            )
+            # TODO save the zones in which data is missing as events
+
+    def _detect_restart(self, chunk_id):
+        # Detect anomalies based on the comparison of RTC and Movesense time
+        # Update the time correction if a restart is detected, to patch the
+        # timestamps of upcoming data
+
+        try:
+            checkpoint_id = self.checkpoints["ID"].index(chunk_id)
+            time_offset = (
+                self.checkpoints["rtc_time"][checkpoint_id]
+                - self.checkpoints["mov_time"][checkpoint_id] / 1000
+                - self._time_correct[-1] / 1000
+            )
+
+            if self._time_offset is None:
+                self._time_offset = time_offset
+            else:
+                offset_deviation = time_offset - self._time_offset
+
+                if abs(offset_deviation) >= self.time_deviation_threshold:
+                    self._time_correct = (
+                        self._time_correct[-1],
+                        self._time_correct[-1] + int(offset_deviation * 1000),
+                    )
+
+                    if offset_deviation > 0:
+                        logging.warning(
+                            f"Movesense time is lagging behind at chunk {chunk_id}: {offset_deviation:.2f} seconds, maybe due to a Movesense restart"
+                        )
+
+                    else:
+                        logging.error(
+                            f"Movesense time is ahead at chunk {chunk_id}: {offset_deviation:.2f} seconds"
+                        )
+
+        except ValueError:
+            logging.warning(f"Checkpoint ID {chunk_id} not found for timestamp check")
 
     def _read_data(self):
+
         self.record = {}
+
+        if self.checkpoints is None:
+            self._read_checkpoints()
 
         if self.config is None:
             self._read_metadata()
@@ -131,6 +235,8 @@ class ESPRecordConverter:
         max_id = max(max_sbem, max_bin)
 
         for chunk_id in range(1, max_id + 1):
+            self._detect_restart(chunk_id)
+
             sbem_ext = "SBM" if self.esp_filenames else "sbem"
             sbem_files = sorted(self.record_path.glob(f"{chunk_id:03d}*{sbem_ext}*"))
 
@@ -219,7 +325,7 @@ class ESPRecordConverter:
         if self.esp_filenames:
             ignored = ["metadata.json", "CONFIG.JSN"]
 
-        excpect_id = 0
+        expect_id = 0
         checkpoints = collections.defaultdict(list)
 
         json_glob = "*.JSN" if self.esp_filenames else "*.json"
@@ -229,19 +335,24 @@ class ESPRecordConverter:
             else:
                 try:
                     ckpt_id = int(p.stem)
-                    if ckpt_id != excpect_id:
-                        logging.warning(f"Missing checkpoint ID: {excpect_id}")
-                        excpect_id = ckpt_id
-                    excpect_id += 1
+                    if ckpt_id != expect_id:
+                        if ckpt_id - expect_id > 1:
+                            logging.warning(
+                                f"Missing checkpoint IDs: {expect_id} to {ckpt_id - 1}"
+                            )
+                        else:
+                            logging.warning(f"Missing checkpoint ID: {expect_id}")
+                        expect_id = ckpt_id
+                    expect_id += 1
 
                 except ValueError:
                     logging.warning(f"Invalid checkpoint file name: {p.name}")
                     continue
 
                 with open(p, "r") as f:
-                    record = json.load(f)
-                    record["ID"] = ckpt_id
-                    for key, value in record.items():
+                    ckpt = json.load(f)
+                    ckpt["ID"] = ckpt_id
+                    for key, value in ckpt.items():
                         checkpoints[key].append(value)
 
         self.checkpoints = checkpoints
@@ -251,8 +362,8 @@ class ESPRecordConverter:
         Read the record, its metadata and its checkpoints.
         """
 
-        self._read_data()
         self._read_checkpoints()
+        self._read_data()
 
         # Check time deviation between Movesense and RTC
         time_deviation = (
