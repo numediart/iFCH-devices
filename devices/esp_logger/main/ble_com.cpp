@@ -1405,7 +1405,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
 
     if (!complete)
     {
-        logError("_movFetchLog", "Log response timed out");
+        logError("_movFetchLog", "Log response timed out after receiving %d chunks", receivedAmount);
         return false;
     }
 
