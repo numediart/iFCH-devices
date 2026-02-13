@@ -161,6 +161,13 @@ void fetchLogic()
 
         vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
+        // FIXME: it appears the Movesense crashes sometimes during the fetch log step
+        // COULD BE RELATED to the bug when fetching IMU9 and ECG logs on the MD device
+
+        // TODO instead of resetting and restarting, first attempt to fetch any
+        // existing logs on the Movesense to avoid losing data?
+        // If that fails repeatedly, only then reset to avoid being stuck
+
         // If not logging, restart logging
         if (loggingStatus != 3)
         {
@@ -170,6 +177,14 @@ void fetchLogic()
                 logError("fetchStep", "Failed to reset Movesense");
                 errorReset(COLOR_BLE);
                 return;
+            }
+            record.part++;
+            // Save the record state to the JSON file
+            if (!retry(saveRecordState, 3, GATT_DELAY))
+            {
+                logError("fetchStep", "Failed to save record state");
+                record.part--;
+                return false;
             }
             vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
             if (!movSubLogs())
