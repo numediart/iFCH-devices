@@ -88,8 +88,8 @@ class DisconnectedView(QWidget):
         # Large icon or image placeholder
 
         # Main message
-        message = QLabel("Scanning for Movesense Devices")
-        message.setStyleSheet(
+        self.message = QLabel("Scanning for Movesense Devices")
+        self.message.setStyleSheet(
             f"""
             QLabel {{
                 font-size: 28px;
@@ -98,8 +98,8 @@ class DisconnectedView(QWidget):
             }}
         """
         )
-        message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(message)
+        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.message)
         layout.addSpacing(30)
 
         # Status label
@@ -1343,6 +1343,7 @@ class MainWindow(QWidget):
     @Slot()
     def handle_error_ok(self):
         """Handle OK button in error view"""
+        self.update_disconnected_status()
         self.update_ui_state(GUIState.DISCONNECTED)
         asyncio.create_task(self.backend.disconnect())
 
@@ -1506,6 +1507,10 @@ class MainWindow(QWidget):
         self.warning_view.status_label.setText(message)
         self.warning_view.ok_button.setText(ok_text)
         self.warning_view.cancel_button.setVisible(show_cancel)
+    
+    def update_disconnected_status(self, title="Scanning for Movesense Devices", message="Please make sure your Movesense device is powered on and in range."):
+        self.disconnected_view.message.setText(title)
+        self.disconnected_view.status_label.setText(message)
 
     def update_success_status(
         self,
@@ -1643,6 +1648,8 @@ class Backend:
 
         self.devices: list[MovesenseGatt] = []
         self._logging = False
+        self._defer_disconnect = False
+        self._deferred_disconnect_id = []
 
         # Actor machinery
         self._cmd_q: asyncio.Queue[Any] = asyncio.Queue()
@@ -1658,6 +1665,22 @@ class Backend:
         self.sensor_log = {}
         self.metadata_log = {}
         self.device_infos = {}
+    
+    def enable_defer_disconnect(self):
+        # When enabled, if a disconnection happens it will not interrupt the 
+        # current command, but will be deferred until disable_defer_disconnect()
+        # is called
+        self._defer_disconnect = True
+    
+    async def disable_defer_disconnect(self, ignore_pending=False):
+        # Restore normal disconnect behavior, applying any pending disconnects
+        # If ignore_pending is True, pending disconnects are kept but not applied
+        # This should only be used if an actual disconnect call is about to happen
+
+        self._defer_disconnect = False
+        if not ignore_pending and len(self._deferred_disconnect_id) > 0:
+            device_id = self._deferred_disconnect_id.pop()
+            await self.disconnect(device_id)
 
     def stream_callback(self, device: MovesenseGatt, data):
         if data is None:
@@ -1741,6 +1764,7 @@ class Backend:
 
     async def _actor_loop(self):
         # Initial UI
+        self.ui.update_disconnected_status()
         self.ui.update_ui_state(GUIState.DISCONNECTED)
 
         while True:
@@ -1750,10 +1774,14 @@ class Backend:
                 if self.devices:
                     cmd_task = asyncio.create_task(cmd.handle(self))
 
-                    disconnect_tasks = [
-                        asyncio.create_task(device.disconnected.wait())
-                        for device in self.devices
-                    ]
+                    if self._defer_disconnect:
+                        disconnect_tasks = []
+
+                    else:
+                        disconnect_tasks = [
+                            asyncio.create_task(device.disconnected.wait())
+                            for device in self.devices
+                        ]
 
                     done, pending = await asyncio.wait(
                         (*disconnect_tasks, cmd_task),
@@ -1827,6 +1855,9 @@ class Backend:
         self.device_infos.clear()
         self._logging = False
 
+        self._defer_disconnect = False
+        self._deferred_disconnect_id.clear()
+
     def schedule_after(self, delay: float, cmd: Any):
         """Schedule a one-shot task that enqueues cmd after delay."""
 
@@ -1894,8 +1925,14 @@ class Backend:
     async def disconnect(self, device_id=None):
         """Disconnect from the device and reset state."""
 
-        self.clear_commands()
-        await self.queue_command(CmdOnDisconnected(device_id=device_id))
+        if self._defer_disconnect:
+            self._deferred_disconnect_id.append(device_id)
+        else:
+            self.clear_commands()
+            
+            # We do not want other disconnects to interfere with the current one
+            self.enable_defer_disconnect()
+            await self.queue_command(CmdOnDisconnected(device_id=device_id))
 
     async def start_monitoring(self):
         await self.queue_command(CmdMonitor())
@@ -1914,6 +1951,9 @@ class Backend:
         await self.queue_command(CmdStartLogging())
 
     async def stop_logging(self):
+        # We do not want a device disconnection to cause data loss while we are 
+        # saving the current recording
+        self.enable_defer_disconnect()
         await self.queue_command(CmdStopLogging())
 
     async def save_record(self, form_data: dict):
@@ -1931,6 +1971,7 @@ class CmdOnDisconnected:
     device_id: Optional[str] = None
 
     async def handle(self, back: Backend):
+        back.ui.update_disconnected_status("Connection lost", f"Connection with device {self.device_id} was lost. Please wait...")
         back.ui.update_ui_state(GUIState.DISCONNECTED)
 
         await back.stop_devices()
@@ -1941,7 +1982,7 @@ class CmdOnDisconnected:
         else:
             back.ui.update_warning_status(
                 "Connection lost",
-                f"Connection with device {self.device_id} was lost. You can still save the already recorded data.",
+                f"Connection with device {self.device_id} was lost. You can save the already recorded data.",
                 ok_cb=back.stop_logging,
             )
             back.ui.update_ui_state(GUIState.WARNING)
@@ -1955,6 +1996,7 @@ class CmdScanBLE:
 
     async def handle(self, back: Backend):
         """One-shot USB probe; schedule next probe only if still disconnected."""
+        back.ui.update_disconnected_status()
         back.ui.update_ui_state(GUIState.DISCONNECTED)
 
         try:
@@ -2101,6 +2143,10 @@ class CmdSaveRecord:
             )
 
         back.ui.prevent_close = False
+
+        # In the success screen, only disconnect will be allowed if one or more
+        # devices are disconnected. We can safely ignore pending disconnects
+        await back.disable_defer_disconnect(ignore_pending=True)
 
         back.ui.update_success_status(
             "Record saved",
