@@ -8,8 +8,7 @@ import pathlib
 import sys
 import time
 from dataclasses import dataclass
-from enum import Enum
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import qasync
@@ -37,17 +36,6 @@ from PySide6.QtWidgets import (
 )
 
 __version__ = "0.2.0"
-
-
-class GUIState(Enum):
-    ERROR = "error"
-    DISCONNECTED = "disconnected"
-    INFO = "info"
-    DEVICE_SELECTION = "connected_device_selection"
-    MONITORING = "connected_available"
-    FORM = "form"
-    WARNING = "warning"
-    SUCCESS = "success"
 
 
 GREEN_L = "#4caf50"
@@ -78,484 +66,461 @@ ECG_COLOR = "#CC3311"
 ACC_COLOR = "#0077BB"
 
 
-# ----------------------------------------------------------------------
-class DisconnectedView(QWidget):
-    def __init__(self):
-        super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+@dataclass
+class ButtonStyle:
+    """Style configuration for buttons"""
 
-        # Large icon or image placeholder
-
-        # Main message
-        self.message = QLabel("Scanning for Movesense Devices")
-        self.message.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 28px;
-                font-weight: bold;
-                color: {GREY_D};
-            }}
-        """
-        )
-        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.message)
-        layout.addSpacing(30)
-
-        # Status label
-        self.status_label = QLabel(
-            "Please make sure your Movesense device is powered on and in range."
-        )
-        self.status_label.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 16px;
-                color: {GREY_D};
-            }}
-        """
-        )
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.status_label)
+    color_light: str
+    color_medium: str
+    color_dark: str
+    font_size: int = 16
+    font_weight: str = "regular"
+    padding: str = "10px 30px"
+    border_radius: str = "4px"
 
 
-class ErrorView(QWidget):
-    def __init__(self):
-        super().__init__()
-        over_layout = QVBoxLayout(self)
-        over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main = QWidget()
-        over_layout.addWidget(main)
-        main.setMaximumWidth(700)
-        layout = QVBoxLayout(main)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+@dataclass
+class MessageButton:
+    key: str
+    text: str
+    style: ButtonStyle
+    min_width: Optional[int] = None
+    min_height: Optional[int] = None
 
-        # Large icon or image placeholder
 
-        # Main message
-        self.message = QLabel("ERROR")
-        self.message.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 28px;
-                font-weight: bold;
-                color: {RED_L};
-            }}
-        """
-        )
-        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.message)
-        layout.addSpacing(30)
+@dataclass
+class StateSpec:
+    key: str
+    view: QWidget
+    on_enter: Optional[Callable[[], None]] = None
 
-        # Status label
-        self.status_label = QLabel("Click OK to reset")
-        self.status_label.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 16px;
-                color: {GREY_D};
-            }}
-        """
-        )
-        self.status_label.setWordWrap(True)
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.status_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        layout.addWidget(self.status_label)
 
-        ok_layout = QHBoxLayout()
-        self.ok_button = QPushButton("OK")
-        self.ok_button.setStyleSheet(
-            f"""
+@dataclass
+class LabelStyle:
+    """Style configuration for labels"""
+
+    color: str
+    font_size: int
+    font_weight: str = "normal"
+    alignment: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignCenter
+
+
+# Button style presets
+GREY_BUTTON = ButtonStyle(GREY_L, GREY_M, GREY_D)
+ORANGE_BUTTON = ButtonStyle(ORANGE_L, ORANGE_M, ORANGE_D)
+GREEN_BUTTON = ButtonStyle(GREEN_L, GREEN_M, GREEN_D)
+RED_BUTTON = ButtonStyle(RED_L, RED_M, RED_D)
+PURPLE_BUTTON = ButtonStyle(PURPLE_L, PURPLE_M, PURPLE_D)
+BLUE_BUTTON = ButtonStyle(BLUE_L, BLUE_M, BLUE_D)
+
+# Spacing constants
+TITLE_SPACING = 30
+BUTTON_SPACING = 20
+
+
+class WidgetFactory:
+    """Factory class for creating styled widgets"""
+
+    @staticmethod
+    def create_button(
+        text: str,
+        style: ButtonStyle,
+        min_width: Optional[int] = None,
+        min_height: Optional[int] = None,
+    ) -> QPushButton:
+        """Create a styled button"""
+        button = QPushButton(text)
+
+        stylesheet = f"""
             QPushButton {{
-                font-size: 16px;
-                padding: 10px 30px;
-                background-color: {GREY_L};
+                font-size: {style.font_size}px;
+                font-weight: {style.font_weight};
+                padding: {style.padding};
+                background-color: {style.color_light};
                 border: none;
-                border-radius: 4px;
+                border-radius: {style.border_radius};
                 color: white;
             }}
             QPushButton:hover {{
-                background-color: {GREY_M};
+                background-color: {style.color_medium};
             }}
             QPushButton:pressed {{
-                background-color: {GREY_D};
-            }}
-        """
-        )
-        self.ok_button.setFixedWidth(150)
-        ok_layout.addStretch()
-        ok_layout.addWidget(self.ok_button)
-
-        layout.addSpacing(20)
-
-        layout.addLayout(ok_layout)
-
-
-class WarningView(QWidget):
-    def __init__(self):
-        super().__init__()
-        over_layout = QVBoxLayout(self)
-        over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main = QWidget()
-        over_layout.addWidget(main)
-        main.setMaximumWidth(700)
-        layout = QVBoxLayout(main)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Large icon or image placeholder
-
-        # Main message
-        self.message = QLabel("WARNING")
-        self.message.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 28px;
-                font-weight: bold;
-                color: {ORANGE_L};
-            }}
-        """
-        )
-        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.message)
-        layout.addSpacing(30)
-
-        # Status label
-        self.status_label = QLabel("Click OK to reset")
-        self.status_label.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 16px;
-                color: {GREY_D};
-            }}
-        """
-        )
-        self.status_label.setWordWrap(True)
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.status_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        layout.addWidget(self.status_label)
-
-        button_layout = QHBoxLayout()
-        self.ok_button = QPushButton("OK")
-        self.ok_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 16px;
-                padding: 10px 30px;
-                background-color: {GREY_L};
-                border: none;
-                border-radius: 4px;
-                color: white;
-            }}
-            QPushButton:hover {{
-                background-color: {GREY_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {GREY_D};
-            }}
-        """
-        )
-        self.ok_button.setFixedWidth(150)
-        button_layout.addStretch()
-        button_layout.addWidget(self.ok_button)
-
-        self.cancel_button = QPushButton("CANCEL")
-        self.cancel_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 16px;
-                padding: 10px 30px;
-                background-color: {ORANGE_L};
-                border: none;
-                border-radius: 4px;
-                color: white;
-            }}
-            QPushButton:hover {{
-                background-color: {ORANGE_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {ORANGE_D};
-            }}
-        """
-        )
-        self.cancel_button.setFixedWidth(150)
-        button_layout.addWidget(self.cancel_button)
-
-        layout.addSpacing(20)
-        layout.addLayout(button_layout)
-
-
-class SuccessView(QWidget):
-    def __init__(self):
-        super().__init__()
-        over_layout = QVBoxLayout(self)
-        over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main = QWidget()
-        over_layout.addWidget(main)
-        main.setMaximumWidth(700)
-        layout = QVBoxLayout(main)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Large icon or image placeholder
-
-        # Main message
-        self.message = QLabel("Connection successful!")
-        self.message.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 28px;
-                font-weight: bold;
-                color: {GREEN_L};
-            }}
-        """
-        )
-        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.message)
-        layout.addSpacing(30)
-
-        # Status label
-        self.status_label = QLabel("You can add more devices or start monitoring.")
-        self.status_label.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 16px;
-                color: {GREY_D};
-            }}
-        """
-        )
-        self.status_label.setWordWrap(True)
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.status_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        layout.addWidget(self.status_label)
-
-        button_layout = QHBoxLayout()
-        self.more_button = QPushButton("Add devices")
-        self.more_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 16px;
-                padding: 10px 30px;
-                background-color: {ORANGE_L};
-                border: none;
-                border-radius: 4px;
-                color: white;
-            }}
-            QPushButton:hover {{
-                background-color: {ORANGE_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {ORANGE_D};
+                background-color: {style.color_dark};
             }}
             QPushButton:disabled {{
                 background-color: {GREY_L};
                 color: {GREY_D};
             }}
         """
-        )
-        self.more_button.setMinimumWidth(150)
-        button_layout.addStretch()
-        button_layout.addWidget(self.more_button)
+        button.setStyleSheet(stylesheet)
 
-        self.monitor_button = QPushButton("Start monitoring")
-        self.monitor_button.setStyleSheet(
-            f"""
-            QPushButton {{
+        if min_width is not None:
+            button.setMinimumWidth(min_width)
+
+        if min_height is not None:
+            button.setMinimumHeight(min_height)
+
+        return button
+
+    @staticmethod
+    def create_title_label(text: str, color: str) -> QLabel:
+        """Create a title label with standard styling"""
+        label = QLabel(text)
+        label.setStyleSheet(f"""
+            QLabel {{
+                font-size: 28px;
+                font-weight: bold;
+                color: {color};
+            }}
+        """)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        return label
+
+    @staticmethod
+    def create_status_label(
+        text: str,
+        selectable: bool = False,
+        word_wrap: bool = False,
+        alignment: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignCenter,
+    ) -> QLabel:
+        """Create a status label with standard styling"""
+        label = QLabel(text)
+        label.setStyleSheet(f"""
+            QLabel {{
                 font-size: 16px;
-                padding: 10px 30px;
-                background-color: {GREEN_L};
-                border: none;
+                color: {GREY_D};
+            }}
+        """)
+        label.setAlignment(alignment)
+
+        if word_wrap:
+            label.setWordWrap(True)
+
+        if selectable:
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        return label
+
+    @staticmethod
+    def create_list_widget(min_height: int = 200) -> QListWidget:
+        """Create a styled list widget"""
+        list_widget = QListWidget()
+        list_widget.setStyleSheet(
+            f"""
+            QListWidget {{
+                border: 1px solid {GREY_L};
                 border-radius: 4px;
+                background-color: white;
+                font-size: 16px;
+                padding: 5px;
+            }}
+            QListWidget::item {{
+                padding: 10px;
+                border-bottom: 1px solid {GREY_L};
+            }}
+            QListWidget::item:selected {{
+                background-color: {BLUE_L};
                 color: white;
             }}
-            QPushButton:hover {{
-                background-color: {GREEN_M};
+            QListWidget::item:hover {{
+                background-color: {BLUE_M};
             }}
-            QPushButton:pressed {{
-                background-color: {GREEN_D};
-            }}
-            QPushButton:disabled {{
-                background-color: {GREY_L};
-                color: {GREY_D};
+            QListWidget::item:selected:hover {{
+                background-color: {BLUE_D};
             }}
         """
         )
-        self.monitor_button.setMinimumWidth(150)
-        button_layout.addWidget(self.monitor_button)
+        list_widget.setMinimumHeight(min_height)
+        return list_widget
 
-        layout.addSpacing(20)
-        layout.addLayout(button_layout)
+    @staticmethod
+    def create_line_edit(placeholder: str = "", read_only: bool = False) -> QLineEdit:
+        """Create a styled line edit"""
+        line_edit = QLineEdit()
+        if placeholder:
+            line_edit.setPlaceholderText(placeholder)
+        line_edit.setReadOnly(read_only)
+        return line_edit
+
+    @staticmethod
+    def create_text_edit(
+        placeholder: str = "", max_height: Optional[int] = None
+    ) -> QTextEdit:
+        """Create a styled text edit"""
+        text_edit = QTextEdit()
+        if placeholder:
+            text_edit.setPlaceholderText(placeholder)
+        if max_height:
+            text_edit.setMaximumHeight(max_height)
+        text_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        return text_edit
+
+    @staticmethod
+    def create_form_layout(vertical_spacing: int = 20) -> QFormLayout:
+        """Create a styled form layout"""
+        form_layout = QFormLayout(verticalSpacing=vertical_spacing)
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form_layout.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+        return form_layout
 
 
-class SettingsView(QWidget):
-    def __init__(self):
-        super().__init__()
-        over_layout = QVBoxLayout(self)
+class LayoutBuilder:
+    """Helper class for building common layout patterns"""
+
+    @staticmethod
+    def create_centered_container(
+        parent, max_width: Optional[int] = None
+    ) -> QVBoxLayout:
+        """Create a centered container layout with optional max width"""
+        over_layout = QVBoxLayout()
         over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main = QWidget()
-        over_layout.addWidget(main)
-        main.setMaximumWidth(800)
 
-        layout = QVBoxLayout(main)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_widget = QWidget()
+        if max_width is not None:
+            main_widget.setMaximumWidth(max_width)
 
-        # Main message
-        self.message = QLabel("Settings")
-        self.message.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 28px;
-                font-weight: bold;
-                color: {GREY_L};
-            }}
-        """
-        )
-        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.message)
-        layout.addSpacing(30)
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        dir_layout = QHBoxLayout()
-        dir_label = QLabel("Output directory:")
-        dir_label.setStyleSheet(f"font-size: 16px; color: {GREY_D};")
+        widget_layout = QVBoxLayout(parent)
+        widget_layout.addLayout(over_layout)
+        over_layout.addWidget(main_widget)
 
-        self.dir_edit = QLineEdit()
-        self.dir_edit.setReadOnly(True)
-        self.browse_btn = QPushButton("Browse…")
-        self.browse_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 16px;
-                padding: 8px 15px;
-                background-color: {GREY_L};
-                border: none;
-                border-radius: 4px;
-                color: white;
-            }}
-            QPushButton:hover {{
-                background-color: {GREY_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {GREY_D};
-            }}
-            """
-        )
-        dir_layout.addWidget(dir_label)
-        dir_layout.addWidget(self.dir_edit, stretch=1)
-        dir_layout.addWidget(self.browse_btn)
-        layout.addLayout(dir_layout)
+        return main_layout
 
-        self.close_button = QPushButton("Close")
-        self.close_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 16px;
-                padding: 8px 15px;
-                background-color: {GREY_L};
-                border: none;
-                border-radius: 4px;
-                color: white;
-            }}
-            QPushButton:hover {{
-                background-color: {GREY_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {GREY_D};
-            }}
-        """
-        )
+    @staticmethod
+    def create_layout_row(*widgets, align_right: bool = False) -> QHBoxLayout:
+        """Create a horizontal layout for widgets"""
+        layout = QHBoxLayout()
 
-        layout.addSpacing(30)
-        layout.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignCenter)
+        if align_right:
+            layout.addStretch()
+
+        for widget in widgets:
+            layout.addWidget(widget)
+
+        return layout
 
 
-# ----------------------------------------------------------------------
-class InfoView(QWidget):
-    def __init__(self):
+class UIState:
+    ERROR = "error"
+    DISCONNECTED = "disconnected"
+    INFO = "info"
+    DEVICE_SELECTION = "device_selection"
+    MONITORING = "monitoring"
+    FORM = "form"
+    WARNING = "warning"
+    SUCCESS = "success"
+
+
+class BaseView(QWidget):
+    """Base class for views with common title/status pattern"""
+
+    def __init__(
+        self,
+        title: str,
+        title_color: str,
+        status_text: str = "",
+        max_width: Optional[int] = None,
+    ):
         super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Main message
-        self.message = QLabel("Title")
-        self.message.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 28px;
-                font-weight: bold;
-                color: {BLUE_L};
-            }}
-        """
-        )
-        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.message)
-        layout.addSpacing(30)
+        # Create layout structure
+        if max_width is not None:
+            self.main_layout = LayoutBuilder.create_centered_container(self, max_width)
+        else:
+            self.main_layout = QVBoxLayout(self)
+            self.main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Status label
-        self.status_label = QLabel(
-            "Make sure your Movesense device is powered on and in range"
+        # Create title
+        self.title_label = WidgetFactory.create_title_label(title, title_color)
+        self.main_layout.addWidget(self.title_label)
+        self.main_layout.addSpacing(TITLE_SPACING)
+
+        # Create status label if provided
+        if status_text:
+            self.status_label = WidgetFactory.create_status_label(
+                status_text, selectable=True
+            )
+            self.main_layout.addWidget(self.status_label)
+        else:
+            self.status_label = None
+
+        # Let subclasses add their content
+        self._setup_content()
+
+    def _setup_content(self):
+        """Override this to add view-specific content"""
+        pass
+
+    def set_title(self, text: str):
+        """Update the title text"""
+        self.title_label.setText(text)
+
+    def set_status(self, text: str):
+        """Update the status text"""
+        if self.status_label:
+            self.status_label.setText(text)
+
+
+class BaseMessageView(BaseView):
+    """Base class for message views with buttons"""
+
+    def __init__(
+        self,
+        title: str,
+        title_color: str,
+        status_text: str = "",
+        max_width: Optional[int] = None,
+        button_specs: Optional[list[MessageButton]] = None,
+        align_right: bool = True,
+    ):
+        self.buttons = {}
+        self._button_specs = button_specs or []
+        self._align_right = align_right
+        super().__init__(title, title_color, status_text, max_width)
+
+    def _setup_content(self):
+        if self.status_label:
+            self.status_label.setWordWrap(True)
+            self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        if self._button_specs:
+            self.main_layout.addSpacing(BUTTON_SPACING)
+
+            buttons = []
+            for spec in self._button_specs:
+                button = WidgetFactory.create_button(
+                    spec.text,
+                    spec.style,
+                    min_width=spec.min_width,
+                    min_height=spec.min_height,
+                )
+                self.buttons[spec.key] = button
+                # Also store as direct attribute with {key}_button pattern
+                setattr(self, f"{spec.key}_button", button)
+                buttons.append(button)
+
+            button_layout = LayoutBuilder.create_layout_row(
+                *buttons, align_right=self._align_right
+            )
+            self.main_layout.addLayout(button_layout)
+
+
+class DisconnectedView(BaseView):
+    def __init__(self):
+        # Use base view with grey theme, no max width
+        super().__init__(
+            title="Scanning for Movesense Devices",
+            title_color=GREY_D,
+            status_text="Please make sure your Movesense device is powered on and in range.",
         )
-        self.status_label.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 16px;
-                color: {GREY_D};
-            }}
-        """
+
+
+class ErrorView(BaseMessageView):
+    def __init__(self):
+        super().__init__(
+            title="ERROR",
+            title_color=RED_L,
+            status_text="Click OK to reset",
+            max_width=700,
+            button_specs=[MessageButton("ok", "OK", GREY_BUTTON, min_width=150)],
         )
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
+
+
+class WarningView(BaseMessageView):
+    def __init__(self):
+        super().__init__(
+            title="WARNING",
+            title_color=ORANGE_L,
+            status_text="Click OK to reset",
+            max_width=700,
+            button_specs=[
+                MessageButton("ok", "OK", GREY_BUTTON, min_width=150),
+                MessageButton("cancel", "CANCEL", ORANGE_BUTTON, min_width=150),
+            ],
         )
-        layout.addWidget(self.status_label)
+
+
+class SuccessView(BaseMessageView):
+    def __init__(self):
+        super().__init__(
+            title="Connection successful!",
+            title_color=GREEN_L,
+            status_text="You can add more devices or start monitoring.",
+            max_width=700,
+            button_specs=[
+                MessageButton("more", "Add devices", ORANGE_BUTTON, min_width=180),
+                MessageButton(
+                    "monitor", "Start monitoring", GREEN_BUTTON, min_width=180
+                ),
+            ],
+        )
+
+
+class SettingsView(BaseView):
+    def __init__(self):
+        super().__init__(
+            title="Settings",
+            title_color=GREY_L,
+            max_width=800,
+        )
+
+    def _setup_content(self):
+        # Directory selection
+        dir_label = WidgetFactory.create_status_label(
+            "Output directory:",
+            alignment=Qt.AlignmentFlag.AlignLeft,
+        )
+
+        self.dir_edit = WidgetFactory.create_line_edit(read_only=True)
+        self.browse_btn = WidgetFactory.create_button("Browse…", GREY_BUTTON)
+
+        dir_layout = LayoutBuilder.create_layout_row(
+            dir_label, self.dir_edit, self.browse_btn
+        )
+        self.main_layout.addLayout(dir_layout)
+
+        self.main_layout.addSpacing(30)
+
+        self.close_button = WidgetFactory.create_button("Close", GREY_BUTTON)
+        self.main_layout.addWidget(
+            self.close_button, alignment=Qt.AlignmentFlag.AlignCenter
+        )
+
+
+class InfoView(BaseView):
+    def __init__(self):
+        super().__init__(
+            title="Title",
+            title_color=BLUE_L,
+            status_text="Make sure your Movesense device is powered on and in range",
+        )
 
 
 class FormView(QWidget):
     def __init__(self):
         super().__init__()
 
-        over_layout = QVBoxLayout(self)
-        over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main = QWidget()
-        over_layout.addWidget(main)
-        main.setMaximumWidth(800)
-
-        layout = QVBoxLayout(main)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout = LayoutBuilder.create_centered_container(self, max_width=800)
         layout.addStretch()
 
-        header = QLabel("Record information")
-        header.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 28px;
-                font-weight: bold;
-                color: {PURPLE_L};
-            }}
-        """
-        )
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Header
+        header = WidgetFactory.create_title_label("Record information", PURPLE_L)
         layout.addWidget(header)
-        layout.addSpacing(30)
+        layout.addSpacing(TITLE_SPACING)
 
-        status_label = QLabel("Saving record, plase fill in the following information:")
-        status_label.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 16px;
-                color: {GREY_D};
-            }}
-        """
+        # Status label
+        status_label = WidgetFactory.create_status_label(
+            "Saving record, plase fill in the following information:"
         )
-        status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(status_label)
+        layout.addSpacing(BUTTON_SPACING)
 
-        layout.addSpacing(20)
-
+        # Form widget
         form_widget = QWidget()
-
         form_widget.setStyleSheet(
             f"""
             QLabel {{
@@ -565,73 +530,36 @@ class FormView(QWidget):
             """
         )
 
-        self.form_layout = QFormLayout(form_widget, verticalSpacing=20)
-        self.form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        self.form_layout.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-        )
+        self.form_layout = WidgetFactory.create_form_layout(vertical_spacing=20)
+        form_widget.setLayout(self.form_layout)
 
         # Name
-        self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("Enter name")
+        self.name_input = WidgetFactory.create_line_edit(placeholder="Enter name")
         self.form_layout.addRow("Name:", self.name_input)
 
         # Notes
-        self.notes_input = QTextEdit()
-        self.notes_input.setPlaceholderText("Optional notes")
-        self.notes_input.setMaximumHeight(300)
-        self.notes_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.notes_input = WidgetFactory.create_text_edit(
+            placeholder="Optional notes", max_height=300
+        )
         self.form_layout.addRow("Notes:", self.notes_input)
 
-        self.save_path = QLineEdit()
-        self.save_path.setReadOnly(True)
+        self.save_path = WidgetFactory.create_line_edit(read_only=True)
         self.form_layout.addRow("Save path:", self.save_path)
 
         layout.addWidget(form_widget)
 
         self.position_inputs = {}
 
-        info_label = QLabel("You can change the output directory in Settings.")
-        info_label.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 16px;
-                color: {GREY_D};
-            }}
-        """
+        # Info label
+        info_label = WidgetFactory.create_status_label(
+            "You can change the output directory in Settings."
         )
-        info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(info_label)
+        layout.addSpacing(BUTTON_SPACING)
 
-        layout.addSpacing(20)
-
-        # Buttons
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
-        self.save_button = QPushButton("SAVE")
-        self.save_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 16px;
-                padding: 10px 30px;
-                background-color: {PURPLE_L};
-                border: none;
-                border-radius: 4px;
-                color: white;
-            }}
-            QPushButton:hover {{
-                background-color: {PURPLE_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {PURPLE_D};
-            }}
-            QPushButton:disabled {{
-                background-color: {GREY_L};
-                color: {GREY_D};
-            }}
-        """
-        )
-        btn_layout.addWidget(self.save_button)
+        # Save button
+        self.save_button = WidgetFactory.create_button("SAVE", PURPLE_BUTTON)
+        btn_layout = LayoutBuilder.create_layout_row(self.save_button, align_right=True)
         layout.addLayout(btn_layout)
 
         layout.addStretch()
@@ -665,165 +593,48 @@ class FormView(QWidget):
         self.notes_input.clear()
 
 
-# ----------------------------------------------------------------------
 class DeviceSelectionView(QWidget):
     def __init__(self):
         super().__init__()
-        over_layout = QVBoxLayout(self)
-        over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main = QWidget()
-        over_layout.addWidget(main)
-        main.setMaximumWidth(700)
-
-        layout = QVBoxLayout(main)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Header
-        header = QLabel("Select Movesense Device")
-        header.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 28px;
-                font-weight: bold;
-                color: {BLUE_L};
-            }}
-        """
-        )
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout = LayoutBuilder.create_centered_container(self, max_width=700)
         layout.addStretch()
+
+        header = WidgetFactory.create_title_label("Select Movesense Device", BLUE_L)
         layout.addWidget(header)
-        layout.addSpacing(30)
+        layout.addSpacing(TITLE_SPACING)
 
-        # Instructions
-        instructions = QLabel("Please select the device you want to connect to:")
-        instructions.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 16px;
-                color: {GREY_D};
-            }}
-        """
+        instructions = WidgetFactory.create_status_label(
+            "Please select the device you want to connect to:"
         )
-        instructions.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(instructions)
-        layout.addSpacing(30)
+        layout.addSpacing(TITLE_SPACING)
 
-        # Device list
-        self.device_list = QListWidget()
-        self.device_list.setStyleSheet(
-            f"""
-            QListWidget {{
-                border: 1px solid {GREY_L};
-                border-radius: 4px;
-                background-color: white;
-                font-size: 16px;
-                padding: 5px;
-            }}
-            QListWidget::item {{
-                padding: 10px;
-                border-bottom: 1px solid {GREY_L};
-            }}
-            QListWidget::item:selected {{
-                background-color: {BLUE_L};
-                color: white;
-            }}
-            QListWidget::item:hover {{
-                background-color: {BLUE_M};
-            }}
-            QListWidget::item:selected:hover {{
-                background-color: {BLUE_D};
-            }}
-        """
-        )
-        self.device_list.setMinimumHeight(200)
+        self.device_list = WidgetFactory.create_list_widget(min_height=200)
         layout.addWidget(self.device_list)
 
-        # Buttons
-        button_layout = QHBoxLayout()
-
-        self.refresh_button = QPushButton("Refresh")
-        self.refresh_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 16px;
-                padding: 10px 30px;
-                background-color: {GREY_L};
-                border: none;
-                border-radius: 4px;
-                color: white;
-            }}
-            QPushButton:hover {{
-                background-color: {GREY_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {GREY_D};
-            }}
-            QPushButton:disabled {{
-                background-color: {GREY_L};
-                color: {GREY_D};
-            }}
-        """
+        self.refresh_button = WidgetFactory.create_button(
+            "Refresh", BLUE_BUTTON, min_width=180
         )
-        button_layout.addWidget(self.refresh_button)
+        self.connect_button = WidgetFactory.create_button(
+            "Connect", ORANGE_BUTTON, min_width=180
+        )
+        self.monitor_button = WidgetFactory.create_button(
+            "Start monitoring", GREEN_BUTTON, min_width=180
+        )
 
-        button_layout.addStretch()
-
-        self.connect_button = QPushButton("Connect")
+        # Initial states
+        self.refresh_button.setEnabled(True)
         self.connect_button.setEnabled(False)
-        self.connect_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 16px;
-                padding: 10px 25px;
-                background-color: {ORANGE_L};
-                color: white;
-                border: none;
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: {ORANGE_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {ORANGE_D};
-            }}
-            QPushButton:disabled {{
-                background-color: {GREY_L};
-                color: {GREY_D};
-            }}
-        """
-        )
-        button_layout.addWidget(self.connect_button)
-
-        self.monitor_button = QPushButton("Start monitoring")
         self.monitor_button.setEnabled(False)
-        self.monitor_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 16px;
-                padding: 10px 25px;
-                background-color: {GREEN_L};
-                color: white;
-                border: none;
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: {GREEN_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {GREEN_D};
-            }}
-            QPushButton:disabled {{
-                background-color: {GREY_L};
-                color: {GREY_D};
-            }}
-        """
-        )
+
+        button_layout = LayoutBuilder.create_layout_row(self.refresh_button)
+        button_layout.addStretch()
+        button_layout.addWidget(self.connect_button)
         button_layout.addWidget(self.monitor_button)
 
         layout.addLayout(button_layout)
         layout.addStretch()
 
-        # Connect signals
         self.device_list.itemSelectionChanged.connect(self._on_selection_changed)
 
     @Slot()
@@ -841,7 +652,7 @@ class DeviceSelectionView(QWidget):
                 item_text = f"{name} ({address})"
 
             item = QListWidgetItem(item_text)
-            item.setData(Qt.ItemDataRole.UserRole, parts)  # Store full device string
+            item.setData(Qt.ItemDataRole.UserRole, parts)
             self.device_list.addItem(item)
 
         if self.device_list.count() > 0:
@@ -852,76 +663,8 @@ class DeviceSelectionView(QWidget):
         selected_items = self.device_list.selectedItems()
         if selected_items:
             selection = selected_items[0].data(Qt.ItemDataRole.UserRole)
-            device_addr = str(selection[0])
-            device_id = str(selection[1])
-
-            return (device_addr, device_id)
+            return (str(selection[0]), str(selection[1]))
         return None
-
-
-# ----------------------------------------------------------------------
-class LoggingView(QWidget):
-    def __init__(self):
-        super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Main message
-        message = QLabel("Recording in Progress")
-        message.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 28px;
-                font-weight: bold;
-                color: {PURPLE_L};
-            }}
-        """
-        )
-        message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(message)
-        layout.addSpacing(30)
-
-        # Warning message
-        warning = QLabel("Device is currently recording data.")
-        warning.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 16px;
-                color: {GREY_D};
-            }}
-        """
-        )
-        warning.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(warning)
-        layout.addSpacing(20)
-
-        # Stop button
-        self.stop_button = QPushButton("STOP RECORDING")
-        self.stop_button.setMinimumHeight(60)
-        self.stop_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 18px;
-                font-weight: bold;
-                background-color: {PURPLE_L};
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 0 40px;
-            }}
-            QPushButton:hover {{
-                background-color: {PURPLE_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {PURPLE_D};
-            }}
-            QPushButton:disabled {{
-                background-color: {GREY_L};
-                color: {GREY_D};
-            }}
-        """
-        )
-        layout.addWidget(self.stop_button)
 
 
 class MovesenseChart(QWidget):
@@ -990,10 +733,7 @@ class MovesenseChart(QWidget):
         layout.addWidget(chart_view)
 
 
-# ----------------------------------------------------------------------
 class MonitoringView(QWidget):
-    # signals_selection_changed = Signal(dict)
-
     def __init__(self):
         super().__init__()
         # Main layout: split horizontally
@@ -1002,7 +742,6 @@ class MonitoringView(QWidget):
         # Left zone: live ECG plot
         self.plot_frame = QWidget()
         self.plot_layout = QVBoxLayout(self.plot_frame)
-
         self.charts = {}
 
         # Right zone
@@ -1013,100 +752,49 @@ class MonitoringView(QWidget):
         info_layout.addStretch(1)
 
         # Main message
-        message = QLabel("Device ready")
-        message.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 28px;
-                font-weight: bold;
-                color: {GREEN_L};
-            }}
-        """
-        )
-        message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        message = WidgetFactory.create_title_label("Device ready", GREEN_L)
         info_layout.addWidget(message)
-        info_layout.addSpacing(20)
+        info_layout.addSpacing(BUTTON_SPACING)
 
-        # Start recording button
-        self.start_button = QPushButton("START RECORDING")
-        self.start_button.setMinimumHeight(60)
-        self.start_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 18px;
-                font-weight: bold;
-                background-color: {GREEN_L};
-                color: white;
-                border: none;
-                border-radius: 8px;
-            }}
-            QPushButton:hover {{
-                background-color: {GREEN_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {GREEN_D};
-            }}
-            QPushButton:disabled {{
-                background-color: {GREY_L};
-                color: {GREY_D};
-            }}
-        """
+        # Create button styles for large buttons
+        start_style = ButtonStyle(
+            GREEN_L,
+            GREEN_M,
+            GREEN_D,
+            font_size=18,
+            border_radius="8px",
+            font_weight="bold",
         )
+        stop_style = ButtonStyle(
+            RED_L,
+            RED_M,
+            RED_D,
+            font_size=18,
+            border_radius="8px",
+            font_weight="bold",
+        )
+        switch_style = ButtonStyle(
+            BLUE_L,
+            BLUE_M,
+            BLUE_D,
+            font_size=18,
+            border_radius="8px",
+            font_weight="bold",
+        )
+
+        self.start_button = WidgetFactory.create_button(
+            "START RECORDING", start_style, min_height=60
+        )
+        self.stop_button = WidgetFactory.create_button(
+            "STOP RECORDING", stop_style, min_height=60
+        )
+        self.switch_button = WidgetFactory.create_button(
+            "Switch device", switch_style, min_height=60
+        )
+
         info_layout.addWidget(self.start_button)
-
-        # Stop recording button
-        self.stop_button = QPushButton("STOP RECORDING")
-        self.stop_button.setMinimumHeight(60)
-        self.stop_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 18px;
-                font-weight: bold;
-                background-color: {RED_L};
-                color: white;
-                border: none;
-                border-radius: 8px;
-            }}
-            QPushButton:hover {{
-                background-color: {RED_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {RED_D};
-            }}
-            QPushButton:disabled {{
-                background-color: {GREY_L};
-                color: {GREY_D};
-            }}
-        """
-        )
         info_layout.addWidget(self.stop_button)
-
         info_layout.addStretch(1)
-
-        self.switch_button = QPushButton("Switch device")
-        self.switch_button.setMinimumHeight(60)
-        self.switch_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 18px;
-                font-weight: bold;
-                background-color: {BLUE_L};
-                color: white;
-                border: none;
-                border-radius: 8px;
-            }}
-            QPushButton:hover {{
-                background-color: {BLUE_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {BLUE_D};
-            }}
-            QPushButton:disabled {{
-                background-color: {GREY_L};
-                color: {GREY_D};
-            }}
-        """
-        )
         info_layout.addWidget(self.switch_button)
 
         main_layout.addWidget(self.plot_frame, 2.5)
@@ -1127,7 +815,6 @@ class MonitoringView(QWidget):
             self.charts[ms_id] = chart
 
 
-# ----------------------------------------------------------------------
 class MainWindow(QWidget):
     FORCE_SHUTDOWN_ATTEMPTS = 3
 
@@ -1136,7 +823,7 @@ class MainWindow(QWidget):
         self.setWindowTitle("iFCH Multi-Movesense Control")
         self.resize(1200, 675)
 
-        self.current_state = GUIState.DISCONNECTED
+        self.current_state = UIState.DISCONNECTED
         self._shutdown_attempts = 0
         self._shutdown_complete = False
 
@@ -1149,6 +836,8 @@ class MainWindow(QWidget):
         # Create stacked widget to hold different views
         self.stacked_widget = QStackedWidget(self)
 
+        self._state_specs: dict[str, StateSpec] = {}
+
         # Create all views
         self.error_view = ErrorView()
         self.disconnected_view = DisconnectedView()
@@ -1159,39 +848,53 @@ class MainWindow(QWidget):
         self.warning_view = WarningView()
         self.success_view = SuccessView()
 
-        # Add views to stack
-        self.stacked_widget.addWidget(self.error_view)
-        self.stacked_widget.addWidget(self.disconnected_view)
-        self.stacked_widget.addWidget(self.info_view)
-        self.stacked_widget.addWidget(self.device_selection_view)
-        self.stacked_widget.addWidget(self.monitoring_view)
-        self.stacked_widget.addWidget(self.form_view)
-        self.stacked_widget.addWidget(self.warning_view)
-        self.stacked_widget.addWidget(self.success_view)
+        # Register views with state behavior
+        self._register_state(
+            UIState.ERROR,
+            self.error_view,
+            on_enter=self._enter_error_state,
+        )
+        self._register_state(
+            UIState.DISCONNECTED,
+            self.disconnected_view,
+        )
+        self._register_state(
+            UIState.INFO,
+            self.info_view,
+        )
+        self._register_state(
+            UIState.DEVICE_SELECTION,
+            self.device_selection_view,
+            on_enter=self._enter_device_selection_state,
+        )
+        self._register_state(
+            UIState.MONITORING,
+            self.monitoring_view,
+            on_enter=self._enter_monitoring_state,
+        )
+        self._register_state(
+            UIState.FORM,
+            self.form_view,
+            on_enter=self._enter_form_state,
+        )
+        self._register_state(
+            UIState.WARNING,
+            self.warning_view,
+            on_enter=self._enter_warning_state,
+        )
+        self._register_state(
+            UIState.SUCCESS,
+            self.success_view,
+            on_enter=self._enter_success_state,
+        )
 
         # Set main layout
         views_widget = QWidget(self)
         views_layout = QVBoxLayout(views_widget)
 
-        settings_button = QPushButton("Settings")
-        settings_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 16px;
-                padding: 8px 15px;
-                background-color: {GREY_L};
-                border: none;
-                border-radius: 4px;
-                color: white;
-            }}
-            QPushButton:hover {{
-                background-color: {GREY_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {GREY_D};
-            }}
-        """
-        )
+        # Create settings button using factory
+        settings_style = ButtonStyle(GREY_L, GREY_M, GREY_D)
+        settings_button = WidgetFactory.create_button("Settings", settings_style)
 
         views_layout.addWidget(settings_button, alignment=Qt.AlignmentFlag.AlignRight)
         views_layout.addWidget(self.stacked_widget)
@@ -1213,6 +916,7 @@ class MainWindow(QWidget):
         self.device_selection_view.refresh_button.clicked.connect(
             self.handle_device_refresh
         )
+
         self.error_view.ok_button.clicked.connect(self.handle_error_ok)
         self.form_view.save_button.clicked.connect(self.handle_form_save)
 
@@ -1245,81 +949,138 @@ class MainWindow(QWidget):
         self._tasks.append(loop.create_task(self.backend.run()))
 
         # Set initial state
-        self.update_ui_state(GUIState.DISCONNECTED)
+        self.set_state(UIState.DISCONNECTED)
 
-    def update_ui_state(self, new_state: GUIState):
+    def _register_state(
+        self,
+        key: str,
+        view: QWidget,
+        on_enter: Optional[Callable[[], None]] = None,
+    ):
+        self._state_specs[key] = StateSpec(key=key, view=view, on_enter=on_enter)
+        self.stacked_widget.addWidget(view)
+
+    def set_state(self, new_state: str):
         """Update the entire UI based on the current device state"""
+        spec = self._state_specs.get(new_state)
+        if not spec:
+            logging.error("Unknown UI state: %s", new_state)
+            return
+
         self.current_state = new_state
 
-        if new_state == GUIState.ERROR:
-            self.stacked_widget.setCurrentIndex(0)  # Show disconnected view
+        if spec.on_enter:
+            spec.on_enter()
 
-        elif new_state == GUIState.DISCONNECTED:
-            self.stacked_widget.setCurrentIndex(1)  # Show disconnected view
+        self.stacked_widget.setCurrentWidget(spec.view)
 
-        elif new_state == GUIState.INFO:
-            self.stacked_widget.setCurrentIndex(2)  # Show info view
+    def _set_device_selection_buttons(
+        self,
+        connect: Optional[bool] = None,
+        monitor: Optional[bool] = None,
+        refresh: Optional[bool] = None,
+    ):
+        if connect is not None:
+            self.device_selection_view.connect_button.setEnabled(connect)
+        if monitor is not None:
+            self.device_selection_view.monitor_button.setEnabled(monitor)
+        if refresh is not None:
+            self.device_selection_view.refresh_button.setEnabled(refresh)
 
-        elif new_state == GUIState.DEVICE_SELECTION:
-            self.device_selection_view.connect_button.setEnabled(
-                len(self.backend.available_devices) > 0
+    def _set_monitoring_buttons(
+        self,
+        start: Optional[bool] = None,
+        stop: Optional[bool] = None,
+        switch: Optional[bool] = None,
+        start_visible: Optional[bool] = None,
+        stop_visible: Optional[bool] = None,
+    ):
+        if start is not None:
+            self.monitoring_view.start_button.setEnabled(start)
+        if stop is not None:
+            self.monitoring_view.stop_button.setEnabled(stop)
+        if switch is not None:
+            self.monitoring_view.switch_button.setEnabled(switch)
+        if start_visible is not None:
+            self.monitoring_view.start_button.setVisible(start_visible)
+        if stop_visible is not None:
+            self.monitoring_view.stop_button.setVisible(stop_visible)
+
+    def _set_success_buttons(
+        self,
+        more: Optional[bool] = None,
+        monitor: Optional[bool] = None,
+    ):
+        if more is not None:
+            self.success_view.more_button.setEnabled(more)
+        if monitor is not None:
+            self.success_view.monitor_button.setEnabled(monitor)
+
+    def _set_form_inputs_enabled(self, enabled: bool):
+        self.form_view.name_input.setEnabled(enabled)
+        self.form_view.notes_input.setEnabled(enabled)
+
+    def set_monitoring_logging_controls(self):
+        self._set_monitoring_buttons(
+            stop=True,
+            start_visible=False,
+            stop_visible=True,
+        )
+
+    def _enter_error_state(self):
+        self.error_view.ok_button.setEnabled(True)
+
+    def _enter_warning_state(self):
+        self.warning_view.ok_button.setEnabled(True)
+
+    def _enter_device_selection_state(self):
+        self._set_device_selection_buttons(
+            connect=len(self.backend.available_devices) > 0,
+            monitor=len(self.backend.devices) > 0,
+            refresh=True,
+        )
+
+    def _enter_monitoring_state(self):
+        self._set_monitoring_buttons(
+            start=True,
+            stop=False,
+            switch=True,
+            start_visible=True,
+            stop_visible=False,
+        )
+
+    def _enter_success_state(self):
+        self._set_success_buttons(more=True, monitor=True)
+
+        for device in self.backend.devices:
+            if not device.connected.is_set():
+                self._set_success_buttons(monitor=False)
+                break
+
+    def _enter_form_state(self):
+        self.form_view.clear()
+
+        # Remove existing position inputs
+        for input_widget in self.form_view.position_inputs.values():
+            self.form_view.form_layout.removeRow(input_widget)
+        self.form_view.position_inputs.clear()
+
+        # For the Tab order, previous field in form
+        prev_input = self.form_view.name_input
+
+        for idx, device in enumerate(self.backend.devices):
+            pos_input = WidgetFactory.create_line_edit(placeholder="Position")
+            self.form_view.form_layout.insertRow(
+                1 + idx, f"{device.movesense_id}:", pos_input
             )
-            self.device_selection_view.monitor_button.setEnabled(
-                len(self.backend.devices) > 0
-            )
-            self.device_selection_view.refresh_button.setEnabled(True)
-            self.stacked_widget.setCurrentIndex(3)  # Show device selection view
+            self.form_view.position_inputs[device.movesense_id] = pos_input
 
-        elif new_state == GUIState.MONITORING:
-            self.monitoring_view.stop_button.setEnabled(False)
-            self.monitoring_view.stop_button.setVisible(False)
-            self.monitoring_view.start_button.setEnabled(True)
-            self.monitoring_view.start_button.setVisible(True)
-            self.monitoring_view.switch_button.setEnabled(True)
-            self.stacked_widget.setCurrentIndex(4)  # Show monitoring view
+            # Set tab order
+            self.form_view.setTabOrder(prev_input, pos_input)
+            prev_input = pos_input
 
-        elif new_state == GUIState.FORM:
-            self.form_view.clear()
-
-            # First remove all existing position input fields
-            for inform in self.form_view.position_inputs.values():
-                self.form_view.form_layout.removeRow(inform)
-            self.form_view.position_inputs.clear()
-
-            # For the Tab order, previous field in form
-            prev_input = self.form_view.name_input
-
-            for idx, device in enumerate(self.backend.devices):
-                pos_input = QLineEdit()
-                pos_input.setPlaceholderText("Position")
-                self.form_view.form_layout.insertRow(
-                    1 + idx, f"{device.movesense_id}:", pos_input
-                )
-                self.form_view.position_inputs[device.movesense_id] = pos_input
-
-                # Set tab order
-                self.form_view.setTabOrder(prev_input, pos_input)
-                prev_input = pos_input
-
-            self.form_view.save_button.setEnabled(False)
-            self.form_view.name_input.setEnabled(True)
-            self.form_view.notes_input.setEnabled(True)
-            self.stacked_widget.setCurrentIndex(5)  # Show form view
-
-        elif new_state == GUIState.WARNING:
-            self.warning_view.ok_button.setEnabled(True)
-            self.stacked_widget.setCurrentIndex(6)  # Show warning view
-
-        elif new_state == GUIState.SUCCESS:
-            self.success_view.more_button.setEnabled(True)
-            self.success_view.monitor_button.setEnabled(True)
-
-            for device in self.backend.devices:
-                if not device.connected.is_set():
-                    self.success_view.monitor_button.setEnabled(False)
-                    break
-
-            self.stacked_widget.setCurrentIndex(7)  # Show success view
+        self.form_view.save_button.setEnabled(False)
+        self._set_form_inputs_enabled(True)
 
     @Slot()
     def select_output_dir(self):
@@ -1344,7 +1105,7 @@ class MainWindow(QWidget):
     def handle_error_ok(self):
         """Handle OK button in error view"""
         self.update_disconnected_status()
-        self.update_ui_state(GUIState.DISCONNECTED)
+        self.set_state(UIState.DISCONNECTED)
         asyncio.create_task(self.backend.disconnect())
 
     @Slot()
@@ -1352,33 +1113,28 @@ class MainWindow(QWidget):
         """Handle device selection and connection"""
         selected_device = self.device_selection_view.get_selected_device()
         if selected_device:
-            self.device_selection_view.connect_button.setEnabled(False)
-            self.device_selection_view.monitor_button.setEnabled(False)
-            self.device_selection_view.refresh_button.setEnabled(False)
+            self._set_device_selection_buttons(
+                connect=False, monitor=False, refresh=False
+            )
             asyncio.create_task(self.backend.connect_to_device(selected_device))
 
     @Slot()
     def handle_device_refresh(self):
         """Handle refresh devices button"""
-        self.device_selection_view.connect_button.setEnabled(False)
-        self.device_selection_view.monitor_button.setEnabled(False)
-        self.device_selection_view.refresh_button.setEnabled(False)
+        self._set_device_selection_buttons(connect=False, monitor=False, refresh=False)
 
         asyncio.create_task(self.backend.refresh_devices())
 
     @Slot()
     def handle_monitor(self):
         """Handle monitor button in success view or selection view"""
-        self.device_selection_view.connect_button.setEnabled(False)
-        self.device_selection_view.monitor_button.setEnabled(False)
-        self.device_selection_view.refresh_button.setEnabled(False)
+        self._set_device_selection_buttons(connect=False, monitor=False, refresh=False)
 
         asyncio.create_task(self.backend.start_monitoring())
 
     @Slot()
     def handle_success_more(self):
-        self.success_view.more_button.setEnabled(False)
-        self.success_view.monitor_button.setEnabled(False)
+        self._set_success_buttons(more=False, monitor=False)
 
         if self._success_more_cb:
             asyncio.create_task(self._success_more_cb())
@@ -1387,8 +1143,7 @@ class MainWindow(QWidget):
 
     @Slot()
     def handle_success_monitor(self):
-        self.success_view.more_button.setEnabled(False)
-        self.success_view.monitor_button.setEnabled(False)
+        self._set_success_buttons(more=False, monitor=False)
 
         if self._success_monitor_cb:
             asyncio.create_task(self._success_monitor_cb())
@@ -1398,29 +1153,26 @@ class MainWindow(QWidget):
     @Slot()
     def handle_device_switch(self):
         """Handle refresh devices button"""
-        self.monitoring_view.switch_button.setEnabled(False)
-        self.monitoring_view.start_button.setEnabled(False)
+        self._set_monitoring_buttons(switch=False, start=False)
         asyncio.create_task(self.backend.disconnect())
 
     @Slot()
     def handle_start_logging(self):
         """Handle start logging button"""
-        self.monitoring_view.switch_button.setEnabled(False)
-        self.monitoring_view.start_button.setEnabled(False)
+        self._set_monitoring_buttons(switch=False, start=False)
         asyncio.create_task(self.backend.start_logging())
 
     @Slot()
     def handle_stop_logging(self):
         """Handle stop logging button"""
-        self.monitoring_view.stop_button.setEnabled(False)
+        self._set_monitoring_buttons(stop=False)
         asyncio.create_task(self.backend.stop_logging())
 
     @Slot()
     def handle_form_save(self):
         """Handle save form button"""
         self.form_view.save_button.setEnabled(False)
-        self.form_view.name_input.setEnabled(False)
-        self.form_view.notes_input.setEnabled(False)
+        self._set_form_inputs_enabled(False)
         form_data = self.form_view.get_data()
         asyncio.create_task(self.backend.save_record(form_data))
 
@@ -1429,7 +1181,7 @@ class MainWindow(QWidget):
         """Handle OK button in warning view"""
         self.warning_view.ok_button.setEnabled(False)
         if self._warning_ok_cb:
-            asyncio.create_task(self._warning_ok_cb())
+            asyncio.create_task(self._warning_ok_cb)
         else:
             asyncio.create_task(self.backend.disconnect())
 
@@ -1470,7 +1222,7 @@ class MainWindow(QWidget):
     @Slot()
     def poll_stream_data(self):
         # Only update plot if we're in monitoring view
-        if self.current_state != GUIState.MONITORING:
+        if self.current_state != UIState.MONITORING:
             return
 
         t = time.time() * 1000
@@ -1495,7 +1247,7 @@ class MainWindow(QWidget):
 
     def update_error_status(self, title, message):
         """Update the error view with a title and message"""
-        self.error_view.message.setText(title)
+        self.error_view.title_label.setText(title)
         self.error_view.status_label.setText(message)
 
     def update_warning_status(
@@ -1503,13 +1255,17 @@ class MainWindow(QWidget):
     ):
         """Update the warning view with a title and message"""
         self._warning_ok_cb = ok_cb
-        self.warning_view.message.setText(title)
+        self.warning_view.title_label.setText(title)
         self.warning_view.status_label.setText(message)
         self.warning_view.ok_button.setText(ok_text)
         self.warning_view.cancel_button.setVisible(show_cancel)
-    
-    def update_disconnected_status(self, title="Scanning for Movesense Devices", message="Please make sure your Movesense device is powered on and in range."):
-        self.disconnected_view.message.setText(title)
+
+    def update_disconnected_status(
+        self,
+        title="Scanning for Movesense Devices",
+        message="Please make sure your Movesense device is powered on and in range.",
+    ):
+        self.disconnected_view.title_label.setText(title)
         self.disconnected_view.status_label.setText(message)
 
     def update_success_status(
@@ -1524,17 +1280,17 @@ class MainWindow(QWidget):
         """Update the warning view with a title and message"""
         self._success_more_cb = left_cb
         self._success_monitor_cb = right_cb
-        self.success_view.message.setText(title)
+        self.success_view.title_label.setText(title)
         self.success_view.status_label.setText(message)
         self.success_view.more_button.setText(left_text)
         self.success_view.monitor_button.setText(right_text)
 
     def show_device_selection(self):
         self.device_selection_view.set_devices(self.backend.available_devices)
-        self.update_ui_state(GUIState.DEVICE_SELECTION)
+        self.set_state(UIState.DEVICE_SELECTION)
 
     def update_info_status(self, title, status):
-        self.info_view.message.setText(title)
+        self.info_view.title_label.setText(title)
         self.info_view.status_label.setText(status)
 
     def update_monitoring_status(self, status):
@@ -1621,7 +1377,7 @@ class MainWindow(QWidget):
                 "Shutting down...",
                 "Disconnecting all devices, this may take a few seconds.",
             )
-            self.update_ui_state(GUIState.INFO)
+            self.set_state(UIState.INFO)
 
         self._shutdown_attempts += 1
 
@@ -1637,7 +1393,6 @@ class MainWindow(QWidget):
             QApplication.instance().quit()
 
 
-# ----------------------------------------------------------------------
 class Backend:
     SENSOR_PATHS = ["/Meas/ECG/200/mV", "/Meas/IMU6/208"]
     PLOT_DURATION = 10
@@ -1665,13 +1420,13 @@ class Backend:
         self.sensor_log = {}
         self.metadata_log = {}
         self.device_infos = {}
-    
+
     def enable_defer_disconnect(self):
-        # When enabled, if a disconnection happens it will not interrupt the 
+        # When enabled, if a disconnection happens it will not interrupt the
         # current command, but will be deferred until disable_defer_disconnect()
         # is called
         self._defer_disconnect = True
-    
+
     async def disable_defer_disconnect(self, ignore_pending=False):
         # Restore normal disconnect behavior, applying any pending disconnects
         # If ignore_pending is True, pending disconnects are kept but not applied
@@ -1750,22 +1505,18 @@ class Backend:
         self.time_origins.clear()
         self.device_infos.clear()
 
-    # ---- Public API (GUI calls) -> commands enqueued -------------------
-
     async def connect_to_device(self, device_tuple: tuple):
         """GUI calls this when the user clicks Connect."""
         await self.queue_command(CmdConnect(device=device_tuple))
 
-    async def refresh_devices(self):
+    async def refresh_devices(self, repeat=False):
         """GUI calls this when the user clicks Refresh."""
-        await self.queue_command(CmdScanBLE())
-
-    # ---- Actor internals ------------------------------------------------
+        await self.queue_command(CmdScanBLE(repeat=repeat))
 
     async def _actor_loop(self):
         # Initial UI
         self.ui.update_disconnected_status()
-        self.ui.update_ui_state(GUIState.DISCONNECTED)
+        self.ui.set_state(UIState.DISCONNECTED)
 
         while True:
             cmd = await self._cmd_q.get()
@@ -1882,7 +1633,7 @@ class Backend:
         message: str = "Communication with the device failed. Please try again.",
     ):
         self.ui.update_error_status(title, message)
-        self.ui.update_ui_state(GUIState.ERROR)
+        self.ui.set_state(UIState.ERROR)
 
         await self.stop_devices()
         await self.clear_state()
@@ -1929,7 +1680,7 @@ class Backend:
             self._deferred_disconnect_id.append(device_id)
         else:
             self.clear_commands()
-            
+
             # We do not want other disconnects to interfere with the current one
             self.enable_defer_disconnect()
             await self.queue_command(CmdOnDisconnected(device_id=device_id))
@@ -1951,7 +1702,7 @@ class Backend:
         await self.queue_command(CmdStartLogging())
 
     async def stop_logging(self):
-        # We do not want a device disconnection to cause data loss while we are 
+        # We do not want a device disconnection to cause data loss while we are
         # saving the current recording
         self.enable_defer_disconnect()
         await self.queue_command(CmdStopLogging())
@@ -1960,7 +1711,7 @@ class Backend:
         await self.queue_command(CmdSaveRecord(metadata=form_data))
 
     async def resume_monitoring(self):
-        self.ui.update_ui_state(GUIState.MONITORING)
+        self.ui.set_state(UIState.MONITORING)
 
 
 # Internal command types
@@ -1973,23 +1724,42 @@ class CmdOnDisconnected:
     async def handle(self, back: Backend):
 
         if self.device_id:
-            back.ui.update_disconnected_status("Connection lost", f"Connection with device {self.device_id} was lost. Please wait...")
+            back.ui.update_disconnected_status(
+                "Connection lost",
+                f"Connection with device {self.device_id} was lost. Please wait...",
+            )
+
         else:
-            back.ui.update_disconnected_status()
-            back.ui.update_ui_state(GUIState.DISCONNECTED)
+            back.ui.update_disconnected_status(
+                "Connection lost", "Connection with devices was reset. Please wait..."
+            )
+
+        back.ui.set_state(UIState.DISCONNECTED)
 
         await back.stop_devices()
 
         if not back._logging:
             await back.clear_state()
-            await back.queue_command(CmdScanBLE(repeat=True))
+
+            if self.device_id:
+                back.ui.update_warning_status(
+                    "Connection lost",
+                    f"Connection with device {self.device_id} was lost.",
+                    ok_cb=back.refresh_devices(True),
+                )
+                back.ui.set_state(UIState.WARNING)
+            else:
+                # Leave some time for the BLE to settle before scanning
+                await asyncio.sleep(0.1)
+                await back.refresh_devices(repeat=True)
+
         else:
             back.ui.update_warning_status(
                 "Connection lost",
                 f"Connection with device {self.device_id} was lost. You can save the already recorded data.",
-                ok_cb=back.stop_logging,
+                ok_cb=back.stop_logging(),
             )
-            back.ui.update_ui_state(GUIState.WARNING)
+            back.ui.set_state(UIState.WARNING)
 
 
 @dataclass
@@ -2001,7 +1771,7 @@ class CmdScanBLE:
     async def handle(self, back: Backend):
         """One-shot USB probe; schedule next probe only if still disconnected."""
         back.ui.update_disconnected_status()
-        back.ui.update_ui_state(GUIState.DISCONNECTED)
+        back.ui.set_state(UIState.DISCONNECTED)
 
         try:
             found = await MovesenseGatt.detect_devices()
@@ -2031,15 +1801,15 @@ class CmdConnect:
             "Connecting",
             f"Connecting to {self.device[1]}...\nThis might take up to 10 seconds.",
         )
-        back.ui.update_ui_state(GUIState.INFO)
+        back.ui.set_state(UIState.INFO)
         success = await back.add_device(self.device[0], self.device[1])
         if not success:
             back.ui.update_warning_status(
                 "Connection failed",
                 f"Failed to connect to device {self.device[1]}. Please try again.",
-                ok_cb=back.refresh_devices,
+                ok_cb=back.refresh_devices(),
             )
-            back.ui.update_ui_state(GUIState.WARNING)
+            back.ui.set_state(UIState.WARNING)
             return
 
         back.ui.update_success_status(
@@ -2050,7 +1820,7 @@ class CmdConnect:
             "Start monitoring",
             back.start_monitoring,
         )
-        back.ui.update_ui_state(GUIState.SUCCESS)
+        back.ui.set_state(UIState.SUCCESS)
 
 
 @dataclass
@@ -2072,7 +1842,7 @@ class CmdMonitor:
         back.ui.monitoring_view.set_charts(
             [device.movesense_id for device in back.devices]
         )
-        back.ui.update_ui_state(GUIState.MONITORING)
+        back.ui.set_state(UIState.MONITORING)
 
 
 @dataclass
@@ -2087,9 +1857,7 @@ class CmdStartLogging:
         back.ui.prevent_close = True
         back._logging = True
 
-        back.ui.monitoring_view.stop_button.setEnabled(True)
-        back.ui.monitoring_view.start_button.setVisible(False)
-        back.ui.monitoring_view.stop_button.setVisible(True)
+        back.ui.set_monitoring_logging_controls()
 
 
 @dataclass
@@ -2103,7 +1871,7 @@ class CmdStopLogging:
         back._logging = False
         back.metadata_log["end_time"] = datetime.datetime.now(datetime.UTC).isoformat()
 
-        back.ui.update_ui_state(GUIState.FORM)
+        back.ui.set_state(UIState.FORM)
 
 
 @dataclass
@@ -2115,7 +1883,7 @@ class CmdSaveRecord:
             raise RuntimeError("CmdSaveRecord: Still logging")
 
         back.ui.update_info_status("Saving record", "Please wait...")
-        back.ui.update_ui_state(GUIState.INFO)
+        back.ui.set_state(UIState.INFO)
 
         # Save data to files
         timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
@@ -2160,10 +1928,9 @@ class CmdSaveRecord:
             "Back to monitoring",
             back.resume_monitoring,
         )
-        back.ui.update_ui_state(GUIState.SUCCESS)
+        back.ui.set_state(UIState.SUCCESS)
 
 
-# ----------------------------------------------------------------------
 def main():
     logging.basicConfig(level=logging.INFO)
 
