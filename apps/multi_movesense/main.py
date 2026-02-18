@@ -1971,8 +1971,12 @@ class CmdOnDisconnected:
     device_id: Optional[str] = None
 
     async def handle(self, back: Backend):
-        back.ui.update_disconnected_status("Connection lost", f"Connection with device {self.device_id} was lost. Please wait...")
-        back.ui.update_ui_state(GUIState.DISCONNECTED)
+
+        if self.device_id:
+            back.ui.update_disconnected_status("Connection lost", f"Connection with device {self.device_id} was lost. Please wait...")
+        else:
+            back.ui.update_disconnected_status()
+            back.ui.update_ui_state(GUIState.DISCONNECTED)
 
         await back.stop_devices()
 
