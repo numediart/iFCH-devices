@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import __version__
 from .ui_components import (
     ACC_COLOR,
     BLUE_BUTTON,
@@ -135,6 +136,8 @@ class SettingsView(BaseView):
         self.main_layout.addWidget(
             self.close_button, alignment=Qt.AlignmentFlag.AlignCenter
         )
+        version_label = WidgetFactory.create_status_label(f"App version: {__version__}")
+        self.main_layout.addWidget(version_label)
 
 
 class InfoView(BaseView):
