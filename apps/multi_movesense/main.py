@@ -58,6 +58,8 @@ class MainWindow(QWidget):
 
         self.settings_stack = QStackedWidget(self)
         self.settings_view = SettingsView()
+        self.settings_view.close_button.clicked.connect(self.handle_settings_close)
+        self.settings_view.browse_btn.clicked.connect(self.select_output_dir)
         self.settings_stack.addWidget(self.settings_view)
 
         # Create stacked widget to hold different views
@@ -134,6 +136,7 @@ class MainWindow(QWidget):
         # Create settings button using factory
         settings_style = ButtonStyle(GREY_L, GREY_M, GREY_D)
         settings_button = WidgetFactory.create_button("Settings", settings_style)
+        settings_button.clicked.connect(self.handle_settings)
 
         views_layout.addWidget(settings_button, alignment=Qt.AlignmentFlag.AlignRight)
         views_layout.addWidget(self.stacked_widget)
