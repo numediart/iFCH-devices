@@ -319,7 +319,6 @@ class Backend:
     async def start_logging(self):
         # Prepare logs
         self.sensor_log = {}
-        self.metadata_log = {"source": f"multi_movesense-{__version__}"}
 
         def sensor_dict():
             return collections.defaultdict(list)
