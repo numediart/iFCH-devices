@@ -106,16 +106,7 @@ class Backend:
 
     async def quit(self):
         """Stop gracefully."""
-        # Cancel timers/watchers fast; they only enqueue messages.
-        for t in list(self._timers):
-            t.cancel()
-        self._timers.clear()
-        if self._disconnect_watchers:
-            [
-                disconnect_watch.cancel()
-                for disconnect_watch in self._disconnect_watchers
-            ]
-            self._disconnect_watchers.clear()
+        await self.stop_devices()
 
         # Cancel the actor task if it's running
         if self._actor_task:
@@ -123,11 +114,6 @@ class Backend:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._actor_task
             self._actor_task = None
-
-        # Stop device
-        if self.devices:
-            await asyncio.gather(*[device.stop() for device in self.devices])
-            self.devices = None
 
         self.sensors_data.clear()
         self.time_origins.clear()
@@ -219,9 +205,8 @@ class Backend:
         self._timers.clear()
 
         if self.devices:
-            for device in self.devices:
-                with contextlib.suppress(Exception):
-                    await device.stop()
+            await asyncio.gather(*[device.stop() for device in self.devices])
+            self.devices = []
 
         self.clear_commands()
 
