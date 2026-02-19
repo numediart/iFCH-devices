@@ -8,6 +8,7 @@ import pathlib
 import sys
 import time
 from dataclasses import dataclass
+from enum import Enum, auto
 from typing import Any, Callable, Optional
 
 import numpy as np
@@ -89,8 +90,7 @@ class MessageButton:
 
 
 @dataclass
-class StateSpec:
-    key: str
+class ViewSpec:
     view: QWidget
     on_enter: Optional[Callable[[], None]] = None
 
@@ -256,14 +256,50 @@ class WidgetFactory:
         return text_edit
 
     @staticmethod
-    def create_form_layout(vertical_spacing: int = 20) -> QFormLayout:
-        """Create a styled form layout"""
-        form_layout = QFormLayout(verticalSpacing=vertical_spacing)
-        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form_layout.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+    def create_message_box(
+        title: str,
+        message: str,
+        parent: Optional[QWidget] = None,
+    ) -> QMessageBox:
+        """Create a styled warning messagebox with Ignore/Cancel buttons"""
+        msg = QMessageBox(
+            QMessageBox.Icon.Warning,
+            title,
+            message,
+            QMessageBox.StandardButton.Ignore | QMessageBox.StandardButton.Cancel,
+            modal=True,
+            parent=parent,
         )
-        return form_layout
+        msg.button(QMessageBox.StandardButton.Ignore).setText("Ignore")
+        msg.button(QMessageBox.StandardButton.Cancel).setText("Cancel")
+        msg.setWindowFlags(Qt.Popup)
+
+        msg.setStyleSheet(
+            f"""
+            QMessageBox {{
+                background-color: {RED_L};
+            }}
+            QLabel {{
+                 color: white;
+                 font-size: 18px;
+            }}
+            QPushButton {{
+                font-size: 18px;
+                padding: 6px 12px;
+                background-color: {GREY_L};
+                border: none;
+                border-radius: 8px;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: {GREY_M};
+            }}
+            QPushButton:pressed {{
+                background-color: {GREY_D};
+            }}
+        """
+        )
+        return msg
 
 
 class LayoutBuilder:
@@ -303,16 +339,39 @@ class LayoutBuilder:
 
         return layout
 
+    @staticmethod
+    def create_form_layout(vertical_spacing: int = 20):
+        """Create a styled form layout and widget"""
+        form_layout = QFormLayout(verticalSpacing=vertical_spacing)
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form_layout.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
 
-class UIState:
-    ERROR = "error"
-    DISCONNECTED = "disconnected"
-    INFO = "info"
-    DEVICE_SELECTION = "device_selection"
-    MONITORING = "monitoring"
-    FORM = "form"
-    WARNING = "warning"
-    SUCCESS = "success"
+        # Form widget
+        form_widget = QWidget()
+        form_widget.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {PURPLE_L};
+            }}
+            """
+        )
+        form_widget.setLayout(form_layout)
+
+        return form_layout, form_widget
+
+
+class UIState(Enum):
+    ERROR = auto()
+    DISCONNECTED = auto()
+    INFO = auto()
+    DEVICE_SELECTION = auto()
+    MONITORING = auto()
+    FORM = auto()
+    WARNING = auto()
+    SUCCESS = auto()
 
 
 class BaseView(QWidget):
@@ -519,19 +578,10 @@ class FormView(QWidget):
         layout.addWidget(status_label)
         layout.addSpacing(BUTTON_SPACING)
 
-        # Form widget
-        form_widget = QWidget()
-        form_widget.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 16px;
-                color: {PURPLE_L};
-            }}
-            """
+        self.form_layout, form_widget = LayoutBuilder.create_form_layout(
+            vertical_spacing=20
         )
-
-        self.form_layout = WidgetFactory.create_form_layout(vertical_spacing=20)
-        form_widget.setLayout(self.form_layout)
+        layout.addWidget(form_widget)
 
         # Name
         self.name_input = WidgetFactory.create_line_edit(placeholder="Enter name")
@@ -545,8 +595,6 @@ class FormView(QWidget):
 
         self.save_path = WidgetFactory.create_line_edit(read_only=True)
         self.form_layout.addRow("Save path:", self.save_path)
-
-        layout.addWidget(form_widget)
 
         self.position_inputs = {}
 
@@ -835,53 +883,65 @@ class MainWindow(QWidget):
 
         # Create stacked widget to hold different views
         self.stacked_widget = QStackedWidget(self)
+        self._views_dict: dict[UIState, ViewSpec] = {}
 
-        self._state_specs: dict[str, StateSpec] = {}
-
-        # Create all views
+        # Create and register all views with signal connections
         self.error_view = ErrorView()
-        self.disconnected_view = DisconnectedView()
-        self.info_view = InfoView()
-        self.device_selection_view = DeviceSelectionView()
-        self.monitoring_view = MonitoringView()
-        self.form_view = FormView()
-        self.warning_view = WarningView()
-        self.success_view = SuccessView()
+        self.error_view.ok_button.clicked.connect(self.handle_error_ok)
+        self._register_state(
+            UIState.ERROR, self.error_view, on_enter=self._enter_error_state
+        )
 
-        # Register views with state behavior
-        self._register_state(
-            UIState.ERROR,
-            self.error_view,
-            on_enter=self._enter_error_state,
+        self.disconnected_view = DisconnectedView()
+        self._register_state(UIState.DISCONNECTED, self.disconnected_view)
+
+        self.info_view = InfoView()
+        self._register_state(UIState.INFO, self.info_view)
+
+        self.device_selection_view = DeviceSelectionView()
+        self.device_selection_view.connect_button.clicked.connect(
+            self.handle_device_connect
         )
-        self._register_state(
-            UIState.DISCONNECTED,
-            self.disconnected_view,
-        )
-        self._register_state(
-            UIState.INFO,
-            self.info_view,
+        self.device_selection_view.monitor_button.clicked.connect(self.handle_monitor)
+        self.device_selection_view.refresh_button.clicked.connect(
+            self.handle_device_refresh
         )
         self._register_state(
             UIState.DEVICE_SELECTION,
             self.device_selection_view,
             on_enter=self._enter_device_selection_state,
         )
+
+        self.monitoring_view = MonitoringView()
+        self.monitoring_view.start_button.clicked.connect(self.handle_start_logging)
+        self.monitoring_view.stop_button.clicked.connect(self.handle_stop_logging)
+        self.monitoring_view.switch_button.clicked.connect(self.handle_device_switch)
         self._register_state(
             UIState.MONITORING,
             self.monitoring_view,
             on_enter=self._enter_monitoring_state,
         )
+
+        self.form_view = FormView()
+        self.form_view.save_button.clicked.connect(self.handle_form_save)
         self._register_state(
             UIState.FORM,
             self.form_view,
             on_enter=self._enter_form_state,
         )
+
+        self.warning_view = WarningView()
+        self.warning_view.cancel_button.clicked.connect(self.handle_error_ok)
+        self.warning_view.ok_button.clicked.connect(self.handle_warning_ok)
         self._register_state(
             UIState.WARNING,
             self.warning_view,
             on_enter=self._enter_warning_state,
         )
+
+        self.success_view = SuccessView()
+        self.success_view.more_button.clicked.connect(self.handle_success_more)
+        self.success_view.monitor_button.clicked.connect(self.handle_success_monitor)
         self._register_state(
             UIState.SUCCESS,
             self.success_view,
@@ -904,31 +964,6 @@ class MainWindow(QWidget):
 
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(self.settings_stack)
-
-        # Connect signals
-        self.monitoring_view.start_button.clicked.connect(self.handle_start_logging)
-        self.monitoring_view.stop_button.clicked.connect(self.handle_stop_logging)
-        self.monitoring_view.switch_button.clicked.connect(self.handle_device_switch)
-        self.device_selection_view.connect_button.clicked.connect(
-            self.handle_device_connect
-        )
-        self.device_selection_view.monitor_button.clicked.connect(self.handle_monitor)
-        self.device_selection_view.refresh_button.clicked.connect(
-            self.handle_device_refresh
-        )
-
-        self.error_view.ok_button.clicked.connect(self.handle_error_ok)
-        self.form_view.save_button.clicked.connect(self.handle_form_save)
-
-        self.warning_view.cancel_button.clicked.connect(self.handle_error_ok)
-        self.warning_view.ok_button.clicked.connect(self.handle_warning_ok)
-
-        self.success_view.more_button.clicked.connect(self.handle_success_more)
-        self.success_view.monitor_button.clicked.connect(self.handle_success_monitor)
-
-        settings_button.clicked.connect(self.handle_settings)
-        self.settings_view.close_button.clicked.connect(self.handle_settings_close)
-        self.settings_view.browse_btn.clicked.connect(self.select_output_dir)
 
         self._warning_ok_cb = None
         self._success_monitor_cb = None
@@ -953,19 +988,16 @@ class MainWindow(QWidget):
 
     def _register_state(
         self,
-        key: str,
+        key: UIState,
         view: QWidget,
         on_enter: Optional[Callable[[], None]] = None,
     ):
-        self._state_specs[key] = StateSpec(key=key, view=view, on_enter=on_enter)
+        self._views_dict[key] = ViewSpec(view=view, on_enter=on_enter)
         self.stacked_widget.addWidget(view)
 
-    def set_state(self, new_state: str):
+    def set_state(self, new_state: UIState):
         """Update the entire UI based on the current device state"""
-        spec = self._state_specs.get(new_state)
-        if not spec:
-            logging.error("Unknown UI state: %s", new_state)
-            return
+        spec = self._views_dict[new_state]
 
         self.current_state = new_state
 
@@ -1034,6 +1066,7 @@ class MainWindow(QWidget):
         self.warning_view.ok_button.setEnabled(True)
 
     def _enter_device_selection_state(self):
+        self.device_selection_view.set_devices(self.backend.available_devices)
         self._set_device_selection_buttons(
             connect=len(self.backend.available_devices) > 0,
             monitor=len(self.backend.devices) > 0,
@@ -1041,6 +1074,9 @@ class MainWindow(QWidget):
         )
 
     def _enter_monitoring_state(self):
+        self.monitoring_view.set_charts(
+            [device.movesense_id for device in self.backend.devices]
+        )
         self._set_monitoring_buttons(
             start=True,
             stop=False,
@@ -1285,10 +1321,6 @@ class MainWindow(QWidget):
         self.success_view.more_button.setText(left_text)
         self.success_view.monitor_button.setText(right_text)
 
-    def show_device_selection(self):
-        self.device_selection_view.set_devices(self.backend.available_devices)
-        self.set_state(UIState.DEVICE_SELECTION)
-
     def update_info_status(self, title, status):
         self.info_view.title_label.setText(title)
         self.info_view.status_label.setText(status)
@@ -1307,42 +1339,10 @@ class MainWindow(QWidget):
 
             # Open a popup or dialog to inform the user
             logging.warning("Close event ignored due to prevent_close flag.")
-            msg = QMessageBox(
-                QMessageBox.Icon.Warning,
+            msg = WidgetFactory.create_message_box(
                 "Warning",
                 "Potential data loss if closed now!",
-                QMessageBox.StandardButton.Ignore | QMessageBox.StandardButton.Cancel,
-                modal=True,
                 parent=self,
-            )
-            msg.button(QMessageBox.StandardButton.Ignore).setText("Ignore")
-            msg.button(QMessageBox.StandardButton.Cancel).setText("Cancel")
-            msg.setWindowFlags(Qt.Popup)
-            # Customize the message box appearance
-            msg.setStyleSheet(
-                f"""
-                QMessageBox {{
-                    background-color: {RED_L};
-                }}
-                QLabel {{
-                     color: white;
-                     font-size: 18px;
-                }}
-                QPushButton {{
-                    font-size: 18px;
-                    padding: 6px 12px;
-                    background-color: {GREY_L};
-                    border: none;
-                    border-radius: 8px;
-                    color: white;
-                }}
-                QPushButton:hover {{
-                    background-color: {GREY_M};
-                }}
-                QPushButton:pressed {{
-                    background-color: {GREY_D};
-                }}
-            """
             )
             pressed = msg.exec()
             if pressed == QMessageBox.StandardButton.Ignore:
@@ -1785,7 +1785,7 @@ class CmdScanBLE:
 
         if found or not self.repeat:
             back.available_devices = found
-            back.ui.show_device_selection()
+            back.ui.set_state(UIState.DEVICE_SELECTION)
 
         else:
             # Schedule another probe later (no busy loop)
@@ -1839,9 +1839,6 @@ class CmdMonitor:
                     )
                     return
 
-        back.ui.monitoring_view.set_charts(
-            [device.movesense_id for device in back.devices]
-        )
         back.ui.set_state(UIState.MONITORING)
 
 
