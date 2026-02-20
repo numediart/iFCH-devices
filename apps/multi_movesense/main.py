@@ -324,7 +324,7 @@ class MainWindow(QWidget):
         """Handle OK button in error view"""
         self.update_disconnected_status()
         self.set_state(UIState.DISCONNECTED)
-        asyncio.create_task(self.backend.disconnect())
+        asyncio.create_task(self.backend.disconnect(force=True))
 
     @Slot()
     def handle_device_connect(self):

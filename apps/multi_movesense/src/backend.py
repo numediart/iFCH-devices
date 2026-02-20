@@ -286,10 +286,10 @@ class Backend:
 
         return True
 
-    async def disconnect(self, device_id=None):
+    async def disconnect(self, device_id=None, force=False):
         """Disconnect from the device and reset state."""
 
-        if self._defer_disconnect:
+        if self._defer_disconnect and not force:
             self._deferred_disconnect_id.append(device_id)
         else:
             self.clear_commands()
