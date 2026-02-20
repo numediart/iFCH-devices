@@ -507,14 +507,6 @@ class MainWindow(QWidget):
         self.info_view.title_label.setText(title)
         self.info_view.status_label.setText(status)
 
-    def update_monitoring_status(self, status):
-        self.monitoring_view.status_label.setText(status)
-
-    def update_device_info(self, **kwargs):
-        for key in self.monitoring_view.fields.keys():
-            if key in kwargs:
-                self.monitoring_view.fields[key].setText(kwargs[key])
-
     def closeEvent(self, event):
         if self.prevent_close:
             event.ignore()

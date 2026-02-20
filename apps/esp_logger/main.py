@@ -1473,9 +1473,6 @@ class MainWindow(QWidget):
         self.info_view.message.setText(title)
         self.info_view.status_label.setText(status)
 
-    def update_monitoring_status(self, status):
-        self.monitoring_view.status_label.setText(status)
-
     def update_device_info(self, **kwargs):
         for key in self.monitoring_view.fields.keys():
             if key in kwargs:
