@@ -1731,6 +1731,7 @@ void IfchGattClient::onTimer(wb::TimerId timerId)
             // Make PUT request to enter power off mode
             asyncPut(WB_RES::LOCAL::SYSTEM_MODE(), AsyncRequestOptions(NULL, 0, true), // true = Force async
                      WB_RES::SystemModeValues::FULLPOWEROFF);
+            // FIXME use a low power mode instead to preserve the RTC
         }
     }
 

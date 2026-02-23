@@ -119,6 +119,7 @@ class ESPRecordConverter:
     def _patch_timestamps(self, sensor, sensor_dict):
         # Patches the timestamps in case of a restart, then detects anomalies
 
+        # FIXME use the UTCTIME subscription to detect anomalies instead
         # TODO save the detected anomalies in metadata
 
         last_time = self.record[sensor]["timestamps"][-1]
@@ -174,6 +175,8 @@ class ESPRecordConverter:
         # Detect anomalies based on the comparison of RTC and Movesense time
         # Update the time correction if a restart is detected, to patch the
         # timestamps of upcoming data
+
+        # FIXME use the UTCTIME subscription to detect restarts instead
 
         try:
             checkpoint_id = self.checkpoints["ID"].index(chunk_id)
@@ -387,6 +390,11 @@ class ESPRecordConverter:
             else:
                 start_time = min(start_time, sensor["timestamps"][0])
                 end_time = max(end_time, sensor["timestamps"][-1])
+        # FIXME check that the record is flattened, otherwise compute the
+        # duration of an array of samples and add it to the last timestamp
+
+        # FIXME use the UTCTIME subscription to determine the start and end time
+        # and check that the timestamps are indeed relative time
 
         # Convert unix epochs to ISO 8601
         start_time = datetime.datetime.fromtimestamp(
@@ -396,6 +404,8 @@ class ESPRecordConverter:
             end_time / 1000, datetime.UTC
         ).isoformat()
 
+        # FIXME use UTCTIME in the record in order to have a uniform way to handle time
+        # this must be moved to the record writer probably
         self.metadata["start_time"] = start_time
         self.metadata["end_time"] = end_time
 

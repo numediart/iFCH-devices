@@ -287,6 +287,8 @@ class SBEMDecoder:
         if sbem_version != "SBEM0112":
             raise NotImplementedError(f"Unsupported SBEM version: {sbem_version}")
 
+        # FIXME add UTCTIME to the default descriptors
+        # Create a script to update the default descriptors with new ones
         default_header = (
             pathlib.Path(__file__).parent / "data" / "default_descriptors.bin"
         )

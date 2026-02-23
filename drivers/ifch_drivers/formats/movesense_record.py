@@ -123,6 +123,9 @@ def write(
             raise ValueError("'format' is a reserved metadata key and cannot be used.")
         metadata["format"] = FORMAT_TAG
 
+        # FIXME check that the metadata contains start_time and end_time, or
+        # that the record contains a subscription to UTCTIME and compute them
+
         # Store the metadata as attributes of the root group
         for key, value in metadata.items():
             add_attr(hfile, key, value)
