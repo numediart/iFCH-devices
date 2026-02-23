@@ -106,7 +106,6 @@ class Backend:
 
     async def quit(self):
         """Stop gracefully."""
-        await self.stop_devices()
 
         # Cancel the actor task if it's running
         if self._actor_task:
@@ -115,9 +114,8 @@ class Backend:
                 await self._actor_task
             self._actor_task = None
 
-        self.sensors_data.clear()
-        self.time_origins.clear()
-        self.device_infos.clear()
+        await self.stop_devices()
+        await self.clear_state()
 
     async def connect_to_device(self, device_tuple: tuple):
         """GUI calls this when the user clicks Connect."""
