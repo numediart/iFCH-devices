@@ -10,18 +10,33 @@ FORMAT_TAG = f"ifch_movesense_record-{__version__}"
 
 
 class MovesenseDataTypes(enum.Enum):
-    ECG = "/Meas/ECG".upper()
-    ECGMV = "/Meas/ECG/mv".upper()
+    scale: float
+
+    def __new__(cls, title: str, scale: float = 1):
+        obj = object.__new__(cls)
+        obj._value_ = title
+
+        obj.scale = scale
+        return obj
+
+    ECG = "/Meas/ECG".upper(), 0.38147e-6
+    ECGMV = "/Meas/ECG/mv".upper(), 1e-3
     IMU6 = "/Meas/IMU6".upper()
     IMU9 = "/Meas/IMU9".upper()
     ACC = "/Meas/Acc".upper()
     GYRO = "/Meas/Gyro".upper()
     MAGN = "/Meas/Magn".upper()
+    UTCTIME = "/Time/Detailed".upper(), 1e-6
 
     @classmethod
     def from_path(cls, path):
         split_path = path.split("/")
-        sampling = int(split_path.pop(3))
+
+        if len(split_path) > 3:
+            sampling = int(split_path.pop(3))
+        else:
+            sampling = 0
+
         data_type = "/".join(split_path)
         data_type = cls(data_type.upper())
 
@@ -57,18 +72,12 @@ def write(
     for sensor in sensor_paths:
         sensor_name, sampling = MovesenseDataTypes.from_path(sensor)
 
-        scale = 1
-        if sensor_name == MovesenseDataTypes.ECG:
-            scale = 0.38147e-6
-        elif sensor_name == MovesenseDataTypes.ECGMV:
-            scale = 1e-3
-
         if sensor_name.name not in record:
             raise ValueError(f"Sensor {sensor_name.name} not found in record")
         else:
             sensor_properties[sensor_name.name] = {
                 "sampling": sampling,
-                "scale": scale,
+                "scale": sensor_name.scale,
             }
 
     if not isinstance(file_path, pathlib.Path):

@@ -223,16 +223,32 @@ class MovesenseStreamDecoder:
                     ]
                 }
 
+        elif data_type == MovesenseDataTypes.UTCTIME:
+            if packet_type != Responses.DATA:
+                logging.error("Invalid packet type for %s: %s", data_type, packet_type)
+                return None
+
+            timestamp = int.from_bytes(packet[2:6], byteorder="little")
+            time_utc = int.from_bytes(packet[6:14], byteorder="little")
+
+            samples = {
+                data_type.name: [
+                    time_utc,
+                ]
+            }
+
         else:
             logging.warning("Stream decoding of %s not implemented.", data_type)
             return None
 
-        if flatten:
+        if flatten and sampling > 0:
             samples_len = len(next(iter(samples.values())))
             samples["timestamps"] = [
                 timestamp + 1000 * i / sampling for i in range(samples_len)
             ]
         else:
-            samples["timestamps"] = timestamp
+            samples["timestamps"] = [
+                timestamp,
+            ]
 
         return (data_type.name, samples)

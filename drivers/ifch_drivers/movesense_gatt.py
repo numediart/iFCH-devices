@@ -435,14 +435,19 @@ class MovesenseGatt:
         while reference in self._stream_subscribtions:
             reference += 1
 
+        self._stream_subscribtions[reference] = path
+        self._stream_decoder.subscriptions = self._stream_subscribtions
+
         byte_path = bytearray(path, "utf-8")
         result = await self.send_and_wait(Commands.SUBSCRIBE, reference, byte_path)
         success, _, _ = result
 
         if success:
-            self._stream_subscribtions[reference] = path
-            self._stream_decoder.subscriptions = self._stream_subscribtions
             return True
+
+        else:
+            del self._stream_subscribtions[reference]
+            self._stream_decoder.subscriptions = self._stream_subscribtions
 
         return None
 
