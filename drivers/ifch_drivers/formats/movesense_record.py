@@ -1,4 +1,5 @@
 import enum
+import logging
 import pathlib
 
 import h5py
@@ -63,9 +64,6 @@ def write(
         ValueError: if the provided sensor_paths do not match sensors in the record
     """
 
-    if len(sensor_paths) and len(sensor_paths) != len(record):
-        raise ValueError("Mismatch between sensor_paths and record keys")
-
     sensor_properties = {}
 
     # Store sampling and scale for each sensor in sensor_paths
@@ -73,11 +71,22 @@ def write(
         sensor_name, sampling = MovesenseDataTypes.from_path(sensor)
 
         if sensor_name.name not in record:
-            raise ValueError(f"Sensor {sensor_name.name} not found in record")
+            logging.warning(
+                f"Sensor {sensor_name.name} provided in sensor_paths not found in record, discarding"
+            )
         else:
             sensor_properties[sensor_name.name] = {
                 "sampling": sampling,
                 "scale": sensor_name.scale,
+            }
+    for sensor_name in record.keys():
+        if sensor_name not in sensor_properties:
+            logging.warning(
+                f"Sensor {sensor_name} found in record but not provided in sensor_paths, flagging invalid properties"
+            )
+            sensor_properties[sensor_name] = {
+                "sampling": -1,
+                "scale": -1,
             }
 
     if not isinstance(file_path, pathlib.Path):
