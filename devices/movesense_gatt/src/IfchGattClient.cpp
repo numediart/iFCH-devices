@@ -71,6 +71,7 @@ enum Commands
     UNSUBSCRIBE_ALL = 12,
     GET_LOGGING_STATE = 13,
     GET_BATTERY = 14,
+    SET_UTCTIME = 15,
 };
 
 enum Responses
@@ -125,6 +126,7 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mLogListLastId(0),
                                    mDataloggerStateReference(0),
                                    mGetTimeReference(0),
+                                   mSetUTCTimeReference(0),
                                    mGetInfoReference(0),
                                    mGetBatteryReference(0),
                                    mGetLoggingReference(0),
@@ -783,6 +785,31 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
         return;
     }
+    case Commands::SET_UTCTIME:
+    {
+        DEBUGLOG("Commands::SET_UTCTIME. reference: %d", reference);
+
+        // Validate input data length (int64_t = 8 bytes)
+        if (pData == nullptr || dataLen != sizeof(int64_t))
+        {
+            // Return 400 Bad Request error
+            uint8_t respError[] = {Responses::COMMAND_RESULT, reference, Codes::BAD_REQUEST, Status::ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), respError, sizeof(respError));
+            return;
+        }
+
+        // Extract time value from client data
+        int64_t timeValue = 0;
+        memcpy(&timeValue, pData, sizeof(int64_t));
+
+        // Store client reference for response handling
+        mSetUTCTimeReference = reference;
+
+        // Set the time using whiteboard
+        asyncPut(WB_RES::LOCAL::TIME(), AsyncRequestOptions::Empty, timeValue);
+
+        return;
+    }
     default:
     {
         // Return an error message
@@ -1109,7 +1136,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         const auto &time = rResultData.convertTo<const WB_RES::DetailedTime &>();
 
-        uint8_t timeMsg[8];
+        uint8_t timeMsg[16];
 
         timeMsg[0] = Responses::COMMAND_RESULT;
         timeMsg[1] = mGetTimeReference;
@@ -1118,6 +1145,9 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         uint32_t relTime = time.relativeTime;
         memcpy(&timeMsg[4], &relTime, 4);
+
+        int64_t utcTime = time.utcTime;
+        memcpy(&timeMsg[8], &utcTime, 8);
 
         asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), timeMsg, sizeof(timeMsg));
 
@@ -1368,6 +1398,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             mLogListReference = 0;
             mLogFetchReference = 0;
             mGetTimeReference = 0;
+            mSetUTCTimeReference = 0;
             mGetInfoReference = 0;
             mGetBatteryReference = 0;
             mGetLoggingReference = 0;
@@ -1609,6 +1640,32 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
                 mDataloggerStateReference = 0;
             }
         }
+        break;
+    }
+    case WB_RES::LOCAL::TIME::LID:
+    {
+        if (mSetUTCTimeReference == 0)
+        {
+            // No pending SET_UTCTIME request
+            break;
+        }
+
+        if (resultCode < 400)
+        {
+            // 200: OK
+            uint8_t ackMsg[] = {Responses::COMMAND_RESULT, mSetUTCTimeReference, Codes::OK, Status::SUCCESS};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
+        }
+        else
+        {
+            DEBUGLOG("Error setting time: %d", resultCode);
+
+            // 500: Internal server error
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mSetUTCTimeReference, Codes::INTERNAL_ERROR, Status::ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+        }
+
+        mSetUTCTimeReference = 0;
         break;
     }
     }

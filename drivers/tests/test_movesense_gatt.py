@@ -1,10 +1,12 @@
 import asyncio
+import datetime
 
 import pytest
 from ifch_drivers.movesense_gatt import MovesenseGatt
 
 data_notifications = []
 PATH_ECG_125 = "/Meas/ECG/125"
+TEST_TIME = 1704742200000000
 
 
 def process_notification(_, data):
@@ -86,7 +88,7 @@ async def test_unsubscribe_all(client: MovesenseGatt):
     assert len(data_notifications) == 0, "Data received after unsubscribe all"
 
 
-async def test_battery(client):
+async def test_battery(client: MovesenseGatt):
     if not client.is_ifch_firmware:
         pytest.skip("Device is not running iFCH firmware")
 
@@ -95,13 +97,36 @@ async def test_battery(client):
     assert 0 <= battery <= 100
 
 
-async def test_time(client):
+async def test_time(client: MovesenseGatt):
     if not client.is_ifch_firmware:
         pytest.skip("Device is not running iFCH firmware")
 
     dev_time = await client.get_time()
     assert dev_time is not None
-    assert dev_time > 0
+    assert isinstance(dev_time, tuple) and len(dev_time) == 2
+    assert dev_time[0] > 0 and dev_time[1] > 0
+
+    success = await client.set_utc_time(TEST_TIME)
+    assert success is not None, "Failed to set UTC time"
+
+    dev_time = await client.get_time()
+    assert dev_time is not None, "Failed to get time"
+
+    assert 0 < dev_time[1] - TEST_TIME < 10_000_000, (
+        f"Device time {dev_time[1]} is not close to set time {TEST_TIME}"
+    )
+
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    success = await client.set_utc_time()
+    assert success is not None, "Failed to set UTC time to current time"
+
+    dev_time = await client.get_time()
+    assert dev_time is not None, "Failed to get time"
+
+    now_timestamp_us = int(now.timestamp() * 1e6)
+    assert 0 < dev_time[1] - now_timestamp_us < 10_000_000, (
+        f"Device time {dev_time[1]} is not close to current time {now_timestamp_us}"
+    )
 
 
 async def test_log(client: MovesenseGatt):

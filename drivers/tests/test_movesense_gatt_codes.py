@@ -56,6 +56,22 @@ async def test_time(client):
     await run_test_command(client, Commands.GET_TIME, StatusCodes.OK_200)
 
 
+async def test_set_utc_time(client):
+    await run_test_command(
+        client,
+        Commands.SET_UTCTIME,
+        StatusCodes.OK_200,
+        data=(1704742200000000).to_bytes(8, byteorder="little"),
+    )
+
+    await run_test_command(
+        client,
+        Commands.SET_UTCTIME,
+        StatusCodes.ERROR_400,
+        data=(1704742200000000).to_bytes(10, byteorder="little"),
+    )
+
+
 async def test_battery(client):
     await run_test_command(client, Commands.GET_BATTERY, StatusCodes.OK_200)
 

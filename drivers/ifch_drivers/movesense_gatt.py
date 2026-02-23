@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import enum
 import io
 import logging
@@ -35,6 +36,7 @@ class Commands(enum.Enum):
     UNSUBSCRIBE_ALL = 12
     GET_LOGGING_STATE = 13
     GET_BATTERY = 14
+    SET_UTCTIME = 15
     INVALID = 0xFF
 
 
@@ -689,13 +691,34 @@ class MovesenseGatt:
         success, _, payload = result
 
         if success:
-            if len(payload) == 4:
-                return int.from_bytes(payload, byteorder="little")
+            if len(payload) == 12:
+                rel_time = int.from_bytes(payload[:4], byteorder="little")
+                utc_time = int.from_bytes(payload[4:12], byteorder="little")
+                return (rel_time, utc_time)
             else:
                 logging.error("Unexpected payload for GET_TIME: %s", payload)
                 return None
         else:
             return None
+
+    async def set_utc_time(self, timestamp_us: datetime.datetime | int | None = None):
+        if not self._is_ifch_firmware:
+            logging.warning(
+                "Set UTC time command not supported on standard Movesense firmware"
+            )
+            raise RuntimeError("Not iFCH Movesense firmware")
+
+        if timestamp_us is None:
+            timestamp_us = datetime.datetime.now(tz=datetime.timezone.utc)
+
+        if isinstance(timestamp_us, datetime.datetime):
+            timestamp_us = int(timestamp_us.timestamp() * 1e6)
+
+        timestamp_bytes = timestamp_us.to_bytes(8, byteorder="little")
+        result = await self.send_and_wait(Commands.SET_UTCTIME, data=timestamp_bytes)
+        success, _, _ = result
+
+        return success
 
     async def reset(self) -> bool | None:
         """

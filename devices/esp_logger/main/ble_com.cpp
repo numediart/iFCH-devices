@@ -49,6 +49,7 @@ enum Commands
     UNSUBSCRIBE_ALL = 12,
     GET_LOGGING_STATE = 13,
     GET_BATTERY = 14,
+    SET_UTCTIME = 15, // TODO implement this command in firmware, and use in logger
 };
 
 enum Responses
@@ -1044,6 +1045,7 @@ bool movGetTime(int32_t &time)
         return false;
     }
 
+    // FIXME update to new standard: 4 bytes for timestamp, 8 for UTC
     if (responseLength != 4)
     {
         logError("movGetTime", "Unexpected response length: %d", responseLength);

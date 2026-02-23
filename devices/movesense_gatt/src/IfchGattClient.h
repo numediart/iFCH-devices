@@ -117,6 +117,7 @@ private:
     uint8_t mLogListReference;
     uint8_t mDataloggerStateReference;
     uint8_t mGetTimeReference;
+    uint8_t mSetUTCTimeReference;
     uint8_t mGetInfoReference;
     uint8_t mGetBatteryReference;
     uint8_t mGetLoggingReference;

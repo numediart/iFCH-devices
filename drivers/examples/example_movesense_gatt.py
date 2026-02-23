@@ -16,6 +16,7 @@ Example script demonstrating the main funcionalities of the Movesense GATT drive
 """
 
 import asyncio
+import datetime
 import logging
 
 from ifch_drivers.formats.movesense_sbem import SBEMDecoder
@@ -63,7 +64,29 @@ async def main():
 
         dev_time = await device.get_time()
         if dev_time is not None:
-            logging.info(f"Device time: {dev_time}ms since boot")
+            utc_time = datetime.datetime.fromtimestamp(
+                dev_time[1] / 1e6, tz=datetime.timezone.utc
+            )
+            logging.info(
+                f"Device time: {dev_time[0]}ms since boot, UTC time: {utc_time.isoformat()}"
+            )
+        else:
+            logging.error("Failed to get device time")
+
+        success = await device.set_utc_time()
+        if success:
+            logging.info(f"Set device UTC time to {utc_time.isoformat()}")
+        else:
+            logging.error("Failed to set device UTC time")
+
+        dev_time = await device.get_time()
+        if dev_time is not None:
+            utc_time = datetime.datetime.fromtimestamp(
+                dev_time[1] / 1e6, tz=datetime.timezone.utc
+            )
+            logging.info(
+                f"Updated device time: {dev_time[0]}ms since boot, UTC time: {utc_time.isoformat()}"
+            )
         else:
             logging.error("Failed to get device time")
 
