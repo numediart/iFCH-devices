@@ -481,6 +481,7 @@ class MovesenseGatt:
         if success:
             self._stream_subscribtions.clear()
             self._stream_decoder.subscriptions = self._stream_subscribtions
+            self._log_subscriptions.clear()
 
         return success
 
