@@ -7,6 +7,13 @@
 #define MAX_PATH_LEN 32
 #define MTU 155
 
+// Power state enumeration
+enum PowerState
+{
+    POWER_NORMAL,
+    POWER_LOW
+};
+
 struct IndicateRequest
 {
     IndicateRequest(wb::ResourceId nresourceId, wb::ResourceClient::AsyncRequestOptions nrOptions, const uint8_t *ndata, size_t nlength)
@@ -63,6 +70,12 @@ private:
                              wb::Result resultCode,
                              const wb::Value &rResultData) OVERRIDE;
 
+    /** @see whiteboard::ResourceClient::onDeleteResult */
+    virtual void onDeleteResult(wb::RequestId requestId,
+                                wb::ResourceId resourceId,
+                                wb::Result resultCode,
+                                const wb::Value &rResultData) OVERRIDE;
+
     /** @see whiteboard::ResourceClient::onNotify */
     virtual void onNotify(wb::ResourceId resourceId,
                           const wb::Value &rValue,
@@ -75,6 +88,8 @@ private:
     void configGattSvc();
     void unsubscribeAllStreams();
     void clearLogSubs();
+    void enterLowPowerMode();
+    void exitLowPowerMode();
 
     void asyncPutIndicate(wb::ResourceId resourceId, const AsyncRequestOptions &rOptions, const uint8_t *data, size_t length);
     void putNextIndicate();
@@ -87,10 +102,12 @@ private:
     wb::TimerId mShutdownTimer;
     wb::TimerId mIndicateTimer;
     wb::TimerId mIndicateTimeoutTimer;
+    wb::TimerId mLowPowerOffTimer;
     uint32_t mCounter;
     bool mLeadsConnected;
     uint8_t mDataLoggerState;
     bool mLogbookFull;
+    PowerState mPowerState;
 
     wb::ResourceId mCommandCharResource;
     wb::ResourceId mDataCharResource;
