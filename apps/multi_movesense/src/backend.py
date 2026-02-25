@@ -22,8 +22,7 @@ if TYPE_CHECKING:
 
 
 class Backend:
-    # FIXME add UTCTIME to the subscriptions
-    SENSOR_PATHS = ["/Meas/ECG/200/mV", "/Meas/IMU6/208"]
+    SENSOR_PATHS = ["/Time/Detailed", "/Meas/ECG/200/mV", "/Meas/IMU6/208"]
     PLOT_DURATION = 10
 
     def __init__(self, ui: "MainWindow"):
@@ -459,14 +458,16 @@ class CmdStartLogging:
         if not back.devices:
             raise RuntimeError("CmdStartLogging: No device connected")
 
-        # FIXME use set_utc_time on the movesense and subscribe to the time
-        # in order to have a uniform way to handle time
-        # this must be moved to the record writer probably
-        back.metadata_log["start_time"] = datetime.datetime.now(
-            datetime.UTC
-        ).isoformat()
         back.ui.prevent_close = True
         back._logging = True
+
+        for device in back.devices:
+            success = await device.set_utc_time()
+            if not success:
+                back.show_error(
+                    "Time sync error",
+                    f"Failed to set UTC time on device {device.address}.",
+                )
 
         back.ui.set_monitoring_logging_controls()
 
@@ -480,9 +481,6 @@ class CmdStopLogging:
             raise RuntimeError("CmdStopLogging: Not currently logging")
 
         back._logging = False
-
-        # FIXME remove and use UTCTIME instead
-        back.metadata_log["end_time"] = datetime.datetime.now(datetime.UTC).isoformat()
 
         back.ui.set_state(UIState.FORM)
 
