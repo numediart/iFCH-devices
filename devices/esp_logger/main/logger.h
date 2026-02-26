@@ -9,6 +9,10 @@
 // Fetches the last Movesense logging chunk and starts the next one
 bool fetchMovesenseData();
 
+// Fetches the last Movesense logging chunk when the Movesense was reset during
+// logging. Does not use the stream dump nor restarts logging
+bool rescueMovesenseData();
+
 // Sets up the logging folder and starts Movesense logging
 bool startMovesenseLogging();
 

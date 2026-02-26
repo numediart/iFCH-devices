@@ -164,27 +164,38 @@ void fetchLogic()
         // FIXME: it appears the Movesense crashes sometimes during the fetch log step
         // COULD BE RELATED to the bug when fetching IMU9 and ECG logs on the MD device
 
-        // TODO instead of resetting and restarting, first attempt to fetch any
-        // existing logs on the Movesense to avoid losing data?
-        // If that fails repeatedly, only then reset to avoid being stuck
+        // TODO validate behaviour when Movesense restarts during a recording
 
         // If not logging, restart logging
         if (loggingStatus != 3)
         {
             logError("fetchStep", "Movesense not logging at fetch step start");
+
+            // First attempt to fetch any existing logs on the Movesense to
+            // avoid losing data. If that fails repeatedly, only then reset to
+            // avoid being stuck
+            if (!retry(rescueMovesenseData, 3, GATT_DELAY))
+            {
+                logError("fetchStep", "Failed to rescue Movesense data, proceeding with reset");
+
+                // The record part should be incremented in the rescue function, but we do it manually if it failed
+                record.part++;
+            }
+
             if (!retry(movReset, 3, GATT_DELAY))
             {
                 logError("fetchStep", "Failed to reset Movesense");
+                record.part--;
                 errorReset(COLOR_BLE);
                 return;
             }
-            record.part++;
             // Save the record state to the JSON file
             if (!retry(saveRecordState, 3, GATT_DELAY))
             {
                 logError("fetchStep", "Failed to save record state");
                 record.part--;
-                return false;
+                errorReset(COLOR_BLE);
+                return;
             }
             vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
             if (!movSubLogs())
@@ -201,10 +212,16 @@ void fetchLogic()
                 return;
             }
             vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
+            // Restart the RTC timer to continue fetching data
+            if (!startRTCTimer(config.fetchIntervalMin))
+            {
+                logError("fetchStep", "Failed to start RTC timer after fetching data");
+            }
         }
 
         // Fetch the data from Movesense
-        if (!fetchMovesenseData())
+        else if (!fetchMovesenseData())
         {
             logError("fetchStep", "Failed to fetch Movesense data");
             errorReset(COLOR_RUNTIME_ERROR);

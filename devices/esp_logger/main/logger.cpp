@@ -908,6 +908,92 @@ bool fetchMovesenseData()
     return true;
 }
 
+bool rescueMovesenseData()
+{
+    if (!record.logging)
+    {
+        logError("rescueMovesenseData", "device is not currently logging!");
+        return false;
+    }
+
+    // Add: Verify connection before proceeding
+    if (!isMovesenseConnected)
+    {
+        logError("rescueMovesenseData", "Movesense not connected");
+        return false;
+    }
+
+    // Start by incrementing the record part number and checkpointing
+    record.part++;
+    if (!saveCheckpoint(record.lastFetch))
+    {
+        logError("rescueMovesenseData", "Failed to save checkpoint before ending logging");
+        record.part--;
+        return false;
+    }
+
+    // Fetch the last Movesense log ID
+    uint32_t logId;
+    if (!getMovesenseLastLogId(logId))
+    {
+        logError("rescueMovesenseData", "Failed to get Movesense last log ID");
+        record.part--;
+        return false;
+    }
+    else if (logId == 0)
+    {
+        logError("rescueMovesenseData", "No new Movesense logs to fetch");
+        record.part--;
+        return false;
+    }
+
+    // Prepare the record file
+    std::string recordFile = std::format(MOUNT_POINT "/{:03}/{:03}.sbm", record.id, record.part);
+    if (!backupIfExists(recordFile))
+    {
+        logError("rescueMovesenseData", "Failed to backup record file %s", recordFile.c_str());
+        record.part--;
+        return false;
+    }
+
+    ESP_LOGI("rescueMovesenseData", "Fetching data from Movesense");
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
+    // Fetch the Movesense log and save it to SD card
+    // Create a lambda to capture the parameters for retry
+    auto movFetchLog_ = [recordFile, logId]()
+    {
+        return movFetchLog(recordFile, logId);
+    };
+    if (!retry(movFetchLog_, 3, GATT_DELAY))
+    {
+        logError("rescueMovesenseData", "Failed to fetch Movesense log with ID: %d", logId);
+        record.part--;
+        return false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
+    // Delete the fetched logs from Movesense
+    if (!retry(movClearLogs, 3, GATT_DELAY))
+    {
+        logError("rescueMovesenseData", "Failed to clear Movesense logs after fetching data");
+        record.part--;
+        return false;
+    }
+
+    // Save the record state to the JSON file
+    if (!retry(saveRecordState, 3, GATT_DELAY))
+    {
+        logError("rescueMovesenseData", "Failed to save record state");
+        record.part--;
+        return false;
+    }
+
+    return true;
+}
+
 std::map<uint32_t, std::string> listArchivedLogs()
 {
     std::map<uint32_t, std::string> archives;
