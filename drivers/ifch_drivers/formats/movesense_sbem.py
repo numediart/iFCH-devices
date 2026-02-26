@@ -292,8 +292,6 @@ class SBEMDecoder:
         if sbem_version != "SBEM0112":
             raise NotImplementedError(f"Unsupported SBEM version: {sbem_version}")
 
-        # FIXME add UTCTIME to the default descriptors
-        # Create a script to update the default descriptors with new ones
         default_header = (
             pathlib.Path(__file__).parent / "data" / "default_descriptors.bin"
         )
@@ -366,6 +364,9 @@ class SBEMDecoder:
                     if part.startswith("Meas"):
                         sensor = part[4:].upper()
                         break
+                    elif part.startswith("utcTime"):
+                        sensor = "UTCTIME"
+                        break
 
                 if sensor is None:
                     sensor = key
@@ -389,7 +390,7 @@ class SBEMDecoder:
                 def time_or_sample(k):
                     parts = k.split(".")
                     tail = parts[-1]
-                    if tail == "Timestamp":
+                    if tail == "Timestamp" or tail == "relativeTime":
                         return "timestamps"
                     elif is_multisensor:
                         sub_sensor = parts[-2]
