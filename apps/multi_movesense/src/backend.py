@@ -91,7 +91,10 @@ class Backend:
         # TODO add threading.Lock() to secure sensors_data access?
         self.sensors_data[device.movesense_id][sensor]["timestamps"].extend(timestamps)
         for key, value in sensor_dict.items():
-            self.sensors_data[device.movesense_id][sensor][key].extend(value)
+            try:
+                self.sensors_data[device.movesense_id][sensor][key].extend(value)
+            except TypeError:
+                self.sensors_data[device.movesense_id][sensor][key].append(value)
 
     async def run(self):
         """Start the actor and bootstrap probing."""
@@ -204,7 +207,6 @@ class Backend:
 
         if self.devices:
             await asyncio.gather(*[device.stop() for device in self.devices])
-            self.devices = []
 
         self.clear_commands()
 
@@ -245,9 +247,6 @@ class Backend:
     ):
         self.ui.update_error_status(title, message)
         self.ui.set_state(UIState.ERROR)
-
-        await self.stop_devices()
-        await self.clear_state()
 
     async def add_device(self, address: str, device_id: str):
         device = MovesenseGatt(address, self.stream_callback)
@@ -445,7 +444,7 @@ class CmdMonitor:
                 if not success:
                     await back.show_error(
                         "Subscription error",
-                        f"Failed to subscribe to {path} on device {device.address}.",
+                        f"Failed to subscribe to {path} on device {device.movesense_id}.",
                     )
                     return
 
@@ -464,10 +463,8 @@ class CmdStartLogging:
         for device in back.devices:
             success = await device.set_utc_time()
             if not success:
-                back.show_error(
-                    "Time sync error",
-                    f"Failed to set UTC time on device {device.address}.",
-                )
+                await back.disconnect(device.movesense_id)
+                return
 
         back.ui.set_monitoring_logging_controls()
 

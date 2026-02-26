@@ -231,11 +231,7 @@ class MovesenseStreamDecoder:
             timestamp = int.from_bytes(packet[2:6], byteorder="little")
             time_utc = int.from_bytes(packet[6:14], byteorder="little")
 
-            samples = {
-                data_type.name: [
-                    time_utc,
-                ]
-            }
+            samples = {data_type.name: time_utc}
 
         else:
             logging.warning("Stream decoding of %s not implemented.", data_type)
