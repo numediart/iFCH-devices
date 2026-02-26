@@ -105,7 +105,6 @@ class MovesenseStreamDecoder:
                         sensor_path,
                     )
 
-                # TODO check if there is a better way to determine if packet is incomplete
                 # If the packet is incomplete, store it and wait for part 2
                 if len(packet) >= self.MAX_PAYLOAD_SIZE:
                     self._partial_data[reference] = packet
