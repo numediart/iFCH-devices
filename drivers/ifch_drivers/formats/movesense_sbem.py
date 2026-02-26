@@ -173,6 +173,11 @@ class SBEMDecoder:
     RESERVED_SBEM_ID_E_ESCAPE = b"\xff"
     RESERVED_SBEM_ID_E_DESCRIPTOR = 0
 
+    def __init__(self):
+        self._reader = None
+        self.log_descriptors = False
+        self.descriptors = {}
+
     # reads sbem ID upto uint16 from file
     def _read_id(self):
         byte1 = self._reader.read(1)
@@ -320,6 +325,15 @@ class SBEMDecoder:
                 )
 
             if chunk_id == self.RESERVED_SBEM_ID_E_DESCRIPTOR:
+                if self.log_descriptors:
+                    parts = chunk_bytes.split(b"\x00")
+                    if len(parts) != 3:
+                        logging.error(
+                            f"Unexpected descriptor format, expected 3 parts separated by null bytes, got {len(parts)} parts in chunk bytes: {chunk_bytes}"
+                        )
+                    else:
+                        self.descriptors[parts[0]] = parts[1]
+
                 self._parse_descriptor_chunk(chunk_bytes)
 
             else:
