@@ -49,7 +49,7 @@ enum Commands
     UNSUBSCRIBE_ALL = 12,
     GET_LOGGING_STATE = 13,
     GET_BATTERY = 14,
-    SET_UTCTIME = 15, // TODO implement this command in firmware, and use in logger
+    SET_UTCTIME = 15,
 };
 
 enum Responses
@@ -1032,9 +1032,9 @@ bool movHello(uint8_t *responseBuffer, uint8_t &responseLength)
     return true;
 }
 
-bool movGetTime(int32_t &time)
+bool movGetTime(uint32_t &time, int64_t &utcTimeUs)
 {
-    uint8_t responseBuffer[4];
+    uint8_t responseBuffer[12];
     uint8_t responseLength = sizeof(responseBuffer);
 
     bool success = writeMovesenseCommand(Commands::GET_TIME, Commands::GET_TIME + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
@@ -1045,8 +1045,7 @@ bool movGetTime(int32_t &time)
         return false;
     }
 
-    // FIXME update to new standard: 4 bytes for timestamp, 8 for UTC
-    if (responseLength != 4)
+    if (responseLength != 12)
     {
         logError("movGetTime", "Unexpected response length: %d", responseLength);
         return false;
@@ -1057,7 +1056,20 @@ bool movGetTime(int32_t &time)
            (responseBuffer[1] << 8) | responseBuffer[0];
     ESP_LOGI("movGetTime", "Current time: %" PRId32, time);
 
+    // Convert the next 8 bytes to a 64-bit integer for UTC time in microseconds
+    utcTimeUs = ((int64_t)responseBuffer[11] << 56) | ((int64_t)responseBuffer[10] << 48) | ((int64_t)responseBuffer[9] << 40) |
+                ((int64_t)responseBuffer[8] << 32) | ((int64_t)responseBuffer[7] << 24) |
+                ((int64_t)responseBuffer[6] << 16) | ((int64_t)responseBuffer[5] << 8) |
+                (int64_t)responseBuffer[4];
+    ESP_LOGI("movGetTime", "Current UTC time: %" PRId64, utcTimeUs);
     return true;
+}
+
+// Set the Movesense UTC time
+bool movSetUTCTime(int64_t utcTimeUs)
+{
+    bool success = writeMovesenseCommand(Commands::SET_UTCTIME, Commands::SET_UTCTIME + REF_OFFSET_COMMAND, (uint8_t *)&utcTimeUs, sizeof(utcTimeUs));
+    return success;
 }
 
 bool movGetLoggingStatus(uint8_t &loggingStatus)

@@ -389,8 +389,9 @@ bool saveCheckpoint(uint32_t &currentEpoch)
         return false;
     }
 
-    int32_t movTime;
-    success = movGetTime(movTime);
+    uint32_t movTime;
+    int64_t movUTCTimeUs;
+    success = movGetTime(movTime, movUTCTimeUs);
     if (!success)
     {
         logError("saveCheckpoint", "Failed to get Movesense time");
@@ -409,6 +410,7 @@ bool saveCheckpoint(uint32_t &currentEpoch)
     cJSON_AddNumberToObject(json, "mov_battery", mov_battery);
     cJSON_AddNumberToObject(json, "rtc_time", currentEpoch);
     cJSON_AddNumberToObject(json, "mov_time", movTime);
+    cJSON_AddNumberToObject(json, "mov_utc", movUTCTimeUs);
 
     FILE *f = fopen(checkpoint.c_str(), "w");
     if (f == NULL)
@@ -536,6 +538,23 @@ bool startMovesenseLogging()
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     uint32_t currentEpoch;
+    currentEpoch = getUNIXTime();
+    if (currentEpoch == 0)
+    {
+        logError("startMovesenseLogging", "Failed to get RTC time");
+        rremove(recordDir);
+        record.logging = false;
+        return false;
+    }
+
+    if (!movSetUTCTime(currentEpoch * 1000000LL))
+    {
+        logError("startMovesenseLogging", "Failed to set Movesense UTC time");
+        rremove(recordDir);
+        record.logging = false;
+        return false;
+    }
+
     // Save the starting timestamps and battery levels checkpoint
     if (!saveCheckpoint(currentEpoch))
     {

@@ -50,7 +50,10 @@ bool getMovesenseBattery(uint8_t &batteryLevel);
 bool movHello(uint8_t *responseBuffer, uint8_t &responseLength);
 
 // Get the Movesense time
-bool movGetTime(int32_t &time);
+bool movGetTime(uint32_t &time, int64_t &utcTimeUs);
+
+// Set the Movesense UTC time
+bool movSetUTCTime(int64_t utcTimeUs);
 
 // Check if Movesense is logging
 bool movGetLoggingStatus(uint8_t &loggingStatus);
