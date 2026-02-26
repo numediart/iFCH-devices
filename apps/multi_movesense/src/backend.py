@@ -507,11 +507,7 @@ class CmdSaveRecord:
 
         self.metadata.update(back.metadata_log)
         self.metadata["source"] = f"multi_movesense-{__version__}"
-        self.metadata["sensor_paths"] = back.SENSOR_PATHS
         self.metadata["device_infos"] = back.device_infos
-
-        with open(output_dir / "metadata.json", "w") as f:
-            json.dump(self.metadata, f, indent=4)
 
         for device in back.devices:
             device_metadata = self.metadata.copy()
@@ -523,7 +519,42 @@ class CmdSaveRecord:
                 back.sensor_log[device.movesense_id],
                 metadata=device_metadata,
                 sensor_paths=back.SENSOR_PATHS,
+                dump_metadata=True,
             )
+
+        # Build a global metadata file for overview
+        metadata_files = output_dir.glob("*.json")
+
+        start_time = None
+        end_time = None
+
+        for device_metadata in metadata_files:
+            with open(device_metadata, "r") as f:
+                device_metadata_dict = json.load(f)
+
+            if "start_time" in device_metadata_dict:
+                device_start_time = datetime.datetime.fromisoformat(
+                    device_metadata_dict["start_time"]
+                )
+                if start_time is None or device_start_time < start_time:
+                    start_time = device_start_time
+
+            if "end_time" in device_metadata_dict:
+                device_end_time = datetime.datetime.fromisoformat(
+                    device_metadata_dict["end_time"]
+                )
+                if end_time is None or device_end_time > end_time:
+                    end_time = device_end_time
+
+        if start_time:
+            self.metadata["start_time"] = start_time.astimezone().isoformat()
+        if end_time:
+            self.metadata["end_time"] = end_time.astimezone().isoformat()
+
+        self.metadata["sensor_paths"] = back.SENSOR_PATHS
+
+        with open(output_dir / "metadata.json", "w") as f:
+            json.dump(self.metadata, f, indent=4)
 
         back.ui.prevent_close = False
 

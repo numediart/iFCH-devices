@@ -180,13 +180,9 @@ async def manual_log(device: MovesenseGatt):
     metadata = {
         "name": name,
         "source": "example_logger.py",
-        "sensor_paths": MEAS_PATHS,
         "device_infos": {device.movesense_id: device.device_info},
         "device_id": device.movesense_id,
     }
-
-    with open(output_dir / "metadata.json", "w") as f:
-        json.dump(metadata, f, indent=4)
 
     output_file = output_dir / f"{device.movesense_id}"
     movesense_record.write(
@@ -194,6 +190,7 @@ async def manual_log(device: MovesenseGatt):
         data,
         metadata=metadata,
         sensor_paths=MEAS_PATHS,
+        dump_metadata=True,
     )
 
 

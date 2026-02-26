@@ -381,33 +381,7 @@ class ESPRecordConverter:
                 % (max_deviation / 1000)
             )
 
-        start_time = None
-        end_time = None
-        for sensor in self.record.values():
-            if start_time is None or end_time is None:
-                start_time = sensor["timestamps"][0]
-                end_time = sensor["timestamps"][-1]
-            else:
-                start_time = min(start_time, sensor["timestamps"][0])
-                end_time = max(end_time, sensor["timestamps"][-1])
-        # FIXME check that the record is flattened, otherwise compute the
-        # duration of an array of samples and add it to the last timestamp
-
-        # FIXME use the UTCTIME subscription to determine the start and end time
-        # and check that the timestamps are indeed relative time
-
-        # Convert unix epochs to ISO 8601
-        start_time = datetime.datetime.fromtimestamp(
-            start_time / 1000, datetime.UTC
-        ).isoformat()
-        end_time = datetime.datetime.fromtimestamp(
-            end_time / 1000, datetime.UTC
-        ).isoformat()
-
-        # FIXME use UTCTIME in the record in order to have a uniform way to handle time
-        # this must be moved to the record writer probably
-        self.metadata["start_time"] = start_time
-        self.metadata["end_time"] = end_time
+        # FIXME check that the timestamps are indeed relative time
 
     def write(self, output_path: pathlib.Path | str):
         """
@@ -423,9 +397,6 @@ class ESPRecordConverter:
             output_path = pathlib.Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        with open(output_path / "metadata.json", "w") as f:
-            json.dump(self.metadata, f, indent=4)
-
         with open(output_path / "checkpoints.csv", "w") as f:
             writer = csv.writer(f)
             writer.writerow(self.checkpoints.keys())
@@ -436,4 +407,5 @@ class ESPRecordConverter:
             self.record,
             self.metadata,
             self.config["sensorPaths"],
+            dump_metadata=True,
         )

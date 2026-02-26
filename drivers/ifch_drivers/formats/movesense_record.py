@@ -1,4 +1,6 @@
+import datetime
 import enum
+import json
 import logging
 import pathlib
 
@@ -44,11 +46,13 @@ class MovesenseDataTypes(enum.Enum):
         return data_type, sampling
 
 
+# TODO use class-based implementation for consistency with other modules
 def write(
     file_path: pathlib.Path | str,
     record: dict,
     metadata: dict = {},
     sensor_paths: list = [],
+    dump_metadata: bool = False,
 ):
     """
     Write a Movesense record to an HDF5 file.
@@ -60,6 +64,7 @@ def write(
         metadata (dict, optional): the metadata to write as attributes
         sensor_paths (list, optional): list of sensor paths included in the record
             (this will be used to extract sampling and scale information for each sensor)
+        dump_metadata (bool, optional): whether to also save the metadata to a separate JSON file. By default, True
     Raises:
         ValueError: if the provided sensor_paths do not match sensors in the record
     """
@@ -72,13 +77,20 @@ def write(
 
         if sensor_name.name not in record:
             logging.warning(
-                f"Sensor {sensor_name.name} provided in sensor_paths not found in record, discarding"
+                f"Sensor {sensor_name.name} provided in sensor_paths not found in record, ignoring"
             )
         else:
             sensor_properties[sensor_name.name] = {
                 "sampling": sampling,
                 "scale": sensor_name.scale,
             }
+
+    if "sensor_paths" in metadata:
+        logging.warning(
+            "'sensor_paths' is a reserved metadata key. It will be overwritten"
+        )
+    metadata["sensor_paths"] = sensor_paths
+
     for sensor_name in record.keys():
         if sensor_name not in sensor_properties:
             logging.warning(
@@ -120,15 +132,60 @@ def write(
                 group.attrs[key] = value
 
         if "format" in metadata:
-            raise ValueError("'format' is a reserved metadata key and cannot be used.")
+            logging.warning(
+                "'format' is a reserved metadata key and cannot be used. It will be overrwitten"
+            )
         metadata["format"] = FORMAT_TAG
 
-        # FIXME check that the metadata contains start_time and end_time, or
-        # that the record contains a subscription to UTCTIME and compute them
+        if MovesenseDataTypes.UTCTIME.name in record:
+            reference_utc_us = record[MovesenseDataTypes.UTCTIME.name][
+                MovesenseDataTypes.UTCTIME.name
+            ][0]
+            reference_timestamp = record[MovesenseDataTypes.UTCTIME.name]["timestamps"][
+                0
+            ]
+
+            min_timestamp = reference_timestamp
+            max_timestamp = reference_timestamp
+
+            for sensor_name, sensor_dict in record.items():
+                timestamps = sensor_dict["timestamps"]
+                min_timestamp = min(timestamps[0], min_timestamp)
+
+                # This is not very precise, it does not take into account the
+                # duration of one measurement point
+                max_timestamp = max(timestamps[-1], max_timestamp)
+
+            if "start_time" in metadata or "end_time" in metadata:
+                logging.warning(
+                    "start_time and/or end_time are provided in metadata but will be overwritten based on UTCTIME data"
+                )
+
+            min_time = (min_timestamp - reference_timestamp) + reference_utc_us / 1e3
+            max_time = (max_timestamp - reference_timestamp) + reference_utc_us / 1e3
+
+            min_time = datetime.datetime.fromtimestamp(min_time / 1e3, tz=datetime.UTC)
+            max_time = datetime.datetime.fromtimestamp(max_time / 1e3, tz=datetime.UTC)
+
+            metadata["start_time"] = min_time.astimezone().isoformat()
+            metadata["end_time"] = max_time.astimezone().isoformat()
+
+        if "start_time" not in metadata or "end_time" not in metadata:
+            logging.warning(
+                "start_time and end_time are not provided in metadata and could not be computed based on UTCTIME data"
+            )
 
         # Store the metadata as attributes of the root group
         for key, value in metadata.items():
             add_attr(hfile, key, value)
+
+        if dump_metadata:
+            # Add _metadata.json to the file name
+            metadata_filename = file_path.stem + "_metadata.json"
+            metadata_path = file_path.with_name(metadata_filename)
+
+            with open(metadata_path, "w") as f:
+                json.dump(metadata, f, indent=4)
 
 
 def load(file_path: pathlib.Path | str, flatten=True) -> tuple[dict, dict, dict]:
