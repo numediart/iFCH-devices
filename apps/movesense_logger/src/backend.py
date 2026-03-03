@@ -2,7 +2,6 @@ import asyncio
 import collections
 import contextlib
 import datetime
-import json
 import logging
 import pathlib
 import time
@@ -86,7 +85,10 @@ class Backend:
         # TODO add threading.Lock() to secure sensor_data access?
         self.sensor_data[sensor]["timestamps"].extend(timestamps)
         for key, value in sensor_dict.items():
-            self.sensor_data[sensor][key].extend(value)
+            try:
+                self.sensor_data[sensor][key].extend(value)
+            except TypeError:
+                self.sensor_data[sensor][key].append(value)
 
     async def run(self):
         """Start the actor and bootstrap probing."""
@@ -617,9 +619,6 @@ class CmdSaveRecord:
         self.metadata["device_info"] = back.device_info
         self.metadata["device_id"] = back.device.movesense_id
 
-        with open(output_dir / "metadata.json", "w") as f:
-            json.dump(self.metadata, f, indent=4)
-
         raw_file = output_dir / f"raw_data.sbem"
         with open(raw_file, "wb") as f:
             f.write(back.sbem_data)
@@ -633,6 +632,7 @@ class CmdSaveRecord:
             record,
             metadata=self.metadata,
             sensor_paths=back.SENSOR_PATHS,
+            dump_metadata=True,
         )
 
         # TODO convert and save as EDF+

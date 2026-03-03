@@ -14,7 +14,6 @@ Movesense device, then save the log data to a local file.
 
 import asyncio
 import datetime
-import json
 import logging
 import pathlib
 
