@@ -50,7 +50,7 @@ class MovesenseDataTypes(enum.Enum):
 def write(
     file_path: pathlib.Path | str,
     record: dict,
-    metadata: dict = {},
+    metadata: dict | None = None,
     sensor_paths: list = [],
     dump_metadata: bool = False,
 ):
@@ -70,6 +70,8 @@ def write(
     """
 
     sensor_properties = {}
+    if metadata is None:
+        metadata = {}
 
     # Store sampling and scale for each sensor in sensor_paths
     for sensor in sensor_paths:
