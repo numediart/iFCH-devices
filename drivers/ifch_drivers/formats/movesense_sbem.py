@@ -173,6 +173,11 @@ class SBEMDecoder:
     RESERVED_SBEM_ID_E_ESCAPE = b"\xff"
     RESERVED_SBEM_ID_E_DESCRIPTOR = 0
 
+    def __init__(self):
+        self._reader = None
+        self.log_descriptors = False
+        self.descriptors = {}
+
     # reads sbem ID upto uint16 from file
     def _read_id(self):
         byte1 = self._reader.read(1)
@@ -318,6 +323,15 @@ class SBEMDecoder:
                 )
 
             if chunk_id == self.RESERVED_SBEM_ID_E_DESCRIPTOR:
+                if self.log_descriptors:
+                    parts = chunk_bytes.split(b"\x00")
+                    if len(parts) != 3:
+                        logging.error(
+                            f"Unexpected descriptor format, expected 3 parts separated by null bytes, got {len(parts)} parts in chunk bytes: {chunk_bytes}"
+                        )
+                    else:
+                        self.descriptors[parts[0]] = parts[1]
+
                 self._parse_descriptor_chunk(chunk_bytes)
 
             else:
@@ -344,9 +358,14 @@ class SBEMDecoder:
             standardized = defaultdict(dict)
             for key, decoded in self._decoded.items():
                 sensor = None
+                skip_standardization = False
+
                 for part in key.split("."):
                     if part.startswith("Meas"):
                         sensor = part[4:].upper()
+                        break
+                    elif part.startswith("utcTime"):
+                        sensor = "UTCTIME"
                         break
 
                 if sensor is None:
@@ -355,19 +374,23 @@ class SBEMDecoder:
                         "Could not standardize key %s",
                         key,
                     )
+                    skip_standardization = True
 
                 is_multisensor = sensor.startswith("IMU")
 
                 # Assumes that all sensors contain only Timestamp and Data
                 if len(decoded) and len(decoded[0].keys()) != 2 and not is_multisensor:
-                    raise NotImplementedError(
-                        "Invalid number of keys in decoded SBEM for standardization, set standardize=False"
+                    sensor = key
+                    logging.error(
+                        "Invalid number of keys in decoded SBEM for standardization of sensor %s, set standardize=False",
+                        sensor,
                     )
+                    skip_standardization = True
 
                 def time_or_sample(k):
                     parts = k.split(".")
                     tail = parts[-1]
-                    if tail == "Timestamp":
+                    if tail == "Timestamp" or tail == "relativeTime":
                         return "timestamps"
                     elif is_multisensor:
                         sub_sensor = parts[-2]
@@ -376,6 +399,10 @@ class SBEMDecoder:
                                 f"Could not identify sub-sensor for key {k}, set standardize=False"
                             )
                         return sub_sensor[5:].upper()
+
+                    # This is for non-standardized keys, in order not to lose data
+                    elif skip_standardization:
+                        return k
                     else:
                         return sensor
 
@@ -383,6 +410,11 @@ class SBEMDecoder:
                     time_or_sample(k): [v[k] for v in decoded]
                     for k in decoded[0].keys()
                 }
+
+                if "timestamps" not in standardized[sensor]:
+                    logging.warning(
+                        f"No timestamps found for sensor {sensor}, standardization failed. Set standardize=False to get raw keys"
+                    )
 
             self._decoded = standardized
 

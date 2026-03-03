@@ -1,7 +1,6 @@
 import bisect
 import collections
 import csv
-import datetime
 import json
 import logging
 import pathlib
@@ -119,6 +118,7 @@ class ESPRecordConverter:
     def _patch_timestamps(self, sensor, sensor_dict):
         # Patches the timestamps in case of a restart, then detects anomalies
 
+        # FIXME use the UTCTIME subscription to detect anomalies instead
         # TODO save the detected anomalies in metadata
 
         last_time = self.record[sensor]["timestamps"][-1]
@@ -174,6 +174,8 @@ class ESPRecordConverter:
         # Detect anomalies based on the comparison of RTC and Movesense time
         # Update the time correction if a restart is detected, to patch the
         # timestamps of upcoming data
+
+        # FIXME use the UTCTIME subscription to detect restarts instead
 
         try:
             checkpoint_id = self.checkpoints["ID"].index(chunk_id)
@@ -378,26 +380,7 @@ class ESPRecordConverter:
                 % (max_deviation / 1000)
             )
 
-        start_time = None
-        end_time = None
-        for sensor in self.record.values():
-            if start_time is None or end_time is None:
-                start_time = sensor["timestamps"][0]
-                end_time = sensor["timestamps"][-1]
-            else:
-                start_time = min(start_time, sensor["timestamps"][0])
-                end_time = max(end_time, sensor["timestamps"][-1])
-
-        # Convert unix epochs to ISO 8601
-        start_time = datetime.datetime.fromtimestamp(
-            start_time / 1000, datetime.UTC
-        ).isoformat()
-        end_time = datetime.datetime.fromtimestamp(
-            end_time / 1000, datetime.UTC
-        ).isoformat()
-
-        self.metadata["start_time"] = start_time
-        self.metadata["end_time"] = end_time
+        # FIXME check that the timestamps are indeed relative time
 
     def write(self, output_path: pathlib.Path | str):
         """
@@ -413,9 +396,6 @@ class ESPRecordConverter:
             output_path = pathlib.Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        with open(output_path / "metadata.json", "w") as f:
-            json.dump(self.metadata, f, indent=4)
-
         with open(output_path / "checkpoints.csv", "w") as f:
             writer = csv.writer(f)
             writer.writerow(self.checkpoints.keys())
@@ -426,4 +406,5 @@ class ESPRecordConverter:
             self.record,
             self.metadata,
             self.config["sensorPaths"],
+            dump_metadata=True,
         )

@@ -1936,6 +1936,7 @@ class CmdLogging:
             await back.show_error()
             return
         elif not mov_status:
+            # FIXME check why this failed
             logging.warning("Movesense stopped logging on its own")
             back.ui.update_warning_status(
                 "Movesense reset",
@@ -2339,6 +2340,8 @@ class CmdSaveRecord:
             back.ui.download_view.progress_bar.setValue(
                 int((idx + 1) / len(back.record_files) * 100)
             )
+
+        # FIXME the UI is not responding after download is over during decoding and saving
 
         archived = await back.device.archive_log(back.record_meta["ID"])
         if not archived:

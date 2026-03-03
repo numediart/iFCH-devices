@@ -46,6 +46,10 @@ constexpr uint16_t logCharUUID16 = 0x0004;
 // Time between wake-up and going to power-off mode
 #define AVAILABILITY_TIME 60000
 
+// 24 hours in milliseconds
+// After this delay, the device will shut down fully and lose RTC
+#define POWER_OFF_TIMEOUT_MS (24 * 60 * 60 * 1000)
+
 // LED blinking period in advertising mode
 #define LED_BLINKING_PERIOD 5000
 
@@ -119,6 +123,7 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mShutdownTimer(wb::ID_INVALID_TIMER),
                                    mIndicateTimer(wb::ID_INVALID_TIMER),
                                    mIndicateTimeoutTimer(wb::ID_INVALID_TIMER),
+                                   mLowPowerOffTimer(wb::ID_INVALID_TIMER),
                                    mLeadsConnected(false),
                                    mDataLoggerState(WB_RES::DataLoggerStateValues::DATALOGGER_INVALID),
                                    mCounter(0),
@@ -131,7 +136,8 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mGetBatteryReference(0),
                                    mGetLoggingReference(0),
                                    mLogbookFull(true),
-                                   mIsIndicating(false)
+                                   mIsIndicating(false),
+                                   mPowerState(POWER_NORMAL)
 {
 }
 
@@ -173,6 +179,10 @@ bool IfchGattClient::startModule()
     // Configure custom gatt service
     configGattSvc();
 
+    // Blink the LED to indicate start-up
+    asyncPut(WB_RES::LOCAL::UI_IND_VISUAL(), AsyncRequestOptions::Empty,
+             WB_RES::VisualIndTypeValues::SHORT_VISUAL_INDICATION);
+
     // Check Logbook status
     asyncGet(WB_RES::LOCAL::MEM_LOGBOOK_ISFULL());
 
@@ -209,9 +219,6 @@ void IfchGattClient::stopModule()
 
     // Clean up GATT stuff
     asyncUnsubscribe(mCommandCharResource);
-    asyncUnsubscribe(mDataCharResource);
-    asyncUnsubscribe(mResponseCharResource);
-    asyncUnsubscribe(mLogCharResource);
 
     releaseResource(mCommandCharResource);
     releaseResource(mDataCharResource);
@@ -1348,6 +1355,97 @@ void IfchGattClient::clearLogSubs()
     }
 }
 
+void IfchGattClient::enterLowPowerMode()
+{
+    DEBUGLOG("Entering low power mode");
+
+    // Blink the LED to indicate low power mode start
+    asyncPut(WB_RES::LOCAL::UI_IND_VISUAL(), AsyncRequestOptions::Empty,
+             WB_RES::VisualIndTypeValues::SHORT_VISUAL_INDICATION);
+
+    // Stop BLE advertising
+    asyncDelete(WB_RES::LOCAL::COMM_BLE_ADV(), AsyncRequestOptions::Empty);
+
+    // Unsubscribe from BLE peers (not needed while in low power)
+    asyncUnsubscribe(WB_RES::LOCAL::COMM_BLE_PEERS());
+
+    // Unsubscribe from logbook full notification
+    asyncUnsubscribe(WB_RES::LOCAL::MEM_LOGBOOK_ISFULL());
+
+    // Unsubscribe all data streams
+    unsubscribeAllStreams();
+
+    // Unsubscribe from command characteristic (only one we actually subscribe to)
+    asyncUnsubscribe(mCommandCharResource);
+
+    // Stop any pending indication timers
+    if (mIndicateTimer != wb::ID_INVALID_TIMER)
+    {
+        stopTimer(mIndicateTimer);
+        mIndicateTimer = wb::ID_INVALID_TIMER;
+    }
+
+    if (mIndicateTimeoutTimer != wb::ID_INVALID_TIMER)
+    {
+        stopTimer(mIndicateTimeoutTimer);
+        mIndicateTimeoutTimer = wb::ID_INVALID_TIMER;
+    }
+
+    // Clear indication queue
+    mIsIndicating = false;
+    mIndicateQueue = std::queue<IndicateRequest>();
+
+    // Stop shutdown timer (no longer needed in low power)
+    if (mShutdownTimer != wb::ID_INVALID_TIMER)
+    {
+        stopTimer(mShutdownTimer);
+        mShutdownTimer = wb::ID_INVALID_TIMER;
+    }
+
+    // Turn LED off
+    asyncPut(WB_RES::LOCAL::COMPONENT_LED(), AsyncRequestOptions::Empty, false);
+
+    // Start 24h timer for hard power-off failsafe
+    mLowPowerOffTimer = startTimer(POWER_OFF_TIMEOUT_MS, false);
+
+    // Update power state
+    mPowerState = POWER_LOW;
+}
+
+void IfchGattClient::exitLowPowerMode()
+{
+    DEBUGLOG("Exiting low power mode");
+
+    // Blink the LED to indicate restart
+    asyncPut(WB_RES::LOCAL::UI_IND_VISUAL(), AsyncRequestOptions::Empty,
+             WB_RES::VisualIndTypeValues::SHORT_VISUAL_INDICATION);
+
+    // Cancel the 24h power-off timer
+    if (mLowPowerOffTimer != wb::ID_INVALID_TIMER)
+    {
+        stopTimer(mLowPowerOffTimer);
+        mLowPowerOffTimer = wb::ID_INVALID_TIMER;
+    }
+
+    // Re-enable BLE advertising
+    asyncPost(WB_RES::LOCAL::COMM_BLE_ADV(), AsyncRequestOptions::Empty);
+
+    // Re-subscribe to BLE peers monitoring
+    asyncSubscribe(WB_RES::LOCAL::COMM_BLE_PEERS());
+
+    // Re-subscribe to logbook full notification
+    asyncSubscribe(WB_RES::LOCAL::MEM_LOGBOOK_ISFULL(), AsyncRequestOptions::ForceAsync);
+
+    // Re-subscribe to GATT characteristics (service already exists from startModule)
+    asyncSubscribe(mCommandCharResource, AsyncRequestOptions(NULL, 0, true));
+
+    // Restart shutdown timer for normal operation
+    setShutdownTimer();
+
+    // Update power state
+    mPowerState = POWER_NORMAL;
+}
+
 void IfchGattClient::onNotify(wb::ResourceId resourceId,
                               const wb::Value &value,
                               const wb::ParameterList &rParameters)
@@ -1359,8 +1457,15 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         WB_RES::StateChange stateChange = value.convertTo<WB_RES::StateChange>();
         if (stateChange.stateId == WB_RES::StateIdValues::CONNECTOR)
         {
-            DEBUGLOG("Lead state updated. newState: %d", stateChange.newState);
+            DEBUGLOG("Lead state updated. newState: %d, powerState: %d", stateChange.newState, mPowerState);
             mLeadsConnected = stateChange.newState;
+
+            // If studs are touched while in low power mode, wake up and resume normal operation
+            if (stateChange.newState && mPowerState == POWER_LOW)
+            {
+                DEBUGLOG("Studs touched - exiting low power mode");
+                exitLowPowerMode();
+            }
         }
         break;
     }
@@ -1370,6 +1475,13 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         WB_RES::PeerChange peerChange = value.convertTo<WB_RES::PeerChange>();
         if (peerChange.state == peerChange.state.DISCONNECTED)
         {
+            // Skip if already in low power mode
+            if (mPowerState == POWER_LOW)
+            {
+                DEBUGLOG("BLE disconnected while in low power mode - no action needed");
+                return;
+            }
+
             // if connection is dropped, unsubscribe all data streams so that sensor does not stay on for no reason
             unsubscribeAllStreams();
 
@@ -1602,6 +1714,18 @@ void IfchGattClient::onPostResult(wb::RequestId requestId,
         }
         break;
     }
+    case WB_RES::LOCAL::COMM_BLE_ADV::LID:
+    {
+        if (resultCode < 400)
+        {
+            DEBUGLOG("BLE advertising started successfully");
+        }
+        else
+        {
+            DEBUGLOG("Error starting BLE advertising: %d", resultCode);
+        }
+        break;
+    }
     }
 }
 
@@ -1678,6 +1802,31 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
     }
 }
 
+/** @see whiteboard::ResourceClient::onDeleteResult */
+void IfchGattClient::onDeleteResult(wb::RequestId requestId,
+                                    wb::ResourceId resourceId,
+                                    wb::Result resultCode,
+                                    const wb::Value &rResultData)
+{
+    DEBUGLOG("IfchGattClient::onDeleteResult: resourceId=%u, resultCode=%d", resourceId, resultCode);
+
+    switch (resourceId.localResourceId)
+    {
+    case WB_RES::LOCAL::COMM_BLE_ADV::LID:
+    {
+        if (resultCode < 400)
+        {
+            DEBUGLOG("BLE advertising stopped successfully");
+        }
+        else
+        {
+            DEBUGLOG("Error stopping BLE advertising: %d", resultCode);
+        }
+        break;
+    }
+    }
+}
+
 // Auto shutdown behaviour
 void IfchGattClient::setShutdownTimer()
 {
@@ -1720,18 +1869,28 @@ void IfchGattClient::onTimer(wb::TimerId timerId)
         }
         else
         {
-
-            // Prepare AFE to wake-up mode
-            asyncPut(WB_RES::LOCAL::COMPONENT_MAX3000X_WAKEUP(),
-                     AsyncRequestOptions(NULL, 0, true), (uint8_t)1);
-
-            // Make PUT request to switch LED on
-            asyncPut(WB_RES::LOCAL::COMPONENT_LED(), AsyncRequestOptions::Empty, true);
-
-            // Make PUT request to enter power off mode
-            asyncPut(WB_RES::LOCAL::SYSTEM_MODE(), AsyncRequestOptions(NULL, 0, true), // true = Force async
-                     WB_RES::SystemModeValues::FULLPOWEROFF);
+            // 60s availability timeout reached. Enter low power mode instead of full power-off
+            enterLowPowerMode();
         }
+    }
+
+    else if (timerId == mLowPowerOffTimer)
+    {
+        // 24h timeout in low power mode. Perform hard power-off with wake circuit preparation
+        DEBUGLOG("24h low power timeout reached. Entering full power-off mode");
+
+        mLowPowerOffTimer = wb::ID_INVALID_TIMER;
+
+        // Prepare AFE to wake-up mode
+        asyncPut(WB_RES::LOCAL::COMPONENT_MAX3000X_WAKEUP(),
+                 AsyncRequestOptions(NULL, 0, true), (uint8_t)1);
+
+        // Make PUT request to switch LED on for indication
+        asyncPut(WB_RES::LOCAL::COMPONENT_LED(), AsyncRequestOptions::Empty, true);
+
+        // Make PUT request to enter full power off mode
+        asyncPut(WB_RES::LOCAL::SYSTEM_MODE(), AsyncRequestOptions(NULL, 0, true), // true = Force async
+                 WB_RES::SystemModeValues::FULLPOWEROFF);
     }
 
     else if (timerId == mIndicateTimer)

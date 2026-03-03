@@ -105,7 +105,6 @@ class MovesenseStreamDecoder:
                         sensor_path,
                     )
 
-                # TODO check if there is a better way to determine if packet is incomplete
                 # If the packet is incomplete, store it and wait for part 2
                 if len(packet) >= self.MAX_PAYLOAD_SIZE:
                     self._partial_data[reference] = packet
@@ -231,11 +230,7 @@ class MovesenseStreamDecoder:
             timestamp = int.from_bytes(packet[2:6], byteorder="little")
             time_utc = int.from_bytes(packet[6:14], byteorder="little")
 
-            samples = {
-                data_type.name: [
-                    time_utc,
-                ]
-            }
+            samples = {data_type.name: time_utc}
 
         else:
             logging.warning("Stream decoding of %s not implemented.", data_type)

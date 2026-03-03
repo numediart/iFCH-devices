@@ -14,7 +14,6 @@ Movesense device, then save the log data to a local file.
 
 import asyncio
 import datetime
-import json
 import logging
 import pathlib
 
@@ -24,6 +23,7 @@ from ifch_drivers.movesense_gatt import MovesenseGatt
 
 # Define measurement paths to log
 MEAS_PATHS = [
+    "/Time/Detailed",
     "/Meas/ECG/200/mV",
     "/Meas/IMU6/208",
 ]
@@ -122,15 +122,12 @@ async def manual_log(device: MovesenseGatt):
             None, input, "\nPress ENTER to start logging..."
         )
 
-        start_time = datetime.datetime.now(datetime.UTC).isoformat()
-
         if not await device.start_log():
             logging.error("Failed to start logging")
             return
         logging.info("Logging started")
 
     else:
-        start_time = ""
         logging.warning("Device is already logging, continuing existing session")
 
     await asyncio.get_event_loop().run_in_executor(
@@ -141,7 +138,6 @@ async def manual_log(device: MovesenseGatt):
         logging.error("Failed to stop logging")
         return
 
-    end_time = datetime.datetime.now(datetime.UTC)
     logging.info("Logging stopped, fetching log data...")
 
     log_list = await retry(device.list_logs)
@@ -174,7 +170,7 @@ async def manual_log(device: MovesenseGatt):
 
     name = input("\nPlease enter patient name: ")
 
-    timestamp = end_time.astimezone().strftime("%Y-%m-%dT%H-%M-%S")
+    timestamp = datetime.datetime.now().astimezone().strftime("%Y-%m-%dT%H-%M-%S")
     output_dir = pathlib.Path(OUT_DIR).absolute() / timestamp
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -183,15 +179,9 @@ async def manual_log(device: MovesenseGatt):
     metadata = {
         "name": name,
         "source": "example_logger.py",
-        "sensor_paths": MEAS_PATHS,
         "device_infos": {device.movesense_id: device.device_info},
         "device_id": device.movesense_id,
-        "start_time": start_time,
-        "end_time": end_time.isoformat(),
     }
-
-    with open(output_dir / "metadata.json", "w") as f:
-        json.dump(metadata, f, indent=4)
 
     output_file = output_dir / f"{device.movesense_id}"
     movesense_record.write(
@@ -199,6 +189,7 @@ async def manual_log(device: MovesenseGatt):
         data,
         metadata=metadata,
         sensor_paths=MEAS_PATHS,
+        dump_metadata=True,
     )
 
 

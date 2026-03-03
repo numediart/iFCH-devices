@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 class Backend:
-    SENSOR_PATHS = ["/Meas/ECG/200/mV", "/Meas/IMU6/208"]
+    SENSOR_PATHS = ["/Time/Detailed", "/Meas/ECG/200/mV", "/Meas/IMU6/208"]
     PLOT_DURATION = 10
 
     def __init__(self, ui: "MainWindow"):
@@ -91,7 +91,10 @@ class Backend:
         # TODO add threading.Lock() to secure sensors_data access?
         self.sensors_data[device.movesense_id][sensor]["timestamps"].extend(timestamps)
         for key, value in sensor_dict.items():
-            self.sensors_data[device.movesense_id][sensor][key].extend(value)
+            try:
+                self.sensors_data[device.movesense_id][sensor][key].extend(value)
+            except TypeError:
+                self.sensors_data[device.movesense_id][sensor][key].append(value)
 
     async def run(self):
         """Start the actor and bootstrap probing."""
@@ -204,7 +207,6 @@ class Backend:
 
         if self.devices:
             await asyncio.gather(*[device.stop() for device in self.devices])
-            self.devices = []
 
         self.clear_commands()
 
@@ -245,9 +247,6 @@ class Backend:
     ):
         self.ui.update_error_status(title, message)
         self.ui.set_state(UIState.ERROR)
-
-        await self.stop_devices()
-        await self.clear_state()
 
     async def add_device(self, address: str, device_id: str):
         device = MovesenseGatt(address, self.stream_callback)
@@ -445,7 +444,7 @@ class CmdMonitor:
                 if not success:
                     await back.show_error(
                         "Subscription error",
-                        f"Failed to subscribe to {path} on device {device.address}.",
+                        f"Failed to subscribe to {path} on device {device.movesense_id}.",
                     )
                     return
 
@@ -458,11 +457,14 @@ class CmdStartLogging:
         if not back.devices:
             raise RuntimeError("CmdStartLogging: No device connected")
 
-        back.metadata_log["start_time"] = datetime.datetime.now(
-            datetime.UTC
-        ).isoformat()
         back.ui.prevent_close = True
         back._logging = True
+
+        for device in back.devices:
+            success = await device.set_utc_time()
+            if not success:
+                await back.disconnect(device.movesense_id)
+                return
 
         back.ui.set_monitoring_logging_controls()
 
@@ -476,7 +478,6 @@ class CmdStopLogging:
             raise RuntimeError("CmdStopLogging: Not currently logging")
 
         back._logging = False
-        back.metadata_log["end_time"] = datetime.datetime.now(datetime.UTC).isoformat()
 
         back.ui.set_state(UIState.FORM)
 
@@ -503,11 +504,7 @@ class CmdSaveRecord:
 
         self.metadata.update(back.metadata_log)
         self.metadata["source"] = f"multi_movesense-{__version__}"
-        self.metadata["sensor_paths"] = back.SENSOR_PATHS
         self.metadata["device_infos"] = back.device_infos
-
-        with open(output_dir / "metadata.json", "w") as f:
-            json.dump(self.metadata, f, indent=4)
 
         for device in back.devices:
             device_metadata = self.metadata.copy()
@@ -519,7 +516,42 @@ class CmdSaveRecord:
                 back.sensor_log[device.movesense_id],
                 metadata=device_metadata,
                 sensor_paths=back.SENSOR_PATHS,
+                dump_metadata=True,
             )
+
+        # Build a global metadata file for overview
+        metadata_files = output_dir.glob("*.json")
+
+        start_time = None
+        end_time = None
+
+        for device_metadata in metadata_files:
+            with open(device_metadata, "r") as f:
+                device_metadata_dict = json.load(f)
+
+            if "start_time" in device_metadata_dict:
+                device_start_time = datetime.datetime.fromisoformat(
+                    device_metadata_dict["start_time"]
+                )
+                if start_time is None or device_start_time < start_time:
+                    start_time = device_start_time
+
+            if "end_time" in device_metadata_dict:
+                device_end_time = datetime.datetime.fromisoformat(
+                    device_metadata_dict["end_time"]
+                )
+                if end_time is None or device_end_time > end_time:
+                    end_time = device_end_time
+
+        if start_time:
+            self.metadata["start_time"] = start_time.astimezone().isoformat()
+        if end_time:
+            self.metadata["end_time"] = end_time.astimezone().isoformat()
+
+        self.metadata["sensor_paths"] = back.SENSOR_PATHS
+
+        with open(output_dir / "metadata.json", "w") as f:
+            json.dump(self.metadata, f, indent=4)
 
         back.ui.prevent_close = False
 
