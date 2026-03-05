@@ -453,6 +453,10 @@ class CmdMonitor:
         back.sensor_data.clear()
 
         for path in back.SENSOR_PATHS:
+            # We do not need the time for plotting
+            if path == "/Time/Detailed":
+                continue
+
             success = await back.device.subscribe(path)
             if not success:
                 await back.show_error(
@@ -617,7 +621,6 @@ class CmdSaveRecord:
 
         self.metadata.update(back.metadata_log)
         self.metadata["source"] = f"movesense_logger-{__version__}"
-        self.metadata["sensor_paths"] = back.SENSOR_PATHS
         self.metadata["device_info"] = back.device_info
         self.metadata["device_id"] = back.device.movesense_id
 
@@ -677,12 +680,10 @@ def write_edf(record, metadata, sensor_paths, output_file):
 
     edf_metadata = {}
 
-    if "notes" in metadata:
-        edf_metadata["recording_additional"] = metadata["notes"]
     if "name" in metadata:
         edf_metadata["patientname"] = metadata["name"]
-    if "device_info" in metadata:
-        edf_metadata["equipment"] = metadata["device_info"]
+    if "device_id" in metadata:
+        edf_metadata["equipment"] = metadata["device_id"]
 
     timestamps = None
     signals = []
