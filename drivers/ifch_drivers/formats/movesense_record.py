@@ -118,6 +118,11 @@ def write(
             # Store the data for this sensor as datasets in the sensor group
             for key, data in sensor_dict.items():
                 data = np.asarray(data)
+
+                # Update data type for float compression
+                if data.dtype == np.float64:
+                    data = data.astype(np.float32)
+
                 sensor_group.create_dataset(key, data=data, compression="gzip")
 
         for sensor, properties in sensor_properties.items():
