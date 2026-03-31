@@ -1,3 +1,4 @@
+import asyncio
 import bisect
 import collections
 import csv
@@ -158,17 +159,17 @@ class ESPRecordConverter:
                 t + utc_corr for t in chunk[UTC_DESC][UTC_DESC]
             ]
 
-    def _read_data(self):
+    async def _read_data(self):
 
         self.record = {}
 
         if self.checkpoints is None:
-            self._read_checkpoints()
+            await self._read_checkpoints()
 
         self._compute_time_corrections()
 
         if self.config is None:
-            self._read_metadata()
+            await self._read_metadata()
 
         bin_decoder = ESPBinReader(self.config["sensorPaths"])
         sbem_decoder = SBEMDecoder()
@@ -188,6 +189,9 @@ class ESPRecordConverter:
         max_id = max(max_sbem, max_bin)
 
         for chunk_id in range(1, max_id + 1):
+            # Allow cancellation
+            await asyncio.sleep(0)
+
             sbem_ext = "SBM" if self.esp_filenames else "sbem"
             sbem_files = sorted(
                 self.record_path.glob(f"{chunk_id:03d}*{sbem_ext}*"),
@@ -196,6 +200,7 @@ class ESPRecordConverter:
 
             if len(sbem_files) > 1:
                 for sbem_file in sbem_files[1:]:
+                    await asyncio.sleep(0)
                     logging.warning("Backup SBEM file found: %s", sbem_file.name)
                     try:
                         sbem_decoded = sbem_decoder.decode(sbem_file)
@@ -210,6 +215,7 @@ class ESPRecordConverter:
             if not sbem_files:
                 logging.warning("Missing SBEM file for chunk ID: %s", chunk_id)
             else:
+                await asyncio.sleep(0)
                 logging.info("Decoding SBEM file: %s", sbem_files[0].name)
                 try:
                     sbem_decoded = sbem_decoder.decode(sbem_files[0])
@@ -228,6 +234,7 @@ class ESPRecordConverter:
             )
             if len(bin_files) > 1:
                 for bin_file in bin_files[1:]:
+                    await asyncio.sleep(0)
                     logging.warning("Backup BIN file found: %s", bin_file.name)
                     bin_decoded = bin_decoder.read(bin_file)
                     self._append_chunk(bin_decoded)
@@ -236,11 +243,12 @@ class ESPRecordConverter:
                 if chunk_id != max_id:
                     logging.warning("Missing BIN file for chunk ID: %s", chunk_id)
             else:
+                await asyncio.sleep(0)
                 logging.info("Decoding BIN file: %s", bin_files[0].name)
                 bin_decoded = bin_decoder.read(bin_files[0])
                 self._append_chunk(bin_decoded)
 
-    def _read_metadata(self):
+    async def _read_metadata(self):
         self.metadata = {}
         metadata_file = self.record_path / "metadata.json"
 
@@ -327,7 +335,7 @@ class ESPRecordConverter:
                 "Detected %s Movesense reboot(s)", len(self._time_corrections) - 1
             )
 
-    def _read_checkpoints(self):
+    async def _read_checkpoints(self):
         ignored = ["metadata.json", "config.json"]
         if self.esp_filenames:
             ignored = ["metadata.json", "CONFIG.JSN"]
@@ -370,15 +378,15 @@ class ESPRecordConverter:
 
         self.checkpoints = checkpoints
 
-    def read(self):
+    async def read(self):
         """
         Read the record, its metadata and its checkpoints.
         """
 
-        self._read_checkpoints()
-        self._read_data()
+        await self._read_checkpoints()
+        await self._read_data()
 
-    def write(self, output_path: pathlib.Path | str):
+    async def write(self, output_path: pathlib.Path | str):
         """
         Write the record in HDF5 format, along with its metadata and checkpoints.
 
@@ -386,16 +394,22 @@ class ESPRecordConverter:
             output_path (pathlib.Path|str): the directory where to write the output files
         """
         if self.record is None or self.checkpoints is None or self.metadata is None:
-            self.read()
+            await self.read()
 
         if not isinstance(output_path, pathlib.Path):
             output_path = pathlib.Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
 
+        # Allow cancellation before writing checkpoints
+        await asyncio.sleep(0)
+
         with open(output_path / "checkpoints.csv", "w") as f:
             writer = csv.writer(f)
             writer.writerow(self.checkpoints.keys())
             writer.writerows(zip(*self.checkpoints.values()))
+
+        # Allow cancellation before writing record
+        await asyncio.sleep(0)
 
         movesense_record.write(
             output_path / "record.h5",

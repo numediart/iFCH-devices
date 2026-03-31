@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 import numpy as np
 import qasync
+import wakepy
 from ifch_drivers.esp_logger import ESPLogger
 from ifch_drivers.formats.esp_record import ESPRecordConverter
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
@@ -37,7 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-__version__ = "0.2.0"
+__version__ = "1.0"
 
 
 class GUIState(Enum):
@@ -1112,7 +1113,7 @@ class DownloadView(QWidget):
 
         # Status label
         self.status_label = QLabel(
-            "Downloading recorded data from device...\nThis may take up to 1 hour."
+            "Downloading recorded data from device...\nThis may take up to 1 hour. Please make sure that your computer does not go to sleep."
         )
         self.status_label.setStyleSheet(
             f"""
@@ -1921,7 +1922,7 @@ class CmdLogging:
 
             back.ui.update_warning_status(
                 "Movesense not found",
-                f"The associated Movesense device ({config['MovesenseID']}) could not be found. Please ensure it is powered on and in range. Press 'CANCEL' to retry scanning.\n\nYou may force the end of the recording by pressing 'IGNORE', but any data left on the Movesense will be lost.",
+                f"The associated Movesense device ({config['MovesenseID']}) could not be found.\n\nIf this is the end of a long recording, this is probably due to its battery running empty and you can safely ignore this message.\n\nIf not, please ensure it is powered on and in range. Press 'CANCEL' to retry scanning.\nYou may force the end of the recording by pressing 'IGNORE', but this may cause the loss of the last 30 minutes of recording.",
                 ok_text="IGNORE",
                 ok_cb=back.force_stop_logging,
                 show_cancel=True,
@@ -1942,7 +1943,7 @@ class CmdLogging:
             logging.warning("Movesense stopped logging on its own")
             back.ui.update_warning_status(
                 "Movesense reset",
-                "The associated Movesense device was reset. This may have happened if the battery was replaced. Some of the recording may have been lost in the process.",
+                "The associated Movesense device stopped logging on its own. This may have happened if the battery was just replaced.",
                 ok_cb=back.stop_logging,
                 show_cancel=False,
             )
@@ -2342,8 +2343,6 @@ class CmdSaveRecord:
                     int((idx + 1) / len(back.record_files) * 100)
                 )
 
-        # FIXME the UI is not responding after download is over during decoding and saving
-
         archived = await back.device.archive_log(back.record_meta["ID"])
         if not archived:
             logging.warning("Archive log failed for ID %s", back.record_meta["ID"])
@@ -2363,7 +2362,7 @@ class CmdSaveRecord:
             if not deleted:
                 logging.warning("Delete error log failed")
 
-        convert_dir = record_dir / "converted"
+        convert_dir = back.record_dir / "converted"
 
         back.ui.update_info_status(
             "Saving record",
@@ -2373,11 +2372,11 @@ class CmdSaveRecord:
 
         try:
             converter = ESPRecordConverter(raw_zip)
-            converter.write(convert_dir)
+            await converter.write(convert_dir)
 
             back.ui.update_success_status(
                 "Record saved",
-                f"The data were successfully saved to:\n{str(record_dir)}",
+                f"The data were successfully saved to:\n{str(back.record_dir)}",
             )
             back.ui.update_ui_state(GUIState.SUCCESS)
 
@@ -2438,6 +2437,7 @@ class CmdResume:
 
 
 # ----------------------------------------------------------------------
+@wakepy.keep.presenting()
 def main():
     logging.basicConfig(level=logging.INFO)
 
