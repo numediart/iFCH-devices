@@ -517,6 +517,7 @@ class ESPLogger:
         self._config = {
             "address": None,
             "sensorPaths": [
+                "/Time/Detailed",
                 "/Meas/ECG/200/mV",
                 "/Meas/Acc/13",
             ],

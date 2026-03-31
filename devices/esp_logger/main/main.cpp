@@ -164,8 +164,6 @@ void fetchLogic()
         // FIXME: it appears the Movesense crashes sometimes during the fetch log step
         // COULD BE RELATED to the bug when fetching IMU9 and ECG logs on the MD device
 
-        // TODO validate behaviour when Movesense restarts during a recording
-
         // If not logging, restart logging
         if (loggingStatus != 3)
         {

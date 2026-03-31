@@ -6,6 +6,7 @@ import logging
 import pathlib
 import sys
 import time
+import zipfile
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
@@ -54,6 +55,7 @@ class GUIState(Enum):
 
 
 METADATA_FILENAME = "metadata.json"
+ESP_LOG_FILENAME = "esp_log.txt"
 
 GREEN_L = "#4caf50"
 GREEN_M = "#45a148"
@@ -2296,50 +2298,49 @@ class CmdSaveRecord:
                     )
             back.record_dir = record_dir
 
-        raw_dir = back.record_dir / "raw"
-        raw_dir.mkdir(parents=True, exist_ok=True)
+        back.record_dir.mkdir(parents=True, exist_ok=True)
+        raw_zip = back.record_dir / "raw.zip"
 
         back.record_meta["esp_info"] = back.device.device_info
-        with open(raw_dir / METADATA_FILENAME, "w") as f:
-            json.dump(back.record_meta, f, indent=4)
+        with zipfile.ZipFile(raw_zip, "a", compression=zipfile.ZIP_DEFLATED) as zipf:
+            if METADATA_FILENAME not in zipf.namelist():
+                str_data = json.dumps(back.record_meta, indent=4)
+                zipf.writestr(METADATA_FILENAME, str_data)
 
-        for idx, filename in enumerate(back.record_files):
-            filename_local = filename.lower()
-            filename_local = filename_local.replace("sbm", "sbem")
-            filename_local = filename_local.replace("jsn", "json")
+            for idx, filename in enumerate(back.record_files):
+                filename_local = filename.lower()
+                filename_local = filename_local.replace("sbm", "sbem")
+                filename_local = filename_local.replace("jsn", "json")
 
-            file_path = raw_dir / filename_local
-            if file_path.exists():
-                logging.debug(
-                    "File %s already exists, skipping download", file_path.name
+                # Check if file already exists
+                if filename_local in zipf.namelist():
+                    logging.debug(
+                        "File %s already exists, skipping download", filename_local
+                    )
+                    back.ui.download_view.progress_bar.setValue(
+                        int((idx + 1) / len(back.record_files) * 100)
+                    )
+                    continue
+
+                data = await back.device.get_file(
+                    f"{back.record_meta['ID']}/{filename}"
                 )
+                if data is None:
+                    logging.warning(
+                        "Get file %s of log %s failed", filename, back.record_meta["ID"]
+                    )
+                    await back.show_error(
+                        "File download error",
+                        f"Failed to download file {back.record_meta['ID']}/{filename} from the iFCH device.",
+                    )
+                    return
+
+                # Write to file in zip
+                zipf.writestr(filename_local, data)
+
                 back.ui.download_view.progress_bar.setValue(
                     int((idx + 1) / len(back.record_files) * 100)
                 )
-                continue
-
-            data = await back.device.get_file(f"{back.record_meta['ID']}/{filename}")
-            if data is None:
-                logging.warning(
-                    "Get file %s of log %s failed", filename, back.record_meta["ID"]
-                )
-                await back.show_error(
-                    "File download error",
-                    f"Failed to download file {back.record_meta['ID']}/{filename} from the iFCH device.",
-                )
-                return
-
-            temp_file = file_path.with_suffix(".tmp")
-
-            # Write to temporary file first
-            with open(temp_file, "wb") as f:
-                f.write(data)
-            # Rename to final file once done
-            temp_file.rename(file_path)
-
-            back.ui.download_view.progress_bar.setValue(
-                int((idx + 1) / len(back.record_files) * 100)
-            )
 
         # FIXME the UI is not responding after download is over during decoding and saving
 
@@ -2352,8 +2353,11 @@ class CmdSaveRecord:
         if error_log is None:
             logging.warning("Get error log failed")
         else:
-            with open(raw_dir / "esp_log.txt", "w") as f:
-                f.write(error_log)
+            with zipfile.ZipFile(
+                raw_zip, "a", compression=zipfile.ZIP_DEFLATED
+            ) as zipf:
+                if ESP_LOG_FILENAME not in zipf.namelist():
+                    zipf.writestr(ESP_LOG_FILENAME, error_log)
 
             deleted = await back.device.delete_error_log()
             if not deleted:
@@ -2368,7 +2372,7 @@ class CmdSaveRecord:
         back.ui.update_ui_state(GUIState.INFO)
 
         try:
-            converter = ESPRecordConverter(raw_dir)
+            converter = ESPRecordConverter(raw_zip)
             converter.write(convert_dir)
 
             back.ui.update_success_status(
