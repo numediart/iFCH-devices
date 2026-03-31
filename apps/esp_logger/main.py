@@ -83,8 +83,7 @@ GREY_M = "#a1a1a1"
 GREY_D = "#919191"
 
 
-# TODO enhancement: add retries to sensitive operations
-async def retry(func, retries=3, delay=0.3, *args, **kwargs):
+async def retry(func, retries=3, delay=0.2, *args, **kwargs):
     for attempt in range(retries):
         result = await func(*args, **kwargs)
         if result is not None:
@@ -1882,7 +1881,12 @@ class CmdProbeUSB:
                     await back.queue_command(CmdResume())
                     return
 
-                status = await back.device.get_status()
+                status = await retry(back.device.get_status)
+
+                if not status:
+                    logging.error("Failed to get device status after USB connection")
+                    await back.show_error()
+                    return
 
                 if status["logging"]:
                     await back.queue_command(CmdLogging())
@@ -1922,10 +1926,10 @@ class CmdLogging:
         )
         back.ui.update_ui_state(GUIState.INFO)
 
-        if not await back.device.connect():
+        if not await retry(back.device.connect, retries=2):
             logging.warning("Auto BLE connect failed")
 
-            config = await back.device.get_config()
+            config = await retry(back.device.get_config)
 
             if config is None:
                 logging.warning("Failed to get config")
@@ -1945,7 +1949,7 @@ class CmdLogging:
 
         back.ui.update_info_status("Device found", "Fetching Movesense info...")
 
-        mov_status = await back.device.get_mov_islogging()
+        mov_status = await retry(back.device.get_mov_islogging)
 
         if mov_status is None:
             await back.show_error()
@@ -2002,7 +2006,7 @@ class CmdBLEScan:
             "Make sure your Movesense device is powered on and in range.",
         )
 
-        devices = await back.device.scan()
+        devices = await retry(back.device.scan)
 
         if devices is None:
             raise RuntimeError("BLE scan failed")
@@ -2031,17 +2035,19 @@ class CmdStreamDevice:
 
         parts = self.device.split(";")
 
-        if not await back.device.set_address(parts[-1], parts[0]):
+        if not await retry(
+            back.device.set_address, address=parts[-1], movesense_id=parts[0]
+        ):
             logging.warning("Set address failed")
             await back.show_error()
             return
 
-        if not await back.device.connect():
+        if not await retry(back.device.connect, retries=2):
             logging.warning("BLE connect failed")
             await back.show_error()
             return
 
-        is_logging = await back.device.get_mov_islogging()
+        is_logging = await retry(back.device.get_mov_islogging)
 
         if is_logging is None:
             logging.warning("Failed to get Movesense logging status")
@@ -2056,7 +2062,7 @@ class CmdStreamDevice:
             )
             return
 
-        mov_bat = await back.device.get_mov_battery()
+        mov_bat = await retry(back.device.get_mov_battery)
         if mov_bat is not None:
             back.ui.update_device_info(mov_bat=f"{mov_bat}%")
 
@@ -2065,7 +2071,7 @@ class CmdStreamDevice:
             await back.show_error()
             return
 
-        if not await back.device.sub_stream():
+        if not await retry(back.device.sub_stream):
             logging.warning("Stream subscribe failed")
             await back.show_error()
             return
@@ -2086,7 +2092,7 @@ class CmdBatteryTick:
         if not back.device:
             raise RuntimeError("Battery tick called without USB device")
 
-        status = await back.device.get_status()
+        status = await retry(back.device.get_status)
         if not status:
             logging.warning("Status check failed")
             await back.show_error()
@@ -2094,7 +2100,7 @@ class CmdBatteryTick:
         if status["connected"]:
             # Update device info
 
-            dev_bat = await back.device.get_battery()
+            dev_bat = await retry(back.device.get_battery)
             if dev_bat is not None:
                 back.ui.update_device_info(bat=f"{dev_bat:.0f}%")
             else:
@@ -2118,7 +2124,7 @@ class CmdStartLogging:
         if not back.device:
             raise RuntimeError("Start logging called without USB device")
 
-        success = await back.device.unsub_stream()
+        success = await retry(back.device.unsub_stream)
         if not success:
             logging.warning("Unsubscribe stream failed")
             await back.show_error(
@@ -2127,7 +2133,7 @@ class CmdStartLogging:
             )
             return
 
-        success = await back.device.put_epoch()
+        success = await retry(back.device.put_epoch)
         if not success:
             logging.warning("PUT epoch failed")
             await back.show_error(
@@ -2136,7 +2142,7 @@ class CmdStartLogging:
             )
             return
 
-        success = await back.device.start_movesense_logging()
+        success = await retry(back.device.start_movesense_logging)
         if not success:
             logging.warning("Start logging failed")
             await back.show_error(
@@ -2160,7 +2166,12 @@ class CmdStopLogging:
         if not back.device:
             raise RuntimeError("Stop logging called without USB device")
 
-        status = await back.device.get_status()
+        status = await retry(back.device.get_status)
+        if not status:
+            logging.error("Failed to get device status when stopping logging")
+            await back.show_error()
+            return
+
         if not status["logging"]:
             raise RuntimeError("Stop logging called when not logging")
 
@@ -2177,7 +2188,7 @@ class CmdStopLogging:
 
         back.ending_record = True
 
-        log_id = await back.device.stop_movesense_logging()
+        log_id = await retry(back.device.stop_movesense_logging)
         if log_id is None:
             logging.warning("Stop Movesense logging failed")
             await back.show_error()
@@ -2191,7 +2202,7 @@ class CmdForceStopLogging:
         if not back.device:
             raise RuntimeError("Force stop logging called without USB device")
 
-        status = await back.device.get_status()
+        status = await retry(back.device.get_status)
         if not status["logging"]:
             raise RuntimeError("Force stop logging called when not logging")
 
@@ -2207,12 +2218,12 @@ class CmdForceStopLogging:
 
         back.ending_record = True
 
-        if not await back.device.force_reset_state():
+        if not await retry(back.device.force_reset_state):
             logging.warning("Force reset state failed")
             await back.show_error()
             return
 
-        log_id = await back.device.get_record_id()
+        log_id = await retry(back.device.get_record_id)
         if log_id is None:
             logging.warning("Get record ID failed")
             await back.show_error()
@@ -2237,10 +2248,7 @@ class CmdListLog:
             "Fetching file list from device...",
         )
 
-        async def list_all_logs():
-            return await back.device.list_logs(show_archived=True)
-
-        record_list = await retry(list_all_logs)
+        record_list = await retry(back.device.list_logs, show_archived=True)
         if record_list is None:
             logging.warning("Get log list failed")
             await back.show_error()
@@ -2263,7 +2271,7 @@ class CmdListLog:
 
         back.ui.update_ui_state(GUIState.FORM)
 
-        dir_files = await back.device.list_dir(self.log_id)
+        dir_files = await retry(back.device.list_dir, dir_name=self.log_id)
         if dir_files is None:
             logging.warning("List log files failed")
             await back.show_error()
@@ -2335,8 +2343,10 @@ class CmdSaveRecord:
                     )
                     continue
 
-                data = await back.device.get_file(
-                    f"{back.record_meta['ID']}/{filename}"
+                data = await retry(
+                    back.device.get_file,
+                    retries=2,
+                    filepath=f"{back.record_meta['ID']}/{filename}",
                 )
                 if data is None:
                     logging.warning(
@@ -2355,12 +2365,12 @@ class CmdSaveRecord:
                     int((idx + 1) / len(back.record_files) * 100)
                 )
 
-        archived = await back.device.archive_log(back.record_meta["ID"])
+        archived = await retry(back.device.archive_log, log_id=back.record_meta["ID"])
         if not archived:
             logging.warning("Archive log failed for ID %s", back.record_meta["ID"])
             # Not critical, continue
 
-        error_log = await back.device.get_error_log()
+        error_log = await retry(back.device.get_error_log)
         if error_log is None:
             logging.warning("Get error log failed")
         else:
@@ -2370,7 +2380,7 @@ class CmdSaveRecord:
                 if ESP_LOG_FILENAME not in zipf.namelist():
                     zipf.writestr(ESP_LOG_FILENAME, error_log)
 
-            deleted = await back.device.delete_error_log()
+            deleted = await retry(back.device.delete_error_log)
             if not deleted:
                 logging.warning("Delete error log failed")
 
@@ -2421,7 +2431,7 @@ class CmdResume:
         )
         back.ui.update_ui_state(GUIState.INFO)
 
-        status = await back.device.get_status()
+        status = await retry(back.device.get_status)
         if not status:
             logging.warning("Status check failed")
             await back.show_error()
@@ -2435,7 +2445,7 @@ class CmdResume:
         if "ID" in back.record_meta:
             log_id = back.record_meta["ID"]
         else:
-            log_id = await back.device.get_record_id()
+            log_id = await retry(back.device.get_record_id)
             if log_id is None:
                 logging.warning("Get record ID failed")
                 await back.show_error()
