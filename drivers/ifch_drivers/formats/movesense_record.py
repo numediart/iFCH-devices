@@ -249,6 +249,7 @@ def load(file_path: pathlib.Path | str, flatten=True) -> tuple[dict, dict, dict]
                 if key == "timestamps":
                     continue
 
+                # FIXME this does not work for UTCTIME
                 n_samples = samples.shape[1]
                 samples = np.concatenate(samples, axis=0)
                 sensor_dict[key] = samples
