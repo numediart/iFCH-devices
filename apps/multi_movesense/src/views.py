@@ -125,9 +125,10 @@ class SettingsView(BaseView):
         self.dir_edit = WidgetFactory.create_line_edit(read_only=True)
         self.browse_btn = WidgetFactory.create_button("Browse…", GREY_BUTTON)
 
-        dir_layout = LayoutBuilder.create_layout_row(
-            dir_label, self.dir_edit, self.browse_btn
-        )
+        dir_layout = QHBoxLayout()
+        dir_layout.addWidget(dir_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        dir_layout.addWidget(self.dir_edit, stretch=1)
+        dir_layout.addWidget(self.browse_btn)
         self.main_layout.addLayout(dir_layout)
 
         self.main_layout.addSpacing(30)
