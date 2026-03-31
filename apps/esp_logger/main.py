@@ -490,6 +490,18 @@ class SettingsView(QWidget):
         layout.addSpacing(30)
         layout.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        version_message = QLabel(f"App version: {__version__}")
+        version_message.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+        """
+        )
+        version_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(version_message)
+
 
 # ----------------------------------------------------------------------
 class InfoView(QWidget):
