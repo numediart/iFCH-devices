@@ -4,6 +4,7 @@ import contextlib
 import datetime
 import logging
 import pathlib
+import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
@@ -51,6 +52,8 @@ class Backend:
         self.sbem_data = None
         self.sbem_task = None
 
+        self.data_lock = threading.Lock()
+
     def enable_defer_disconnect(self):
         # When enabled, if a disconnection happens it will not interrupt the
         # current command, but will be deferred until disable_defer_disconnect()
@@ -84,13 +87,13 @@ class Backend:
 
         timestamps = [t + origin for t in timestamps]
 
-        # TODO add threading.Lock() to secure sensor_data access?
-        self.sensor_data[sensor]["timestamps"].extend(timestamps)
-        for key, value in sensor_dict.items():
-            try:
-                self.sensor_data[sensor][key].extend(value)
-            except TypeError:
-                self.sensor_data[sensor][key].append(value)
+        with self.data_lock:
+            self.sensor_data[sensor]["timestamps"].extend(timestamps)
+            for key, value in sensor_dict.items():
+                try:
+                    self.sensor_data[sensor][key].extend(value)
+                except TypeError:
+                    self.sensor_data[sensor][key].append(value)
 
     async def run(self):
         """Start the actor and bootstrap probing."""

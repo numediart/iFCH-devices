@@ -19,6 +19,7 @@ from .views import UIState
 
 if TYPE_CHECKING:
     from main import MainWindow
+import threading
 
 
 class Backend:
@@ -48,6 +49,8 @@ class Backend:
         self.sensor_log = {}
         self.metadata_log = {}
         self.device_infos = {}
+
+        self.data_lock = threading.Lock()
 
     def enable_defer_disconnect(self):
         # When enabled, if a disconnection happens it will not interrupt the
@@ -88,13 +91,15 @@ class Backend:
 
         timestamps = [t + origin for t in timestamps]
 
-        # TODO add threading.Lock() to secure sensors_data access?
-        self.sensors_data[device.movesense_id][sensor]["timestamps"].extend(timestamps)
-        for key, value in sensor_dict.items():
-            try:
-                self.sensors_data[device.movesense_id][sensor][key].extend(value)
-            except TypeError:
-                self.sensors_data[device.movesense_id][sensor][key].append(value)
+        with self.data_lock:
+            self.sensors_data[device.movesense_id][sensor]["timestamps"].extend(
+                timestamps
+            )
+            for key, value in sensor_dict.items():
+                try:
+                    self.sensors_data[device.movesense_id][sensor][key].extend(value)
+                except TypeError:
+                    self.sensors_data[device.movesense_id][sensor][key].append(value)
 
     async def run(self):
         """Start the actor and bootstrap probing."""
@@ -214,7 +219,8 @@ class Backend:
         self.devices = []
         self.ui.prevent_close = False
 
-        self.sensors_data.clear()
+        with self.data_lock:
+            self.sensors_data.clear()
         self.time_origins.clear()
         self.device_infos.clear()
         self._logging = False
@@ -279,7 +285,10 @@ class Backend:
 
             return collections.defaultdict(sensor_deque)
 
-        self.sensors_data[device.movesense_id] = collections.defaultdict(sensor_dict)
+        with self.data_lock:
+            self.sensors_data[device.movesense_id] = collections.defaultdict(
+                sensor_dict
+            )
 
         return True
 

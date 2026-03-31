@@ -446,15 +446,16 @@ class MainWindow(QWidget):
         t = time.time() * 1000
 
         for ms_id, chart in self.monitoring_view.charts.items():
-            ecg_data = self.backend.sensors_data[ms_id]["ECGMV"]
+            with self.backend.data_lock:
+                ecg_data = self.backend.sensors_data[ms_id]["ECGMV"]
+                imu_data = self.backend.sensors_data[ms_id]["IMU6"]
+
             if len(ecg_data["timestamps"]) != 0:
                 x_time = np.asarray(ecg_data["timestamps"]) - t
                 samples = np.asarray(ecg_data["ECGMV"])
                 chart.series_ecg.replaceNp(x_time.astype(float), samples.astype(float))
                 max_ecg = np.abs(samples).max()
                 chart.axis_ecg.setRange(-max_ecg, max_ecg)
-
-            imu_data = self.backend.sensors_data[ms_id]["IMU6"]
 
             if len(imu_data["timestamps"]) != 0:
                 x_time = np.asarray(imu_data["timestamps"]) - t

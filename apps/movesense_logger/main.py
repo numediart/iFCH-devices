@@ -417,7 +417,9 @@ class MainWindow(QWidget):
 
         t = time.time() * 1000
 
-        ecg_data = self.backend.sensor_data["ECGMV"]
+        with self.backend.data_lock:
+            ecg_data = self.backend.sensor_data["ECGMV"]
+
         if len(ecg_data["timestamps"]) != 0:
             x_time = np.asarray(ecg_data["timestamps"]) - t
             samples = np.asarray(ecg_data["ECGMV"])
