@@ -244,15 +244,17 @@ def load(file_path: pathlib.Path | str, flatten=True) -> tuple[dict, dict, dict]
 
     if flatten:
         for sensor_name, sensor_dict in record.items():
-            n_samples = -1
+            n_samples = 1
             for key, samples in sensor_dict.items():
-                if key == "timestamps":
+                if samples.ndim == 1:
                     continue
 
-                # FIXME this does not work for UTCTIME
                 n_samples = samples.shape[1]
                 samples = np.concatenate(samples, axis=0)
                 sensor_dict[key] = samples
+
+            if n_samples == 1:
+                continue
 
             timestamps = sensor_dict["timestamps"]
             delta_t = np.diff(timestamps)
