@@ -6,6 +6,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QListWidgetItem,
+    QProgressBar,
     QVBoxLayout,
     QWidget,
 )
@@ -52,6 +53,7 @@ class UIState(Enum):
     WARNING = auto()
     SUCCESS = auto()
     CONFIRM = auto()
+    DOWNLOAD = auto()
 
 
 class DisconnectedView(BaseView):
@@ -432,3 +434,24 @@ class MonitoringView(QWidget):
 
         self.chart = MovesenseChart()
         self.plot_layout.addWidget(self.chart)
+
+
+class DownloadView(BaseView):
+    def __init__(self):
+        super().__init__(
+            title="Downloading record",
+            title_color=BLUE_L,
+            status_text="Downloading recorded data from device...\nThis may take up to 1 hour. Please make sure that your computer does not go to sleep.",
+        )
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Main message
+
+    def _setup_content(self):
+
+        self.main_layout.addSpacing(BUTTON_SPACING)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMaximumWidth(700)
+        self.main_layout.addWidget(self.progress_bar)

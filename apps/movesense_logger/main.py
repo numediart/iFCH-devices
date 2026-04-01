@@ -30,6 +30,7 @@ from src.views import (
     ConfirmView,
     DeviceSelectionView,
     DisconnectedView,
+    DownloadView,
     ErrorView,
     FormView,
     InfoView,
@@ -136,6 +137,12 @@ class MainWindow(QWidget):
             UIState.CONFIRM,
             self.confirm_view,
             on_enter=self._enter_confirm_state,
+        )
+
+        self.download_view = DownloadView()
+        self._register_state(
+            UIState.DOWNLOAD,
+            self.download_view,
         )
 
         # Set main layout
@@ -374,6 +381,15 @@ class MainWindow(QWidget):
             asyncio.create_task(self._warning_ok_cb)
         else:
             asyncio.create_task(self.backend.disconnect())
+
+    @Slot(int, int)
+    def update_progress(self, value: int, value_max: int):
+        if value_max == 0:
+            progress = 0
+        else:
+            progress = int((value / value_max) * 100)
+
+        self.download_view.progress_bar.setValue(progress)
 
     def update_settings(self):
         output_dir = self.settings.value("output_dir", "", type=str)
