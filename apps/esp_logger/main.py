@@ -2346,7 +2346,7 @@ class CmdSaveRecord:
                 data = await retry(
                     back.device.get_file,
                     retries=2,
-                    filepath=f"{back.record_meta['ID']}/{filename}",
+                    file_path=f"{back.record_meta['ID']}/{filename}",
                 )
                 if data is None:
                     logging.warning(
