@@ -6,6 +6,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QListWidgetItem,
+    QProgressBar,
     QVBoxLayout,
     QWidget,
 )
@@ -52,6 +53,7 @@ class UIState(Enum):
     WARNING = auto()
     SUCCESS = auto()
     CONFIRM = auto()
+    DOWNLOAD = auto()
 
 
 class DisconnectedView(BaseView):
@@ -134,9 +136,10 @@ class SettingsView(BaseView):
         self.dir_edit = WidgetFactory.create_line_edit(read_only=True)
         self.browse_btn = WidgetFactory.create_button("Browse…", GREY_BUTTON)
 
-        dir_layout = LayoutBuilder.create_layout_row(
-            dir_label, self.dir_edit, self.browse_btn
-        )
+        dir_layout = QHBoxLayout()
+        dir_layout.addWidget(dir_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        dir_layout.addWidget(self.dir_edit, stretch=1)
+        dir_layout.addWidget(self.browse_btn)
         self.main_layout.addLayout(dir_layout)
 
         self.main_layout.addSpacing(30)
@@ -431,3 +434,24 @@ class MonitoringView(QWidget):
 
         self.chart = MovesenseChart()
         self.plot_layout.addWidget(self.chart)
+
+
+class DownloadView(BaseView):
+    def __init__(self):
+        super().__init__(
+            title="Downloading record",
+            title_color=BLUE_L,
+            status_text="Downloading recorded data from device...\nThis may take up to 1 hour. Please make sure that your computer does not go to sleep.",
+        )
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Main message
+
+    def _setup_content(self):
+
+        self.main_layout.addSpacing(BUTTON_SPACING)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMaximumWidth(700)
+        self.main_layout.addWidget(self.progress_bar)

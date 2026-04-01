@@ -295,10 +295,11 @@ void setupSDCard()
 {
     esp_err_t ret;
 
-    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-        .format_if_mount_failed = false,
-        .max_files = 4,
-        .allocation_unit_size = 0};
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = {};
+    mount_config.format_if_mount_failed = false;
+    mount_config.max_files = 4;
+    mount_config.allocation_unit_size = 0;
+
     sdmmc_card_t *card;
     const char mount_point[] = MOUNT_POINT;
 
@@ -323,14 +324,13 @@ void setupSDCard()
 #elifdef CONFIG_IDF_TARGET_ESP32C6
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
 
-    spi_bus_config_t bus_cfg = {
-        .mosi_io_num = PIN_NUM_MOSI,
-        .miso_io_num = PIN_NUM_MISO,
-        .sclk_io_num = PIN_NUM_CLK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 4000,
-    };
+    spi_bus_config_t bus_cfg = {};
+    bus_cfg.mosi_io_num = PIN_NUM_MOSI;
+    bus_cfg.miso_io_num = PIN_NUM_MISO;
+    bus_cfg.sclk_io_num = PIN_NUM_CLK;
+    bus_cfg.quadwp_io_num = -1;
+    bus_cfg.quadhd_io_num = -1;
+    bus_cfg.max_transfer_sz = 4000;
 
     ESP_LOGI("setupSDCard", "Initializing SD card");
 

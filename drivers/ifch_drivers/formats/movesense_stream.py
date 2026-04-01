@@ -236,14 +236,17 @@ class MovesenseStreamDecoder:
             logging.warning("Stream decoding of %s not implemented.", data_type)
             return None
 
-        if flatten and sampling > 0:
-            samples_len = len(next(iter(samples.values())))
-            samples["timestamps"] = [
-                timestamp + 1000 * i / sampling for i in range(samples_len)
-            ]
+        if flatten:
+            if sampling > 0:
+                samples_len = len(next(iter(samples.values())))
+                samples["timestamps"] = [
+                    timestamp + 1000 * i / sampling for i in range(samples_len)
+                ]
+            else:
+                samples["timestamps"] = [
+                    timestamp,
+                ]
         else:
-            samples["timestamps"] = [
-                timestamp,
-            ]
+            samples["timestamps"] = timestamp
 
         return (data_type.name, samples)

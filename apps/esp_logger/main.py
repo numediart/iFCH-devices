@@ -6,12 +6,14 @@ import logging
 import pathlib
 import sys
 import time
+import zipfile
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
 import numpy as np
 import qasync
+import wakepy
 from ifch_drivers.esp_logger import ESPLogger
 from ifch_drivers.formats.esp_record import ESPRecordConverter
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
@@ -36,7 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-__version__ = "0.2.0"
+__version__ = "1.0"
 
 
 class GUIState(Enum):
@@ -54,6 +56,7 @@ class GUIState(Enum):
 
 
 METADATA_FILENAME = "metadata.json"
+ESP_LOG_FILENAME = "esp_log.txt"
 
 GREEN_L = "#4caf50"
 GREEN_M = "#45a148"
@@ -80,8 +83,7 @@ GREY_M = "#a1a1a1"
 GREY_D = "#919191"
 
 
-# TODO enhancement: add retries to sensitive operations
-async def retry(func, retries=3, delay=0.3, *args, **kwargs):
+async def retry(func, retries=3, delay=0.2, *args, **kwargs):
     for attempt in range(retries):
         result = await func(*args, **kwargs)
         if result is not None:
@@ -486,6 +488,18 @@ class SettingsView(QWidget):
 
         layout.addSpacing(30)
         layout.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        version_message = QLabel(f"App version: {__version__}")
+        version_message.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+        """
+        )
+        version_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(version_message)
 
 
 # ----------------------------------------------------------------------
@@ -1110,7 +1124,7 @@ class DownloadView(QWidget):
 
         # Status label
         self.status_label = QLabel(
-            "Downloading recorded data from device...\nThis may take up to 1 hour."
+            "Downloading recorded data from device...\nThis may take up to 1 hour. Please make sure that your computer does not go to sleep."
         )
         self.status_label.setStyleSheet(
             f"""
@@ -1867,7 +1881,12 @@ class CmdProbeUSB:
                     await back.queue_command(CmdResume())
                     return
 
-                status = await back.device.get_status()
+                status = await retry(back.device.get_status)
+
+                if not status:
+                    logging.error("Failed to get device status after USB connection")
+                    await back.show_error()
+                    return
 
                 if status["logging"]:
                     await back.queue_command(CmdLogging())
@@ -1907,10 +1926,10 @@ class CmdLogging:
         )
         back.ui.update_ui_state(GUIState.INFO)
 
-        if not await back.device.connect():
+        if not await retry(back.device.connect, retries=2):
             logging.warning("Auto BLE connect failed")
 
-            config = await back.device.get_config()
+            config = await retry(back.device.get_config)
 
             if config is None:
                 logging.warning("Failed to get config")
@@ -1919,7 +1938,7 @@ class CmdLogging:
 
             back.ui.update_warning_status(
                 "Movesense not found",
-                f"The associated Movesense device ({config['MovesenseID']}) could not be found. Please ensure it is powered on and in range. Press 'CANCEL' to retry scanning.\n\nYou may force the end of the recording by pressing 'IGNORE', but any data left on the Movesense will be lost.",
+                f"The associated Movesense device ({config['MovesenseID']}) could not be found.\n\nIf this is the end of a long recording, this is probably due to its battery running empty and you can safely ignore this message.\n\nIf not, please ensure it is powered on and in range. Press 'CANCEL' to retry scanning.\nYou may force the end of the recording by pressing 'IGNORE', but this may cause the loss of the last 30 minutes of recording.",
                 ok_text="IGNORE",
                 ok_cb=back.force_stop_logging,
                 show_cancel=True,
@@ -1930,17 +1949,16 @@ class CmdLogging:
 
         back.ui.update_info_status("Device found", "Fetching Movesense info...")
 
-        mov_status = await back.device.get_mov_islogging()
+        mov_status = await retry(back.device.get_mov_islogging)
 
         if mov_status is None:
             await back.show_error()
             return
         elif not mov_status:
-            # FIXME check why this failed
             logging.warning("Movesense stopped logging on its own")
             back.ui.update_warning_status(
                 "Movesense reset",
-                "The associated Movesense device was reset. This may have happened if the battery was replaced. Some of the recording may have been lost in the process.",
+                "The associated Movesense device stopped logging on its own. This may have happened if the battery was just replaced.",
                 ok_cb=back.stop_logging,
                 show_cancel=False,
             )
@@ -1987,7 +2005,7 @@ class CmdBLEScan:
             "Make sure your Movesense device is powered on and in range.",
         )
 
-        devices = await back.device.scan()
+        devices = await retry(back.device.scan)
 
         if devices is None:
             raise RuntimeError("BLE scan failed")
@@ -2016,17 +2034,19 @@ class CmdStreamDevice:
 
         parts = self.device.split(";")
 
-        if not await back.device.set_address(parts[-1], parts[0]):
+        if not await retry(
+            back.device.set_address, address=parts[-1], movesense_id=parts[0]
+        ):
             logging.warning("Set address failed")
             await back.show_error()
             return
 
-        if not await back.device.connect():
+        if not await retry(back.device.connect, retries=2):
             logging.warning("BLE connect failed")
             await back.show_error()
             return
 
-        is_logging = await back.device.get_mov_islogging()
+        is_logging = await retry(back.device.get_mov_islogging)
 
         if is_logging is None:
             logging.warning("Failed to get Movesense logging status")
@@ -2041,7 +2061,7 @@ class CmdStreamDevice:
             )
             return
 
-        mov_bat = await back.device.get_mov_battery()
+        mov_bat = await retry(back.device.get_mov_battery)
         if mov_bat is not None:
             back.ui.update_device_info(mov_bat=f"{mov_bat}%")
 
@@ -2050,7 +2070,7 @@ class CmdStreamDevice:
             await back.show_error()
             return
 
-        if not await back.device.sub_stream():
+        if not await retry(back.device.sub_stream):
             logging.warning("Stream subscribe failed")
             await back.show_error()
             return
@@ -2071,7 +2091,7 @@ class CmdBatteryTick:
         if not back.device:
             raise RuntimeError("Battery tick called without USB device")
 
-        status = await back.device.get_status()
+        status = await retry(back.device.get_status)
         if not status:
             logging.warning("Status check failed")
             await back.show_error()
@@ -2079,7 +2099,7 @@ class CmdBatteryTick:
         if status["connected"]:
             # Update device info
 
-            dev_bat = await back.device.get_battery()
+            dev_bat = await retry(back.device.get_battery)
             if dev_bat is not None:
                 back.ui.update_device_info(bat=f"{dev_bat:.0f}%")
             else:
@@ -2103,7 +2123,7 @@ class CmdStartLogging:
         if not back.device:
             raise RuntimeError("Start logging called without USB device")
 
-        success = await back.device.unsub_stream()
+        success = await retry(back.device.unsub_stream)
         if not success:
             logging.warning("Unsubscribe stream failed")
             await back.show_error(
@@ -2112,7 +2132,7 @@ class CmdStartLogging:
             )
             return
 
-        success = await back.device.put_epoch()
+        success = await retry(back.device.put_epoch)
         if not success:
             logging.warning("PUT epoch failed")
             await back.show_error(
@@ -2121,7 +2141,7 @@ class CmdStartLogging:
             )
             return
 
-        success = await back.device.start_movesense_logging()
+        success = await retry(back.device.start_movesense_logging)
         if not success:
             logging.warning("Start logging failed")
             await back.show_error(
@@ -2145,7 +2165,12 @@ class CmdStopLogging:
         if not back.device:
             raise RuntimeError("Stop logging called without USB device")
 
-        status = await back.device.get_status()
+        status = await retry(back.device.get_status)
+        if not status:
+            logging.error("Failed to get device status when stopping logging")
+            await back.show_error()
+            return
+
         if not status["logging"]:
             raise RuntimeError("Stop logging called when not logging")
 
@@ -2162,7 +2187,7 @@ class CmdStopLogging:
 
         back.ending_record = True
 
-        log_id = await back.device.stop_movesense_logging()
+        log_id = await retry(back.device.stop_movesense_logging)
         if log_id is None:
             logging.warning("Stop Movesense logging failed")
             await back.show_error()
@@ -2176,7 +2201,7 @@ class CmdForceStopLogging:
         if not back.device:
             raise RuntimeError("Force stop logging called without USB device")
 
-        status = await back.device.get_status()
+        status = await retry(back.device.get_status)
         if not status["logging"]:
             raise RuntimeError("Force stop logging called when not logging")
 
@@ -2192,12 +2217,12 @@ class CmdForceStopLogging:
 
         back.ending_record = True
 
-        if not await back.device.force_reset_state():
+        if not await retry(back.device.force_reset_state):
             logging.warning("Force reset state failed")
             await back.show_error()
             return
 
-        log_id = await back.device.get_record_id()
+        log_id = await retry(back.device.get_record_id)
         if log_id is None:
             logging.warning("Get record ID failed")
             await back.show_error()
@@ -2222,10 +2247,7 @@ class CmdListLog:
             "Fetching file list from device...",
         )
 
-        async def list_all_logs():
-            return await back.device.list_logs(show_archived=True)
-
-        record_list = await retry(list_all_logs)
+        record_list = await retry(back.device.list_logs, show_archived=True)
         if record_list is None:
             logging.warning("Get log list failed")
             await back.show_error()
@@ -2248,7 +2270,7 @@ class CmdListLog:
 
         back.ui.update_ui_state(GUIState.FORM)
 
-        dir_files = await back.device.list_dir(self.log_id)
+        dir_files = await retry(back.device.list_dir, dir_name=self.log_id)
         if dir_files is None:
             logging.warning("List log files failed")
             await back.show_error()
@@ -2296,70 +2318,72 @@ class CmdSaveRecord:
                     )
             back.record_dir = record_dir
 
-        raw_dir = back.record_dir / "raw"
-        raw_dir.mkdir(parents=True, exist_ok=True)
+        back.record_dir.mkdir(parents=True, exist_ok=True)
+        raw_zip = back.record_dir / "raw.zip"
 
         back.record_meta["esp_info"] = back.device.device_info
-        with open(raw_dir / METADATA_FILENAME, "w") as f:
-            json.dump(back.record_meta, f, indent=4)
+        with zipfile.ZipFile(raw_zip, "a", compression=zipfile.ZIP_DEFLATED) as zipf:
+            if METADATA_FILENAME not in zipf.namelist():
+                str_data = json.dumps(back.record_meta, indent=4)
+                zipf.writestr(METADATA_FILENAME, str_data)
 
-        for idx, filename in enumerate(back.record_files):
-            filename_local = filename.lower()
-            filename_local = filename_local.replace("sbm", "sbem")
-            filename_local = filename_local.replace("jsn", "json")
+            for idx, filename in enumerate(back.record_files):
+                filename_local = filename.lower()
+                filename_local = filename_local.replace("sbm", "sbem")
+                filename_local = filename_local.replace("jsn", "json")
 
-            file_path = raw_dir / filename_local
-            if file_path.exists():
-                logging.debug(
-                    "File %s already exists, skipping download", file_path.name
+                # Check if file already exists
+                if filename_local in zipf.namelist():
+                    logging.debug(
+                        "File %s already exists, skipping download", filename_local
+                    )
+                    back.ui.download_view.progress_bar.setValue(
+                        int((idx + 1) / len(back.record_files) * 100)
+                    )
+                    continue
+
+                data = await retry(
+                    back.device.get_file,
+                    retries=2,
+                    file_path=f"{back.record_meta['ID']}/{filename}",
                 )
+                if data is None:
+                    logging.warning(
+                        "Get file %s of log %s failed", filename, back.record_meta["ID"]
+                    )
+                    await back.show_error(
+                        "File download error",
+                        f"Failed to download file {back.record_meta['ID']}/{filename} from the iFCH device.",
+                    )
+                    return
+
+                # Write to file in zip
+                zipf.writestr(filename_local, data)
+
                 back.ui.download_view.progress_bar.setValue(
                     int((idx + 1) / len(back.record_files) * 100)
                 )
-                continue
 
-            data = await back.device.get_file(f"{back.record_meta['ID']}/{filename}")
-            if data is None:
-                logging.warning(
-                    "Get file %s of log %s failed", filename, back.record_meta["ID"]
-                )
-                await back.show_error(
-                    "File download error",
-                    f"Failed to download file {back.record_meta['ID']}/{filename} from the iFCH device.",
-                )
-                return
-
-            temp_file = file_path.with_suffix(".tmp")
-
-            # Write to temporary file first
-            with open(temp_file, "wb") as f:
-                f.write(data)
-            # Rename to final file once done
-            temp_file.rename(file_path)
-
-            back.ui.download_view.progress_bar.setValue(
-                int((idx + 1) / len(back.record_files) * 100)
-            )
-
-        # FIXME the UI is not responding after download is over during decoding and saving
-
-        archived = await back.device.archive_log(back.record_meta["ID"])
+        archived = await retry(back.device.archive_log, log_id=back.record_meta["ID"])
         if not archived:
             logging.warning("Archive log failed for ID %s", back.record_meta["ID"])
             # Not critical, continue
 
-        error_log = await back.device.get_error_log()
+        error_log = await retry(back.device.get_error_log)
         if error_log is None:
             logging.warning("Get error log failed")
         else:
-            with open(raw_dir / "esp_log.txt", "w") as f:
-                f.write(error_log)
+            with zipfile.ZipFile(
+                raw_zip, "a", compression=zipfile.ZIP_DEFLATED
+            ) as zipf:
+                if ESP_LOG_FILENAME not in zipf.namelist():
+                    zipf.writestr(ESP_LOG_FILENAME, error_log)
 
-            deleted = await back.device.delete_error_log()
+            deleted = await retry(back.device.delete_error_log)
             if not deleted:
                 logging.warning("Delete error log failed")
 
-        convert_dir = record_dir / "converted"
+        convert_dir = back.record_dir / "converted"
 
         back.ui.update_info_status(
             "Saving record",
@@ -2368,12 +2392,12 @@ class CmdSaveRecord:
         back.ui.update_ui_state(GUIState.INFO)
 
         try:
-            converter = ESPRecordConverter(raw_dir)
-            converter.write(convert_dir)
+            converter = ESPRecordConverter(raw_zip)
+            await converter.write(convert_dir)
 
             back.ui.update_success_status(
                 "Record saved",
-                f"The data were successfully saved to:\n{str(record_dir)}",
+                f"The data were successfully saved to:\n{str(back.record_dir)}",
             )
             back.ui.update_ui_state(GUIState.SUCCESS)
 
@@ -2406,7 +2430,7 @@ class CmdResume:
         )
         back.ui.update_ui_state(GUIState.INFO)
 
-        status = await back.device.get_status()
+        status = await retry(back.device.get_status)
         if not status:
             logging.warning("Status check failed")
             await back.show_error()
@@ -2420,7 +2444,7 @@ class CmdResume:
         if "ID" in back.record_meta:
             log_id = back.record_meta["ID"]
         else:
-            log_id = await back.device.get_record_id()
+            log_id = await retry(back.device.get_record_id)
             if log_id is None:
                 logging.warning("Get record ID failed")
                 await back.show_error()
@@ -2434,6 +2458,7 @@ class CmdResume:
 
 
 # ----------------------------------------------------------------------
+@wakepy.keep.presenting()
 def main():
     logging.basicConfig(level=logging.INFO)
 

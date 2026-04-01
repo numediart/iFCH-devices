@@ -1,7 +1,7 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
-#define VERSION "iFCH-logger v0.1"
+#define VERSION "iFCH-logger v1.0"
 
 #include <vector>
 #include <map>

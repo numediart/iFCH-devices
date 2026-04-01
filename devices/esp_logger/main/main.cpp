@@ -161,11 +161,6 @@ void fetchLogic()
 
         vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
-        // FIXME: it appears the Movesense crashes sometimes during the fetch log step
-        // COULD BE RELATED to the bug when fetching IMU9 and ECG logs on the MD device
-
-        // TODO validate behaviour when Movesense restarts during a recording
-
         // If not logging, restart logging
         if (loggingStatus != 3)
         {
@@ -1027,7 +1022,8 @@ extern "C" void app_main()
     }
 
     // If the clock interrupt is active, fetch data
-    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER && connectFailureCount < MAX_CONNECT_FAILURES)
+    uint32_t causes = esp_sleep_get_wakeup_causes();
+    if (causes & BIT(ESP_SLEEP_WAKEUP_TIMER) && connectFailureCount < MAX_CONNECT_FAILURES)
     {
         ESP_LOGI("app_main", "Woke up from timer, fetching");
         fetchLogic();

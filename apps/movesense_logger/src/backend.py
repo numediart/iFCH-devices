@@ -584,7 +584,10 @@ class CmdDownloadLog:
         back.ui.set_state(UIState.FORM)
 
         async def sbem_task():
-            back.sbem_data = await back.device.fetch_log(back.log_list[-1])
+            back.ui.update_progress(0, 0)
+            back.sbem_data = await back.device.fetch_log(
+                back.log_list[-1], progress_callback=back.ui.update_progress
+            )
             if back.sbem_data is None:
                 await back.show_error(
                     "Error",
@@ -607,7 +610,7 @@ class CmdSaveRecord:
             "Downloading record",
             "Data transfer from the Movesense device is in progress. This can take up to 15 minutes for 1 day of recording.",
         )
-        back.ui.set_state(UIState.INFO)
+        back.ui.set_state(UIState.DOWNLOAD)
 
         await back.sbem_task
 

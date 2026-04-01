@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
 )
 from scipy import signal
 
+__version__ = "1.0"
+
 GREEN_L = "#4caf50"
 GREEN_M = "#45a148"
 GREEN_D = "#3f9141"
@@ -95,6 +97,18 @@ class SettingsView(QWidget):
 
         layout.addSpacing(30)
         layout.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        version_message = QLabel(f"App version: {__version__}")
+        version_message.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+        """
+        )
+        version_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(version_message)
 
 
 class MonitoringView(QWidget):
@@ -550,7 +564,7 @@ class MonitoringView(QWidget):
     def load_record(self, path):
         record, metadata, properties = movesense_record.load(path)
         try:
-            ecg_sensor = record["ECG"]
+            ecg_sensor = record["ECGMV"]
         except KeyError:
             logging.error("No ECG data in the record")
             return
@@ -561,12 +575,12 @@ class MonitoringView(QWidget):
         utc_start = datetime.datetime.fromisoformat(metadata["start_time"])
         self.ecg_timestamps += utc_start.timestamp() * 1000
 
-        self.ecg_samples = ecg_sensor["ECG"] * 1000  # Convert to mV
+        self.ecg_samples = ecg_sensor["ECGMV"] * 1000  # Convert to mV
 
-        if "scale" in properties["ECG"]:
-            self.ecg_samples = self.ecg_samples * properties["ECG"]["scale"]
-        if "sampling" in properties["ECG"]:
-            self.ecg_sampling = properties["ECG"]["sampling"]
+        if "scale" in properties["ECGMV"]:
+            self.ecg_samples = self.ecg_samples * properties["ECGMV"]["scale"]
+        if "sampling" in properties["ECGMV"]:
+            self.ecg_sampling = properties["ECGMV"]["sampling"]
         else:
             logging.warning("No sampling rate in properties, using default 250Hz")
             self.ecg_sampling = 250  # Default fallback

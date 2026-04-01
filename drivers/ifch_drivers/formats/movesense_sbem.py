@@ -278,8 +278,9 @@ class SBEMDecoder:
             with io.BytesIO(sbem_data) as self._reader:
                 return self._decode(standardize=standardize)
         else:
-            file = pathlib.Path(sbem_data)
-            with open(file, "rb") as self._reader:
+            if isinstance(sbem_data, str):
+                sbem_data = pathlib.Path(sbem_data)
+            with sbem_data.open("rb") as self._reader:
                 return self._decode(standardize=standardize)
 
     def _decode(self, standardize=True):

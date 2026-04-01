@@ -17,10 +17,9 @@ void setupVUSB()
 {
     esp_err_t rc;
 
-    adc_oneshot_unit_init_cfg_t adc_config = {
-        .unit_id = VUSB_ADC_UNIT,
-        .ulp_mode = ADC_ULP_MODE_DISABLE,
-    };
+    adc_oneshot_unit_init_cfg_t adc_config = {};
+    adc_config.unit_id = VUSB_ADC_UNIT;
+    adc_config.ulp_mode = ADC_ULP_MODE_DISABLE;
 
     rc = adc_oneshot_new_unit(&adc_config, &adc_handle);
     if (rc != ESP_OK)
@@ -63,11 +62,10 @@ bool isVUSBConnected()
 void setupGauge()
 {
 
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = I2C_MAX17048_ADDR,
-        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
-    };
+    i2c_device_config_t dev_cfg = {};
+    dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
+    dev_cfg.device_address = I2C_MAX17048_ADDR;
+    dev_cfg.scl_speed_hz = I2C_MASTER_FREQ_HZ;
 
     esp_err_t rc = i2c_master_bus_add_device(i2c_handle, &dev_cfg, &max17048_handle);
     if (rc != ESP_OK)
