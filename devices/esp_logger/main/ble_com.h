@@ -16,17 +16,9 @@
 #define BLE_RESPONSE_QUEUE_LENGTH 16
 
 // Define big enough queues to store incoming notifications if SD writes are slow
-#ifdef CONFIG_IDF_TARGET_ESP32S3
 // These sizes give enough margin to store up to 20s of notifications
 #define BLE_DATA_QUEUE_LENGTH 512
 #define BLE_LOG_QUEUE_LENGTH 8192
-#elifdef CONFIG_IDF_TARGET_ESP32C6
-// These sizes give enough margin to store up to 2s of notifications
-#define BLE_DATA_QUEUE_LENGTH 64
-#define BLE_LOG_QUEUE_LENGTH 1024
-#else
-#error "Unsupported target platform."
-#endif // CONFIG_IDF_TARGET
 
 // Is movesense currently connected
 extern volatile bool isMovesenseConnected;

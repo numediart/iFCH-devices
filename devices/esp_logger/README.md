@@ -3,11 +3,9 @@ iFCH Logger
 
 ## Board
 
-Use SparkFun ESP32-S3 Thing Plus (C6 also works but BLE is bugged in 5.4.1)
+Use SparkFun ESP32-S3 Thing Plus
 
 Solder 22k resistor between GND and IO15, and 33k between IO15 and VUSB
-
-If using C6, solder 220k between GND and IO4, and 100k between IO2 and VUSB
 
 Cut the traces for power LEDs on both the Thing Plus and the RV-8803 to save power
 
@@ -39,8 +37,3 @@ source ./env.sh
 idf.py set-target esp32s3
 idf.py build flash
 ```
-
-Replace `esp32s3` with `esp32c6` if using the other board.
-
-If an error appears mentioning a lack of memory, use `idf.py menuconfig` and
-change the partition table to the (large) single app option.

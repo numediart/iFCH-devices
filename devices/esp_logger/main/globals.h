@@ -14,6 +14,11 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
+// Check that we are building for a supported target platform
+#ifndef CONFIG_IDF_TARGET_ESP32S3
+#error "Unsupported target platform."
+#endif
+
 #define MAX_CONNECT_FAILURES 5
 #define FAILURE_DELAY_MIN 2
 #define LONG_FAILURE_DELAY_MIN 50

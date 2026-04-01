@@ -9,19 +9,9 @@
 
 #define RGB_MAX 64
 
-#ifdef CONFIG_IDF_TARGET_ESP32S3
 #define I2C_MASTER_SCL_IO (gpio_num_t)9
 #define I2C_MASTER_SDA_IO (gpio_num_t)8
 #define RGB_LED_PIN 46
-
-#elifdef CONFIG_IDF_TARGET_ESP32C6
-#define I2C_MASTER_SCL_IO (gpio_num_t)7
-#define I2C_MASTER_SDA_IO (gpio_num_t)6
-#define RGB_LED_PIN 23
-
-#else
-#error "Unsupported target platform."
-#endif // CONFIG_IDF_TARGET
 
 #define I2C_MASTER_FREQ_HZ 100000 // could go up to 400 kHz, but 100 kHz is more reliable
 #define I2C_MASTER_PORT I2C_NUM_0

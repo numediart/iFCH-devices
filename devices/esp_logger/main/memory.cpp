@@ -303,7 +303,6 @@ void setupSDCard()
     sdmmc_card_t *card;
     const char mount_point[] = MOUNT_POINT;
 
-#ifdef CONFIG_IDF_TARGET_ESP32S3
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
     host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
 
@@ -320,42 +319,6 @@ void setupSDCard()
 
     // Mount the SD card
     ret = esp_vfs_fat_sdmmc_mount(mount_point, &host, &slot_config, &mount_config, &card);
-
-#elifdef CONFIG_IDF_TARGET_ESP32C6
-    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-
-    spi_bus_config_t bus_cfg = {};
-    bus_cfg.mosi_io_num = PIN_NUM_MOSI;
-    bus_cfg.miso_io_num = PIN_NUM_MISO;
-    bus_cfg.sclk_io_num = PIN_NUM_CLK;
-    bus_cfg.quadwp_io_num = -1;
-    bus_cfg.quadhd_io_num = -1;
-    bus_cfg.max_transfer_sz = 4000;
-
-    ESP_LOGI("setupSDCard", "Initializing SD card");
-
-    // Initialize the SPI bus
-    ret = spi_bus_initialize((spi_host_device_t)host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
-    if (ret != ESP_OK)
-    {
-        logError("setupSDCard", "Failed to initialize bus");
-        errorReset(COLOR_SD);
-        return;
-    }
-
-    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot_config.gpio_cs = PIN_NUM_CS;
-    slot_config.host_id = (spi_host_device_t)host.slot;
-    slot_config.gpio_cd = PIN_SD_DET;
-
-    ESP_LOGI("setupSDCard", "Mounting filesystem");
-
-    // Mount the SD card
-    ret = esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_config, &card);
-
-#else
-#error "Unsupported target platform."
-#endif // CONFIG_IDF_TARGET
 
     if (ret != ESP_OK)
     {

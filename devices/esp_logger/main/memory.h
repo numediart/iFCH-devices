@@ -8,24 +8,12 @@
 #define RECORD_FILE MOUNT_POINT "/record.jsn"
 #define LOG_FILE MOUNT_POINT "/log.txt"
 
-#ifdef CONFIG_IDF_TARGET_ESP32S3
 #define SD_CMD_PIN (gpio_num_t)34
 #define SD_CLK_PIN (gpio_num_t)38
 #define SD_D0_PIN (gpio_num_t)39
 #define SD_D1_PIN (gpio_num_t)40
 #define SD_D2_PIN (gpio_num_t)47
 #define SD_D3_PIN (gpio_num_t)33
-
-#elifdef CONFIG_IDF_TARGET_ESP32C6
-#define PIN_NUM_MISO 21
-#define PIN_NUM_MOSI 20
-#define PIN_NUM_CLK 19
-#define PIN_NUM_CS (gpio_num_t)18
-#define PIN_SD_DET (gpio_num_t)22
-
-#else
-#error "Unsupported target platform."
-#endif // CONFIG_IDF_TARGET
 
 #define JSON_BUFFER_SIZE 512
 #define SD_RW_BUFFER_SIZE 4096
