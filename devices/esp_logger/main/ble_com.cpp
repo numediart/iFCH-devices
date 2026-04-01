@@ -1214,18 +1214,20 @@ bool movListLogs(std::vector<uint32_t> &logIds)
             }
             else if (logNotif[1] == Responses::DATA && logNotif[2] == reference)
             {
-                if ((len - 2) % 4 != 0)
+                if ((len - 2) % 12 != 0)
                 {
                     logError("movListLogs", "Invalid log notification length: %d", len);
                     return false;
                 }
 
-                for (uint8_t i = 0; i < len - 2; i += 4)
+                for (uint8_t i = 0; i < len - 2; i += 12)
                 {
                     uint32_t logId = (logNotif[3 + i + 3] << 24) | (logNotif[3 + i + 2] << 16) |
                                      (logNotif[3 + i + 1] << 8) | logNotif[3 + i];
                     logIds.push_back(logId);
                     ESP_LOGI("movListLogs", "Received log ID: %" PRId32, logId);
+
+                    // We ignore the log size, the next 8 bytes
                 }
 
                 receivedAmount++;

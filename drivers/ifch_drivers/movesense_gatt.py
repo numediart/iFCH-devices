@@ -602,7 +602,7 @@ class MovesenseGatt:
 
             num_logs_packets = int.from_bytes(payload, byteorder="little")
 
-            log_ids = []
+            log_list = []
             for _ in range(num_logs_packets):
                 success, _, payload = await self._wait_for_message(
                     reference, log_queue=True
@@ -618,14 +618,23 @@ class MovesenseGatt:
                     )
                     return None
 
-                for i in range(0, len(payload), 4):
+                for i in range(0, len(payload), 12):
                     log_id = int.from_bytes(payload[i : i + 4], byteorder="little")
-                    log_ids.append(log_id)
+                    log_len = int.from_bytes(
+                        payload[i + 4 : i + 12], byteorder="little"
+                    )
+                    log_list.append((log_id, log_len))
 
-            return log_ids
+            return log_list
 
-    async def fetch_log(self, log_id):
+    async def fetch_log(self, log_id: int | tuple[int, int], progress_callback=None):
         reference = Commands.FETCH_LOG.value + 10
+        log_len = 0
+        received_len = 0
+
+        if isinstance(log_id, tuple):
+            log_id, log_len = log_id
+
         log_id = log_id.to_bytes(4, byteorder="little")
 
         with self.log_listener():
@@ -651,7 +660,13 @@ class MovesenseGatt:
                     chunk_count += 1
 
                     sbem_buffer.seek(offset)
-                    sbem_buffer.write(data)
+                    received_len += sbem_buffer.write(data)
+
+                    if progress_callback and log_len > 0:
+                        try:
+                            progress_callback(received_len, log_len)
+                        except Exception as e:
+                            logging.exception(e)
 
                     if len(data) == 0:
                         break

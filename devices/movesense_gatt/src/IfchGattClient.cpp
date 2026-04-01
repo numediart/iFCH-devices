@@ -1082,7 +1082,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         }
 
         const auto &logEntries = rResultData.convertTo<const WB_RES::LogEntries &>();
-        uint8_t logIdsMsg[256];
+        uint8_t logIdsMsg[146]; // 2 bytes for header + 12 bytes per log entry (uint32 logId + uint64 logSize)
         size_t writePos = 0;
 
         logIdsMsg[writePos++] = Responses::DATA;
@@ -1090,9 +1090,31 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         for (size_t i = 0; i < logEntries.elements.size(); i++)
         {
+
+            // If there is no more space to write the next log ID, send the current buffer and start a new one
+            if (writePos + 12 > sizeof(logIdsMsg))
+            {
+                WB_RES::Characteristic logCharValue;
+                logCharValue.bytes = wb::MakeArray<uint8_t>(logIdsMsg, writePos);
+                asyncPut(mLogCharResource, AsyncRequestOptions(NULL, 0, true), logCharValue);
+                mLogListDataSent += 1;
+                writePos = 2; // Reset write position, keep header for next packet
+            }
+
             uint32_t logId = logEntries.elements[i].id;
+
+            uint64_t logSize = 0;
+            if (logEntries.elements[i].size.hasValue())
+            {
+                logSize = logEntries.elements[i].size.getValue();
+            }
+
             memcpy(&logIdsMsg[writePos], &logId, sizeof(logId));
             writePos += sizeof(logId);
+
+            memcpy(&logIdsMsg[writePos], &logSize, sizeof(logSize));
+            writePos += sizeof(logSize);
+
             mLogListLastId = logId;
         }
 
