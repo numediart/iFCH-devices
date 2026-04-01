@@ -1955,7 +1955,6 @@ class CmdLogging:
             await back.show_error()
             return
         elif not mov_status:
-            # TODO check if the log is lost if Movesense is restarted while logging
             logging.warning("Movesense stopped logging on its own")
             back.ui.update_warning_status(
                 "Movesense reset",
