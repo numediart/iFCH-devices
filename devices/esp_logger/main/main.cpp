@@ -1022,7 +1022,8 @@ extern "C" void app_main()
     }
 
     // If the clock interrupt is active, fetch data
-    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER && connectFailureCount < MAX_CONNECT_FAILURES)
+    uint32_t causes = esp_sleep_get_wakeup_causes();
+    if (causes & BIT(ESP_SLEEP_WAKEUP_TIMER) && connectFailureCount < MAX_CONNECT_FAILURES)
     {
         ESP_LOGI("app_main", "Woke up from timer, fetching");
         fetchLogic();

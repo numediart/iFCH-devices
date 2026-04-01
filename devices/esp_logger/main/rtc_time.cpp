@@ -15,11 +15,10 @@ static const uint8_t CTRL_REG_ADDR = 0x0F;
 void setupRTC()
 {
 
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = I2C_RV8803_ADDR,
-        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
-    };
+    i2c_device_config_t dev_cfg = {};
+    dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
+    dev_cfg.device_address = I2C_RV8803_ADDR;
+    dev_cfg.scl_speed_hz = I2C_MASTER_FREQ_HZ;
 
     esp_err_t rc = i2c_master_bus_add_device(i2c_handle, &dev_cfg, &rv8803_handle);
     if (rc != ESP_OK)
@@ -169,14 +168,13 @@ uint32_t getUNIXTime()
         return 0;
     }
 
-    struct tm t = {
-        .tm_sec = bcd_to_dec(raw_data[0]),
-        .tm_min = bcd_to_dec(raw_data[1]),
-        .tm_hour = bcd_to_dec(raw_data[2]),
-        .tm_mday = bcd_to_dec(raw_data[4]),
-        .tm_mon = bcd_to_dec(raw_data[5]) - 1,
-        .tm_year = bcd_to_dec(raw_data[6]) + 100,
-    };
+    struct tm t = {};
+    t.tm_sec = bcd_to_dec(raw_data[0]);
+    t.tm_min = bcd_to_dec(raw_data[1]);
+    t.tm_hour = bcd_to_dec(raw_data[2]);
+    t.tm_mday = bcd_to_dec(raw_data[4]);
+    t.tm_mon = bcd_to_dec(raw_data[5]) - 1;
+    t.tm_year = bcd_to_dec(raw_data[6]) + 100;
 
     ESP_LOGD("getUNIXTime", "RTC time read: %02d:%02d:%02d %02d/%02d/%04d",
              t.tm_hour, t.tm_min, t.tm_sec, t.tm_mday, t.tm_mon + 1, t.tm_year + 1900);

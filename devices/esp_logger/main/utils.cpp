@@ -364,16 +364,13 @@ static led_strip_handle_t setupLED(void)
         }};
 
     // LED strip backend configuration: RMT
-    led_strip_rmt_config_t rmt_config = {
-        .clk_src = RMT_CLK_SRC_DEFAULT,        // different clock source can lead to different power consumption
-        .resolution_hz = LED_STRIP_RMT_RES_HZ, // RMT counter clock frequency
-        .mem_block_symbols = 0,                // the memory block size used by the RMT channel, 0 for auto
+    led_strip_rmt_config_t rmt_config = {};
+    rmt_config.clk_src = RMT_CLK_SRC_DEFAULT;        // different clock source can lead to different power consumption
+    rmt_config.resolution_hz = LED_STRIP_RMT_RES_HZ; // RMT counter clock frequency
+    rmt_config.mem_block_symbols = 0;                // the memory block size used by the RMT channel, 0 for auto
 #ifdef CONFIG_IDF_TARGET_ESP32S3
-        .flags = {
-            .with_dma = true, // Using DMA can improve performance when driving more LEDs
-        }
+    rmt_config.flags.with_dma = true; // Using DMA can improve performance when driving more LEDs
 #endif
-    };
 
     // LED Strip object handle
     led_strip_handle_t led_strip;
@@ -390,13 +387,12 @@ static led_strip_handle_t setupLED(void)
 
 static i2c_master_bus_handle_t setupI2C()
 {
-    i2c_master_bus_config_t i2c_mst_config = {
-        .i2c_port = I2C_MASTER_PORT,
-        .sda_io_num = I2C_MASTER_SDA_IO,
-        .scl_io_num = I2C_MASTER_SCL_IO,
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 7,
-    };
+    i2c_master_bus_config_t i2c_mst_config = {};
+    i2c_mst_config.i2c_port = I2C_MASTER_PORT;
+    i2c_mst_config.sda_io_num = I2C_MASTER_SDA_IO;
+    i2c_mst_config.scl_io_num = I2C_MASTER_SCL_IO;
+    i2c_mst_config.clk_source = I2C_CLK_SRC_DEFAULT;
+    i2c_mst_config.glitch_ignore_cnt = 7;
     i2c_mst_config.flags.enable_internal_pullup = false;
 
     i2c_master_bus_handle_t bus_handle;
@@ -527,8 +523,8 @@ void logError(const char *tag, const char *fmt, ...)
 
     if (log_queue != nullptr)
     {
-        log_entry_t log_entry = {
-            .is_shutdown_cmd = false};
+        log_entry_t log_entry = {};
+        log_entry.is_shutdown_cmd = false;
 
         // Copy tag and message safely
         strncpy(log_entry.tag, tag, sizeof(log_entry.tag) - 1);
@@ -555,8 +551,8 @@ void logMessage(const char *message)
 
     if (log_queue != nullptr)
     {
-        log_entry_t log_entry = {
-            .is_shutdown_cmd = false};
+        log_entry_t log_entry = {};
+        log_entry.is_shutdown_cmd = false;
 
         // Copy tag and message safely
         strncpy(log_entry.tag, tag, sizeof(log_entry.tag) - 1);
