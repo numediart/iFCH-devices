@@ -7,6 +7,7 @@ from typing import Callable, Optional
 
 import numpy as np
 import qasync
+import wakepy
 from PySide6.QtCore import QSettings, Qt, QTimer, Slot
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
@@ -557,6 +558,7 @@ class MainWindow(QWidget):
             QApplication.instance().quit()
 
 
+@wakepy.keep.presenting()
 def main():
     logging.basicConfig(level=logging.INFO)
 
