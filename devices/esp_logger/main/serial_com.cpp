@@ -49,6 +49,7 @@ bool writeBytes(uint8_t *buf, uint32_t length)
 
 bool sendProtectedFrame(CmdType cmd, uint8_t *payload, uint16_t len, uint8_t id)
 {
+    // Reliable send layer on top of USB framing: retransmit until matching ACK.
     uint8_t sendAttempts = 0;
 
     do
@@ -130,6 +131,8 @@ void closeSerial()
 CmdType readSerial(bool wait)
 {
 
+    // Frame format: [START][CMD][LEN_MSB][LEN_LSB][PAYLOAD...][CRC32_LE].
+
     uint8_t startByte = 0;
     if (wait)
     {
@@ -198,6 +201,7 @@ CmdType readSerial(bool wait)
 
     if (receivedCrc != expectedCrc)
     {
+        // CRC mismatch means a corrupted frame; request retransmission from host.
         sendCMD(CmdType::CMD_NACK);
         return CmdType::CMD_INVALID;
     }

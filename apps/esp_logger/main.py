@@ -1,3 +1,5 @@
+"""Desktop GUI for controlling iFCH ESP logger devices and record workflows."""
+
 import asyncio
 import collections
 import contextlib
@@ -42,6 +44,8 @@ __version__ = "1.0"
 
 
 class GUIState(Enum):
+    """High-level GUI states used by the stacked interface."""
+
     ERROR = "error"
     DISCONNECTED = "disconnected"
     INFO = "info"
@@ -84,6 +88,7 @@ GREY_D = "#919191"
 
 
 async def retry(func, retries=3, delay=0.2, *args, **kwargs):
+    """Retry an async callable until a non-None result is returned."""
     for attempt in range(retries):
         result = await func(*args, **kwargs)
         if result is not None:
@@ -98,6 +103,8 @@ async def retry(func, retries=3, delay=0.2, *args, **kwargs):
 
 # ----------------------------------------------------------------------
 class DisconnectedView(QWidget):
+    """Landing page shown while waiting for USB logger connection."""
+
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
@@ -134,6 +141,8 @@ class DisconnectedView(QWidget):
 
 # ----------------------------------------------------------------------
 class ConnectionLostView(QWidget):
+    """Page shown when the logger disconnects during an active flow."""
+
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
@@ -169,6 +178,8 @@ class ConnectionLostView(QWidget):
 
 
 class ErrorView(QWidget):
+    """Error page with detailed status text and reset action."""
+
     def __init__(self):
         super().__init__()
         over_layout = QVBoxLayout(self)
@@ -243,6 +254,8 @@ class ErrorView(QWidget):
 
 
 class WarningView(QWidget):
+    """Warning page with confirm/cancel actions for risky operations."""
+
     def __init__(self):
         super().__init__()
         over_layout = QVBoxLayout(self)
@@ -338,6 +351,8 @@ class WarningView(QWidget):
 
 
 class SuccessView(QWidget):
+    """Success page displayed after a completed save workflow."""
+
     def __init__(self):
         super().__init__()
         over_layout = QVBoxLayout(self)
@@ -410,6 +425,8 @@ class SuccessView(QWidget):
 
 
 class SettingsView(QWidget):
+    """Application settings page for output directory and version info."""
+
     def __init__(self):
         super().__init__()
         over_layout = QVBoxLayout(self)
@@ -504,6 +521,8 @@ class SettingsView(QWidget):
 
 # ----------------------------------------------------------------------
 class InfoView(QWidget):
+    """Generic status page used while async operations are in progress."""
+
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
@@ -544,6 +563,8 @@ class InfoView(QWidget):
 
 
 class FormView(QWidget):
+    """Metadata form shown before exporting a recording."""
+
     def __init__(self):
         super().__init__()
 
@@ -571,7 +592,9 @@ class FormView(QWidget):
         layout.addWidget(header)
         layout.addSpacing(30)
 
-        status_label = QLabel("Saving record, plase fill in the following information:")
+        status_label = QLabel(
+            "Saving record, please fill in the following information:"
+        )
         status_label.setStyleSheet(
             f"""
             QLabel {{
@@ -690,6 +713,8 @@ class FormView(QWidget):
 
 # ----------------------------------------------------------------------
 class DeviceSelectionView(QWidget):
+    """Movesense selection page built from discovered BLE scan results."""
+
     def __init__(self):
         super().__init__()
         over_layout = QVBoxLayout(self)
@@ -859,6 +884,8 @@ class DeviceSelectionView(QWidget):
 
 # ----------------------------------------------------------------------
 class LoggingView(QWidget):
+    """View shown while the recording session is running."""
+
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
@@ -924,6 +951,8 @@ class LoggingView(QWidget):
 
 # ----------------------------------------------------------------------
 class MonitoringView(QWidget):
+    """Live-monitoring view with ECG plot and device information."""
+
     STATE_FIELDS = [
         ("bat", "Controller battery"),
         ("mov", "Movesense id"),
@@ -1102,6 +1131,8 @@ class MonitoringView(QWidget):
 
 # ----------------------------------------------------------------------
 class DownloadView(QWidget):
+    """Progress view used while fetching and saving record files."""
+
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
@@ -1149,6 +1180,8 @@ class DownloadView(QWidget):
 
 # ----------------------------------------------------------------------
 class MainWindow(QWidget):
+    """Main application window coordinating views and backend commands."""
+
     FORCE_SHUTDOWN_ATTEMPTS = 3
 
     def __init__(self, loop):
@@ -1317,6 +1350,7 @@ class MainWindow(QWidget):
 
     @Slot()
     def select_output_dir(self):
+        """Prompt user for an output directory and persist it in settings."""
         path = QFileDialog.getExistingDirectory(
             self, "Select output directory", self.settings_view.dir_edit.text()
         )
@@ -1395,6 +1429,7 @@ class MainWindow(QWidget):
             asyncio.create_task(self.backend.disconnect())
 
     def update_settings(self):
+        """Load persisted settings and apply them to relevant form fields."""
         output_dir = self.settings.value("output_dir", "", type=str)
         if output_dir == "":
             output_dir = str(pathlib.Path(".", "iFCH_records").absolute())
@@ -1430,6 +1465,7 @@ class MainWindow(QWidget):
 
     @Slot()
     def poll_ecg_data(self):
+        """Refresh the live ECG plot from buffered backend samples."""
         # Only update plot if we're in monitoring view
         if (
             self.current_state != GUIState.MONITORING
@@ -1453,9 +1489,11 @@ class MainWindow(QWidget):
             self.monitoring_view.axis_y.setRange(-maxY, maxY)
 
     def reset_graph(self):
+        """Clear currently displayed ECG data from the monitoring chart."""
         self.monitoring_view.series.clear()
 
     def update_disconnected_status(self, status):
+        """Update disconnected page status text."""
         self.disconnected_view.status_label.setText(status)
 
     def update_error_status(self, title, message):
@@ -1480,19 +1518,23 @@ class MainWindow(QWidget):
         self.success_view.ok_button.setText(ok_text)
 
     def show_device_selection(self):
+        """Populate and display the device selection page."""
         self.device_selection_view.set_devices(self.backend.available_devices)
         self.update_ui_state(GUIState.DEVICE_SELECTION)
 
     def update_info_status(self, title, status):
+        """Update title and message in the info page."""
         self.info_view.message.setText(title)
         self.info_view.status_label.setText(status)
 
     def update_device_info(self, **kwargs):
+        """Update monitoring info fields using keyword values."""
         for key in self.monitoring_view.fields.keys():
             if key in kwargs:
                 self.monitoring_view.fields[key].setText(kwargs[key])
 
     def closeEvent(self, event):
+        """Coordinate graceful async shutdown before final window close."""
         if self.backend and self.backend.ending_record:
             event.ignore()
 
@@ -1586,6 +1628,8 @@ class MainWindow(QWidget):
 
 # ----------------------------------------------------------------------
 class Backend:
+    """Async backend coordinating device I/O and UI command flow."""
+
     PLOT_SAMPLES = 10 * 200
 
     def __init__(self, ui: "MainWindow"):
@@ -1612,6 +1656,7 @@ class Backend:
         self.record_dir = None
 
     def stream_callback(self, _, data):
+        """Collect streamed ECG samples for the live chart."""
         if data is not None:
             sensor, sensor_dict = data
             timestamps = sensor_dict["timestamps"]
@@ -1660,15 +1705,19 @@ class Backend:
     # ---- Public API (GUI calls) -> commands enqueued -------------------
 
     async def start_logging(self):
+        """Queue command to begin recording flow."""
         await self.queue_command(CmdStartLogging())
 
     async def stop_logging(self):
+        """Queue command to stop recording flow."""
         await self.queue_command(CmdStopLogging())
 
     async def force_stop_logging(self):
+        """Queue forced stop command used when Movesense is unavailable."""
         await self.queue_command(CmdForceStopLogging())
 
     async def save_record(self, form_data: dict):
+        """Store form metadata and queue record export command."""
         self.record_meta.update(form_data)
         await self.queue_command(CmdSaveRecord())
 
@@ -1842,6 +1891,8 @@ class Backend:
 
 @dataclass
 class CmdProbeUSB:
+    """Probe USB ports for logger presence and bootstrap the device flow."""
+
     SCAN_PERIOD_S = 1.0  # light, cancelable probe cadence when USB not attached
 
     async def handle(self, back: Backend):
@@ -1916,6 +1967,8 @@ class CmdProbeUSB:
 
 @dataclass
 class CmdLogging:
+    """Connect to Movesense when logging and transition to monitoring view."""
+
     async def handle(self, back: Backend):
         if not back.device:
             raise RuntimeError("CmdLogging called without USB device")
@@ -1971,6 +2024,8 @@ class CmdLogging:
 
 @dataclass
 class CmdOnDisconnected:
+    """Handle logger disconnection and transition UI/probing state."""
+
     async def handle(self, back: Backend):
         """Serial disconnected; stop device and schedule next probe."""
 
@@ -1993,6 +2048,8 @@ class CmdOnDisconnected:
 
 @dataclass
 class CmdBLEScan:
+    """Scan for nearby Movesense devices through the logger."""
+
     SCAN_DELAY_S = 1.0  # Delay before next scan if no devices found
 
     async def handle(self, back: Backend):
@@ -2020,6 +2077,8 @@ class CmdBLEScan:
 
 @dataclass
 class CmdStreamDevice:
+    """Configure selected Movesense target and enable streaming."""
+
     device: str
 
     async def handle(self, back: Backend):
@@ -2084,10 +2143,12 @@ class CmdStreamDevice:
 
 @dataclass
 class CmdBatteryTick:
+    """Periodic command refreshing battery and connection status."""
+
     REFRESH_PERIOD_S = 2.0  # battery/info refresh when streaming
 
     async def handle(self, back: Backend):
-        """Only runs when connected/streaming. Schedules itback again."""
+        """Only runs when connected/streaming. Schedules itself again."""
         if not back.device:
             raise RuntimeError("Battery tick called without USB device")
 
@@ -2119,6 +2180,8 @@ class CmdBatteryTick:
 
 @dataclass
 class CmdStartLogging:
+    """Start recording sequence."""
+
     async def handle(self, back: Backend):
         if not back.device:
             raise RuntimeError("Start logging called without USB device")
@@ -2161,6 +2224,8 @@ class CmdStartLogging:
 
 @dataclass
 class CmdStopLogging:
+    """Stop recording and queue the log listing/export flow."""
+
     async def handle(self, back: Backend):
         if not back.device:
             raise RuntimeError("Stop logging called without USB device")
@@ -2197,6 +2262,8 @@ class CmdStopLogging:
 
 
 class CmdForceStopLogging:
+    """Force-stop sequence used when the Movesense is not responding."""
+
     async def handle(self, back: Backend):
         if not back.device:
             raise RuntimeError("Force stop logging called without USB device")
@@ -2233,6 +2300,8 @@ class CmdForceStopLogging:
 
 @dataclass
 class CmdListLog:
+    """Resolve target log id and prepare file list for export."""
+
     log_id: int | str
 
     async def handle(self, back: Backend):
@@ -2282,6 +2351,8 @@ class CmdListLog:
 
 @dataclass
 class CmdSaveRecord:
+    """Download raw files, archive them, and convert to standard format."""
+
     async def handle(self, back: Backend):
         if "ID" not in back.record_meta:
             raise RuntimeError("Save record called without ID metadata")
@@ -2415,6 +2486,8 @@ class CmdSaveRecord:
 
 @dataclass
 class CmdResume:
+    """Resume interrupted end-of-record workflow after reconnect."""
+
     async def handle(self, back: Backend):
         """Resume end of record after reconnecting the same device."""
 

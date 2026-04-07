@@ -1,3 +1,5 @@
+"""HDF5 read/write helpers for iFCH Movesense record files."""
+
 import datetime
 import enum
 import json
@@ -13,6 +15,8 @@ FORMAT_TAG = f"ifch_movesense_record-{__version__}"
 
 
 class MovesenseDataTypes(enum.Enum):
+    """Known Movesense sensor paths and conversion scales."""
+
     scale: float
 
     def __new__(cls, title: str, scale: float = 1):
@@ -32,7 +36,8 @@ class MovesenseDataTypes(enum.Enum):
     UTCTIME = "/Time/Detailed".upper(), 1e-6
 
     @classmethod
-    def from_path(cls, path):
+    def from_path(cls, path: str) -> tuple["MovesenseDataTypes", int]:
+        """Return the normalized data type and sampling parsed from a path."""
         split_path = path.split("/")
 
         if len(split_path) > 3:
@@ -51,7 +56,7 @@ def write(
     file_path: pathlib.Path | str,
     record: dict,
     metadata: dict | None = None,
-    sensor_paths: list = [],
+    sensor_paths: list[str] = [],
     dump_metadata: bool = False,
 ):
     """
@@ -140,7 +145,7 @@ def write(
 
         if "format" in metadata:
             logging.warning(
-                "'format' is a reserved metadata key and cannot be used. It will be overrwitten"
+                "'format' is a reserved metadata key and cannot be used. It will be overwritten"
             )
         metadata["format"] = FORMAT_TAG
 
@@ -195,7 +200,9 @@ def write(
                 json.dump(metadata, f, indent=4)
 
 
-def load(file_path: pathlib.Path | str, flatten=True) -> tuple[dict, dict, dict]:
+def load(
+    file_path: pathlib.Path | str, flatten: bool = True
+) -> tuple[dict, dict, dict]:
     """
     Read a Movesense record from an HDF5 file.
 

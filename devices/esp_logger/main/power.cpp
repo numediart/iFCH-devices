@@ -46,6 +46,8 @@ void setupVUSB()
 bool isVUSBConnected()
 {
 
+    // USB presence is inferred from the VUSB ADC rail level.
+
     int vusb;
     esp_err_t rc = adc_oneshot_read(adc_handle, VUSB_ADC_CHANNEL, &vusb);
     if (rc != ESP_OK)
@@ -105,6 +107,7 @@ void enterHibernation(uint16_t wakeDelayMin)
 
     if (wakeDelayMin)
     {
+        // Optional timed wake-up used when periodic fetch should resume automatically.
         result = esp_sleep_enable_timer_wakeup((uint64_t)60000000 * (uint64_t)wakeDelayMin);
         if (result != ESP_OK)
         {
@@ -114,7 +117,7 @@ void enterHibernation(uint16_t wakeDelayMin)
         }
     }
 
-    // Configure GPIO as wakeup source (HIGH when USB connected or clock int)
+    // GPIO wake-up keeps device responsive to charger plug-in
     result = esp_sleep_enable_ext1_wakeup(WAKEUP_PIN_MASK, ESP_EXT1_WAKEUP_ANY_HIGH);
 
     if (result != ESP_OK)

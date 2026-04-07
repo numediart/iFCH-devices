@@ -32,6 +32,7 @@
 
 const char *const IfchGattClient::LAUNCHABLE_NAME = "iFCHGatt";
 
+// Custom iFCH service UUIDs used by host drivers
 // UUID: 34802252-7185-4d5d-b431-630e7050e8f0
 constexpr uint8_t SENSOR_DATASERVICE_UUID[] = {0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x31, 0xb4, 0x5d, 0x4d, 0x85, 0x71, 0x52, 0x22, 0x80, 0x34};
 constexpr uint8_t COMMAND_CHAR_UUID[] = {0xf0, 0xe8, 0x50, 0x70, 0x0e, 0x63, 0x31, 0xb4, 0x5d, 0x4d, 0x85, 0x71, 0x01, 0x00, 0x80, 0x34};
@@ -145,6 +146,7 @@ IfchGattClient::~IfchGattClient()
 {
 }
 
+// Launchable module lifecycle: initialize subscriptions, timers, and GATT resources
 bool IfchGattClient::initModule()
 {
     mModuleState = WB_RES::ModuleStateValues::INITIALIZED;
@@ -370,6 +372,8 @@ IfchGattClient::DataSub *IfchGattClient::getFreeDataSubSlot()
 
 void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 {
+    // Command wire format: [cmd][reference][optional payload...].
+    // Reference links async whiteboard operations back to BLE responses.
     if (commandData.size() < 2)
     {
         // Return an error message
@@ -429,7 +433,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             return;
         }
 
-        // Store client reference to array and trigger subscribe
+        // Reserve one local slot so stream notifications can be mapped back to client reference.
         DataSub &dataSub = *pDataSub;
 
         char pathBuffer[MAX_PATH_LEN];

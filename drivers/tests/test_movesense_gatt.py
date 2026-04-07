@@ -1,3 +1,7 @@
+"""Integration tests for MovesenseGatt high-level BLE workflows. Requires a
+Movesense device with iFCH firmware to be powered and in range to run the full
+test suite."""
+
 import asyncio
 import datetime
 
@@ -10,6 +14,7 @@ TEST_TIME = 1704742200000000
 
 
 def process_notification(_, data):
+    """Collect incoming stream packets for subscription assertions."""
     data_notifications.append(data)
 
 
@@ -31,6 +36,7 @@ async def client():
 
 
 async def test_hello(client):
+    """Verify hello response content and structure."""
     result = await client.hello()
     assert result
 
@@ -44,6 +50,7 @@ async def test_hello(client):
 
 
 async def test_subscribe(client):
+    """Verify subscribe/unsubscribe behavior and data reception."""
     data_notifications.clear()
 
     assert await client.subscribe(PATH_ECG_125)
@@ -68,6 +75,7 @@ async def test_subscribe(client):
 
 
 async def test_unsubscribe_all(client: MovesenseGatt):
+    """Verify unsubscribe-all clears active stream subscriptions."""
     if not client.is_ifch_firmware:
         pytest.skip("Device is not running iFCH firmware")
 
@@ -89,6 +97,7 @@ async def test_unsubscribe_all(client: MovesenseGatt):
 
 
 async def test_battery(client: MovesenseGatt):
+    """Verify battery endpoint returns a valid percentage."""
     if not client.is_ifch_firmware:
         pytest.skip("Device is not running iFCH firmware")
 
@@ -98,6 +107,7 @@ async def test_battery(client: MovesenseGatt):
 
 
 async def test_time(client: MovesenseGatt):
+    """Verify time get/set operations for UTC synchronization."""
     if not client.is_ifch_firmware:
         pytest.skip("Device is not running iFCH firmware")
 
@@ -130,6 +140,7 @@ async def test_time(client: MovesenseGatt):
 
 
 async def test_log(client: MovesenseGatt):
+    """Verify logging lifecycle and log retrieval commands."""
     if not client.is_ifch_firmware:
         with pytest.raises(RuntimeError):
             await client.reset()
@@ -186,6 +197,7 @@ async def test_log(client: MovesenseGatt):
 
 
 async def test_reset(client: MovesenseGatt):
+    """Verify reset clears subscriptions and logs when allowed."""
     assert await client.sub_log(PATH_ECG_125)
 
     assert await client.start_log()

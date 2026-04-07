@@ -1,36 +1,36 @@
-iFCH Logger
-===========
+# iFCH Logger
+
+ESP32-S3 firmware for the iFCH logger device.
 
 ## Board
 
-Use SparkFun ESP32-S3 Thing Plus
+- Target hardware:
+  - SparkFun ESP32-S3 Thing Plus
+  - SparkFun RV-8803 RTC
+  - ~2000mAh LiPo battery
+  - FAT-formatted micro SD card
+- Hardware changes:
+  - Solder a 22k resistor between GND and IO15.
+  - Solder a 33k resistor between IO15 and VUSB.
+  - Cut power LED traces on both the Thing Plus and RV-8803 to reduce idle power.
 
-Solder 22k resistor between GND and IO15, and 33k between IO15 and VUSB
+## Prerequisites
 
-Cut the traces for power LEDs on both the Thing Plus and the RV-8803 to save power
+- ESP-IDF v6.0 environment.
+- ESP-IDF Manager (EIM) or VS Code ESP-IDF extension.
 
-## ESP-IDF
+Reference: [ESP-IDF getting started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html#installation)
 
-### Install
-
-[ESP-IDF getting started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html#installation)
-
-Start by installing the prerequisites and EIM
-
-Then install ESP-IDF using EIM
-
-You may need to start EIM from your own Python venv to meet its requirements
-
-You can also use the VSCode extension for "easy" install
-
-If the install complains about missing toolchains, do:
+If toolchains are missing, run:
 
 ```shell
 source ~/.espressif/tools/activate_idf_v6.0.sh
 ~/.espressif/v6.0/esp-idf/tools/idf_tools.py install
 ```
 
-To build and flash, use the VSCode extension, or in the firmware directory:
+## Build and Flash
+
+Use the VS Code extension, or from this directory run:
 
 ```shell
 source ./env.sh

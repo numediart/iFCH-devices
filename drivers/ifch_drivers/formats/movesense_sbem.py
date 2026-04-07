@@ -1,3 +1,5 @@
+"""SBEM descriptor and payload decoder for Movesense log data."""
+
 import collections
 import dataclasses
 import io
@@ -10,6 +12,8 @@ from collections import defaultdict
 
 
 class SBEMPath:
+    """Leaf descriptor representing one SBEM value path."""
+
     def __init__(self, name: str):
         self.name = name.replace("+", ".")
         self.type: typing.Optional[SBEMType] = None
@@ -17,13 +21,14 @@ class SBEMPath:
         self.modifier_source: str | None = None
 
     @property
-    def size(self):
+    def size(self) -> int:
         if self.type is None:
             return 0
 
         return self.type.size
 
-    def decode(self, data_buffer):
+    def decode(self, data_buffer: bytes) -> dict[str, typing.Any]:
+        """Decode one value for this path from a fixed-size buffer."""
         if len(data_buffer) != self.size:
             raise ValueError(
                 f"Expected {self.size} bytes, got {len(data_buffer)} bytes instead."
@@ -44,7 +49,7 @@ class SBEMPath:
 
         return {self.name: decoded}
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"SBEMPath - name {self.name}, size {self.size}"
 
 
@@ -55,6 +60,8 @@ class SBEMType:
 
 
 class SBEMGroup:
+    """Descriptor node representing grouped or array SBEM children."""
+
     def __init__(
         self,
         children: str | list[str],
@@ -121,10 +128,11 @@ class SBEMGroup:
             self.create_children(children, sbem_blocks, isarray)
 
     @property
-    def size(self):
+    def size(self) -> int:
         return sum(child.size for child in self.children)
 
-    def decode(self, data_buffer):
+    def decode(self, data_buffer: bytes) -> dict[str, typing.Any]:
+        """Decode grouped child values from one SBEM payload slice."""
         if len(data_buffer) != self.size:
             raise ValueError(
                 f"Expected {self.size} bytes, got {len(data_buffer)} bytes instead."
@@ -148,7 +156,7 @@ class SBEMGroup:
 
         return decoded
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         if self.isarray:
             gtype = "Array"
         else:
@@ -161,6 +169,8 @@ class SBEMGroup:
 
 
 class SBEMDecoder:
+    """Incremental decoder for SBEM streams and files."""
+
     SBEM_TYPES = {
         "uint8": SBEMType(1, "B"),
         "int16": SBEMType(2, "<h"),
@@ -270,7 +280,20 @@ class SBEMDecoder:
 
         return
 
-    def decode(self, sbem_data, standardize=True):
+    def decode(
+        self,
+        sbem_data: bytearray | bytes | str | pathlib.Path,
+        standardize: bool = True,
+    ) -> dict[str, list]:
+        """Decode SBEM bytes/path into a sensor-keyed dictionary.
+
+        Args:
+            sbem_data: Raw bytes or path to an SBEM file.
+            standardize: Convert decoded keys to driver sensor naming.
+
+        Returns:
+            dict: Decoded payload data.
+        """
         self._sbem_blocks: dict[int, SBEMPath | SBEMGroup] = {}
         self._decoded: dict[str, list] = defaultdict(list)
 

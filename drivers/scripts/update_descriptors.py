@@ -10,6 +10,8 @@
 """
 This scrips is used to update the default SBEM descriptors provided in the
 ifch_drivers.format module.
+
+Usage: python update_descriptors.py <subscription_path> [--address <movesense_address>]
 """
 
 import argparse

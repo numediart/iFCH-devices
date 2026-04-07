@@ -1,3 +1,5 @@
+"""Backend actor and command handlers for Movesense logger workflows."""
+
 import asyncio
 import collections
 import contextlib
@@ -22,6 +24,8 @@ if TYPE_CHECKING:
 
 
 class Backend:
+    """Owns device lifecycle, command queue, and UI-facing data buffers."""
+
     SENSOR_PATHS = ["/Meas/ECG/200/mV", "/Time/Detailed"]
     PLOT_DURATION = 10
 
@@ -55,6 +59,7 @@ class Backend:
         self.data_lock = threading.Lock()
 
     def enable_defer_disconnect(self):
+        """Temporarily defer disconnect handling while a critical command runs."""
         # When enabled, if a disconnection happens it will not interrupt the
         # current command, but will be deferred until disable_defer_disconnect()
         # is called
@@ -62,6 +67,7 @@ class Backend:
         self._defer_disconnect = True
 
     async def disable_defer_disconnect(self, ignore_pending=False):
+        """Re-enable disconnect handling and optionally process deferred events."""
         # Restore normal disconnect behavior, applying any pending disconnects
         # If ignore_pending is True, pending disconnects are kept but not applied
         # This should only be used if an actual disconnect call is about to happen
@@ -72,6 +78,7 @@ class Backend:
             await self.disconnect(device_id)
 
     def stream_callback(self, device: MovesenseGatt, data):
+        """Collect streamed samples into plot buffers shared with the UI."""
         if data is None:
             return
 
@@ -128,6 +135,7 @@ class Backend:
         await self.queue_command(CmdScanBLE(repeat=repeat))
 
     async def _actor_loop(self):
+        """Process queued backend commands and monitor disconnections."""
         # Initial UI
         self.ui.update_disconnected_status()
         self.ui.set_state(UIState.DISCONNECTED)
@@ -187,11 +195,13 @@ class Backend:
         await self._cmd_q.put(cmd)
 
     def clear_commands(self):
+        """Drop all queued commands that have not started yet."""
         # Clear any pending commands
         while not self._cmd_q.empty():
             self._cmd_q.get_nowait()
 
     async def stop_device(self):
+        """Stop device tasks, cancel timers, and clear pending commands."""
         if self._disconnect_watcher:
             self._disconnect_watcher.cancel()
             self._disconnect_watcher = None
@@ -206,6 +216,7 @@ class Backend:
         self.clear_commands()
 
     async def clear_state(self):
+        """Reset backend runtime state after disconnect or shutdown."""
         self.device = None
         self.ui.prevent_close = False
 
@@ -253,6 +264,7 @@ class Backend:
         self.ui.set_state(UIState.ERROR)
 
     async def add_device(self, address: str, device_id: str):
+        """Connect to a selected device and initialize buffers/watchers."""
         device = MovesenseGatt(address, self.stream_callback)
         success = await device.start()
 
@@ -300,6 +312,7 @@ class Backend:
             await self.queue_command(CmdOnDisconnected(device_id=device_id))
 
     async def start_monitoring(self):
+        """Enter monitoring flow and start stream subscription commands."""
 
         # If we are coming back from a successful save, the device might be
         # disconnected and in the pending list
@@ -310,18 +323,22 @@ class Backend:
         await self.queue_command(CmdMonitor())
 
     async def start_logging(self, force=False):
+        """Queue a command to start logging on the connected device."""
         await self.queue_command(CmdStartLogging(force=force))
 
     async def stop_logging(self):
+        """Queue a command to stop logging on the connected device."""
         await self.queue_command(CmdStopLogging())
 
     async def save_record(self, form_data: dict):
+        """Queue record-save command while protecting against data-loss disconnects."""
         # We do not want a device disconnection to cause data loss while we are
         # saving the current recording
         self.enable_defer_disconnect()
         await self.queue_command(CmdSaveRecord(metadata=form_data))
 
     async def download_log(self):
+        """Queue command to fetch the latest device log before save."""
         await self.queue_command(CmdDownloadLog())
 
 
@@ -330,6 +347,8 @@ class Backend:
 
 @dataclass
 class CmdOnDisconnected:
+    """Handle disconnection transitions and state cleanup."""
+
     device_id: Optional[str] = None
 
     async def handle(self, back: Backend):
@@ -365,6 +384,8 @@ class CmdOnDisconnected:
 
 @dataclass
 class CmdScanBLE:
+    """Scan for nearby Movesense devices and update selection UI."""
+
     repeat: bool = False
 
     SCAN_PERIOD_S = 1.0  # light, cancelable probe cadence when USB not attached
@@ -395,6 +416,8 @@ class CmdScanBLE:
 
 @dataclass
 class CmdConnect:
+    """Connect to a user-selected Movesense device."""
+
     device: tuple
 
     async def handle(self, back: Backend):
@@ -418,6 +441,8 @@ class CmdConnect:
 
 @dataclass
 class CmdUpdateFields:
+    """Refresh monitoring metadata fields shown in the UI."""
+
     async def handle(self, back: Backend):
         battery = await back.device.get_battery()
         if battery is None:
@@ -449,6 +474,8 @@ class CmdUpdateFields:
 
 @dataclass
 class CmdMonitor:
+    """Enable stream subscription and switch UI to monitoring mode."""
+
     async def handle(self, back: Backend):
         if not back.device:
             raise RuntimeError("CmdMonitor: No device connected")
@@ -473,6 +500,8 @@ class CmdMonitor:
 
 @dataclass
 class CmdStartLogging:
+    """Start device logging workflow with safety checks."""
+
     force: bool = False
 
     async def handle(self, back: Backend):
@@ -533,6 +562,8 @@ class CmdStartLogging:
 
 @dataclass
 class CmdStopLogging:
+    """Stop device logging and transition to download phase."""
+
     async def handle(self, back: Backend):
         if not back.device:
             raise RuntimeError("CmdStopLogging: No device connected")
@@ -550,6 +581,8 @@ class CmdStopLogging:
 
 @dataclass
 class CmdDownloadLog:
+    """Fetch most recent log data from the device and decode it."""
+
     async def handle(self, back: Backend):
         if not back.device:
             raise RuntimeError("CmdDownloadLog: No device connected")
@@ -603,6 +636,8 @@ class CmdDownloadLog:
 
 @dataclass
 class CmdSaveRecord:
+    """Write decoded sensor data and metadata to disk."""
+
     metadata: dict
 
     async def handle(self, back: Backend):
@@ -669,6 +704,7 @@ class CmdSaveRecord:
 
 
 def write_edf(record, metadata, sensor_paths, output_file):
+    """Export a decoded record to EDF using selected sensor paths."""
 
     # Compute the boot time as a time reference
     boot_time = (

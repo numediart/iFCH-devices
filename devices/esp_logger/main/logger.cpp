@@ -117,6 +117,7 @@ void streamDumpTask(void *params)
 
         while (true)
         {
+            // Poll queue and aggregate variable-size BLE notifications into SD-sized writes.
             if (ulTaskNotifyTake(pdTRUE, 0) > 0)
             {
                 // If we received a notification, it means the task is being stopped
@@ -242,6 +243,7 @@ bool startStreamDumpTask()
         return false;
     }
 
+    // Wait until worker confirms subscribe/start status before returning success.
     uint32_t notification;
     result = xTaskNotifyWait(
         0,

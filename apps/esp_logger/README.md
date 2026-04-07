@@ -1,7 +1,19 @@
-# Deployment
+# ESP Logger App
 
-Use UV to run the script and create an environment: `uv run main.py`.
+Desktop controller for iFCH ESP logger hardware and Movesense recording workflows.
 
-To create an executable, use `uv run pyinstaller main.py` in this directory.
-You can add the option `--onefile` to generate a single executable file, but the
-startup time will be longer then.
+## Run
+
+From this directory:
+
+```bash
+uv run main.py
+```
+
+## Build Executable
+
+```bash
+uv run pyinstaller main.py
+```
+
+Use `--onefile` for a single binary. Startup time is usually longer.

@@ -1,4 +1,1 @@
-# Common drivers and utilities
-"""
-Common utilities shared across different device types.
-"""
+"""This module implements the data format handlers for Movesense and iFCH data."""

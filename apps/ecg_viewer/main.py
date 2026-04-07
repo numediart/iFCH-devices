@@ -1,3 +1,5 @@
+"""Desktop ECG viewer for browsing and inspecting recorded iFCH data."""
+
 import datetime
 import logging
 import sys
@@ -49,6 +51,8 @@ GREY_D = "#919191"
 
 
 class SettingsView(QWidget):
+    """Settings panel for output and application information."""
+
     def __init__(self):
         super().__init__()
         over_layout = QVBoxLayout(self)
@@ -112,6 +116,8 @@ class SettingsView(QWidget):
 
 
 class MonitoringView(QWidget):
+    """Main plotting view with timeline navigation and zoom controls."""
+
     MAX_RESOLUTION = 10000
     BRUSSELS_TZ = QTimeZone(b"Europe/Brussels")
     AUTO_SCROLL_STRIDE = 0.25
@@ -157,6 +163,7 @@ class MonitoringView(QWidget):
         self.zoom_out_btn.clicked.connect(self.zoom_out)
 
     def create_plot_widget(self):
+        """Create the main ECG chart widget and its axes."""
         # Create a line series
         self.ecg_series = QLineSeries()
         self.ecg_series.setName("ECG")
@@ -195,6 +202,7 @@ class MonitoringView(QWidget):
         return chart_view
 
     def create_summary_widget(self):
+        """Create the timeline summary chart with selection overlays."""
         # Create summary series
         # self.summary_series = QLineSeries()
         # self.summary_series.setName("Summary")
@@ -260,6 +268,7 @@ class MonitoringView(QWidget):
         return summary_view
 
     def summary_mouse_to_index(self, coords):
+        """Map summary-chart mouse coordinates to a nearest sample index."""
         if self.ecg_timestamps is None:
             return None
 
@@ -321,6 +330,7 @@ class MonitoringView(QWidget):
         self.update_summary_dragging()
 
     def create_controls_widget(self):
+        """Create side controls for metadata, navigation, zoom, and file loading."""
         controls_widget = QWidget()
         controls_widget.setMaximumWidth(400)
         controls_layout = QVBoxLayout(controls_widget)
@@ -562,6 +572,7 @@ class MonitoringView(QWidget):
         return controls_widget
 
     def load_record(self, path):
+        """Load an HDF5 record, prepare ECG arrays, and refresh the UI."""
         record, metadata, properties = movesense_record.load(path)
         try:
             ecg_sensor = record["ECGMV"]
@@ -740,6 +751,7 @@ class MonitoringView(QWidget):
         self.summary_axis_x.setRange(start_time, end_time)
 
     def update_summary_dragging(self):
+        """Update temporary drag-selection overlay on the summary chart."""
         if self._summary_mouse_dragging is None:
             self.dragging_indicator_series.clear()
             return
@@ -894,6 +906,8 @@ class MonitoringView(QWidget):
 
 # ----------------------------------------------------------------------
 class MainWindow(QWidget):
+    """Top-level ECG viewer window and state coordinator."""
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("iFCH ECG Viewer")
@@ -957,11 +971,13 @@ class MainWindow(QWidget):
         self.settings_stack.setCurrentIndex(1)
 
     def update_settings(self):
+        """Apply persisted settings to the viewer state."""
         pass
 
 
 # ----------------------------------------------------------------------
 def main():
+    """Run the ECG viewer Qt application."""
     logging.basicConfig(level=logging.INFO)
 
     app = QApplication(sys.argv)

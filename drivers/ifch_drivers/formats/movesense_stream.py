@@ -1,3 +1,5 @@
+"""Streaming packet decoder for Movesense real-time data notifications."""
+
 import enum
 import logging
 import struct
@@ -13,9 +15,12 @@ class Responses(enum.IntEnum):
 
 
 class MovesenseStreamDecoder:
+    """Decode BLE stream payloads into sensor dictionaries."""
+
     MAX_PAYLOAD_SIZE = 152
 
-    def __init__(self, subscriptions: dict | list):
+    def __init__(self, subscriptions: dict[int, str] | list[str]):
+        """Initialize decoder with active subscription references."""
         if isinstance(subscriptions, list):
             subscriptions = {
                 ref: path for ref, path in enumerate(subscriptions, start=1)
@@ -25,7 +30,10 @@ class MovesenseStreamDecoder:
         self._partial_data = defaultdict(lambda: None)
 
     @staticmethod
-    def _unpack_vectors(packet, size, stride, format="<f"):
+    def _unpack_vectors(
+        packet: bytes, size: int, stride: int, format: str = "<f"
+    ) -> list[list[float]]:
+        """Unpack interleaved vector samples from a byte packet."""
         samples = [
             [
                 struct.unpack(format, packet[i + j * stride : i + (j + 1) * stride])[0]
@@ -35,10 +43,32 @@ class MovesenseStreamDecoder:
         ]
         return samples
 
-    def __call__(self, packet, flatten=True):
+    def __call__(self, packet: bytes, flatten: bool = True) -> tuple[str, dict] | None:
+        """Decode a packet when the decoder is used as a callable.
+
+        Args:
+            packet: Raw Movesense stream packet bytes.
+            flatten: Flatten vector samples into scalar arrays when possible.
+
+        Returns:
+            tuple[str, dict] | None: Decoded ``(sensor_name, payload_dict)`` or
+            ``None`` when decoding fails or packet is incomplete.
+        """
         return self.decode_stream_packet(packet, flatten=flatten)
 
-    def decode_stream_packet(self, packet, flatten=True):
+    def decode_stream_packet(
+        self, packet: bytes, flatten: bool = True
+    ) -> tuple[str, dict] | None:
+        """Decode one stream packet into ``(sensor_name, data_dict)`` format.
+
+        Args:
+            packet: Raw Movesense stream packet bytes.
+            flatten: Flatten vector samples into scalar arrays when possible.
+
+        Returns:
+            tuple[str, dict] | None: Decoded ``(sensor_name, data_dict)`` tuple,
+            or ``None`` for invalid/incomplete packets.
+        """
         packet_type = Responses(packet[0])
         if packet_type == Responses.COMMAND_RESULT:
             logging.error("Invalid packet type in stream decode: %s", packet[0])

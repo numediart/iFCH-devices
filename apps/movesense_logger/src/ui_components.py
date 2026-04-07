@@ -1,3 +1,5 @@
+"""Reusable UI styles, dataclasses, and widget factory helpers."""
+
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -59,6 +61,8 @@ class ButtonStyle:
 
 @dataclass
 class MessageButton:
+    """Configuration entry for a named message-view button."""
+
     key: str
     text: str
     style: ButtonStyle
@@ -68,6 +72,8 @@ class MessageButton:
 
 @dataclass
 class ViewSpec:
+    """Association of a view widget and optional state-entry callback."""
+
     view: QWidget
     on_enter: Optional[Callable[[], None]] = None
 

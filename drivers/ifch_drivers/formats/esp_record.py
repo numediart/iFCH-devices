@@ -31,7 +31,8 @@ class ESPBinReader:
         self.stream_decoder = MovesenseStreamDecoder(subscriptions)
 
     @staticmethod
-    def empty_stream():
+    def empty_stream() -> collections.defaultdict:
+        """Create an empty per-sensor stream dictionary."""
         return collections.defaultdict(list)
 
     def read(self, bin_file: str | pathlib.Path | zipfile.Path) -> dict:
@@ -378,15 +379,13 @@ class ESPRecordConverter:
 
         self.checkpoints = checkpoints
 
-    async def read(self):
-        """
-        Read the record, its metadata and its checkpoints.
-        """
+    async def read(self) -> None:
+        """Read record data, metadata, and checkpoints into memory."""
 
         await self._read_checkpoints()
         await self._read_data()
 
-    async def write(self, output_path: pathlib.Path | str):
+    async def write(self, output_path: pathlib.Path | str) -> None:
         """
         Write the record in HDF5 format, along with its metadata and checkpoints.
 

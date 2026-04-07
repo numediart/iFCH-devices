@@ -105,6 +105,7 @@ bool stopRTCTimer()
 
 bool startRTCTimer(uint16_t timerMin)
 {
+    // Reconfigure countdown timer from scratch to avoid stale flags/config.
     if (!stopRTCTimer())
     {
         errorReset(COLOR_RTC);
@@ -168,6 +169,7 @@ uint32_t getUNIXTime()
         return 0;
     }
 
+    // RV8803 stores BCD date/time fields; convert to struct tm then to Unix epoch.
     struct tm t = {};
     t.tm_sec = bcd_to_dec(raw_data[0]);
     t.tm_min = bcd_to_dec(raw_data[1]);
@@ -193,7 +195,7 @@ bool setUNIXTime(uint32_t newTime)
     struct tm *t = gmtime(&timeValue);
     uint8_t ctrl_val;
 
-    // Start by pausing the RTC
+    // Put RTC in reset while writing all date/time registers coherently.
     rc = i2c_master_transmit_receive(rv8803_handle, &CTRL_REG_ADDR, 1, &ctrl_val, 1, I2C_TIMEOUT_MS);
     if (rc != ESP_OK)
     {
@@ -227,7 +229,7 @@ bool setUNIXTime(uint32_t newTime)
         return false;
     }
 
-    // Finally, verify the time was set correctly
+    // Readback verification catches bus/write errors before resuming normal operation.
     uint32_t currentTime = getUNIXTime();
     if (currentTime != newTime)
     {

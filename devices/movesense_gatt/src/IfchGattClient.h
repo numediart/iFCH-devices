@@ -7,6 +7,12 @@
 #define MAX_PATH_LEN 32
 #define MTU 155
 
+// Main application module exposing the custom iFCH GATT service.
+// Responsibilities:
+// - Handle command parsing from BLE writes.
+// - Manage stream/log subscriptions.
+// - Marshal responses and log data back over BLE notify/indicate channels.
+
 // Power state enumeration
 enum PowerState
 {

@@ -360,7 +360,7 @@ bool waitForMovesenseResponse(uint8_t reference, uint8_t *response_data = NULL, 
             remaining_ticks = 0;
         }
 
-        // Wait for a response notification from the queue
+        // Wait for a response: only accept notifications matching command-result + reference.
         uint8_t responseNotif[NOTIF_LEN];
         if (xQueueReceive(responseQueue, responseNotif, remaining_ticks) == pdTRUE)
         {
@@ -535,6 +535,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
         rxNotify[0] = len; // First byte is the length of the notification
         os_mbuf_copydata(event->notify_rx.om, 0, len, rxNotify + 1);
 
+        // Route incoming notifications by characteristic handle to dedicated firmware queues.
         if (event->notify_rx.attr_handle == response_char_handle)
         {
             ESP_LOGD("BLE_GAP_EVENT_NOTIFY_RX", "Received response notification");

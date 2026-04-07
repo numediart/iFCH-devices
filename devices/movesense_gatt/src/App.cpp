@@ -12,18 +12,22 @@ MOVESENSE_PROVIDERS_END(1)
 MOVESENSE_FEATURES_BEGIN()
 // Explicitly enable or disable Movesense framework core modules.
 // List of modules and their default state is found in documentation
+// DataLogger/Logbook are required for on-device recording and retrieval.
 OPTIONAL_CORE_MODULE(DataLogger, true)
 OPTIONAL_CORE_MODULE(Logbook, true)
+// LedService/IndicationService are used for user-visible status signaling.
 OPTIONAL_CORE_MODULE(LedService, true)
 OPTIONAL_CORE_MODULE(IndicationService, true)
+// BleService + CustomGattService expose iFCH command/data characteristics.
 OPTIONAL_CORE_MODULE(BleService, true)
+OPTIONAL_CORE_MODULE(CustomGattService, true)
+// Keep optional debug and bypass modules disabled to reduce footprint.
 OPTIONAL_CORE_MODULE(EepromService, false)
 OPTIONAL_CORE_MODULE(BypassService, false)
 OPTIONAL_CORE_MODULE(SystemMemoryService, false)
 OPTIONAL_CORE_MODULE(DebugService, false)
 OPTIONAL_CORE_MODULE(BleStandardHRS, false)
 OPTIONAL_CORE_MODULE(BleNordicUART, false)
-OPTIONAL_CORE_MODULE(CustomGattService, true)
 
 // NOTE: If building a simulator build, these macros are obligatory!
 DEBUGSERVICE_BUFFER_SIZE(6, 120);     // 6 lines, 120 characters total

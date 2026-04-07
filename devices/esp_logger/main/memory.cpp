@@ -43,6 +43,8 @@ bool sendFile(std::string filename)
 
         uint8_t seqNum = 0;
 
+        // File transfer protocol: filename packet -> chunked payload packets -> EOF packet.
+
         // Start by sending the filename
         tx_buffer[0] = seqNum;
         std::string baseName = filename.substr(strlen(MOUNT_POINT) + 1);
@@ -208,6 +210,7 @@ std::string receiveFile(std::string filename)
 
     while (true)
     {
+        // Receiver validates ordered sequence IDs and ACKs each accepted chunk.
         CmdType cmd = readSerial(true);
         if (cmd == CmdType::CMD_FILE_CHUNK)
         {

@@ -1,3 +1,7 @@
+"""Integration tests for the ESP logger serial API.  Requires the iFCH ESP
+Logger to be connected, as well as a Movesense device with iFCH firmware to be
+powered and in range to run the full test suite."""
+
 import warnings
 
 import pytest
@@ -33,15 +37,18 @@ async def device():
 
 
 async def test_version(device: ESPLogger):
+    """Verify firmware version can be queried."""
     assert await device.get_version()
 
 
 async def test_rid(device: ESPLogger):
+    """Verify record identifier is readable."""
     rid = await device.get_record_id()
     assert rid is not None
 
 
 async def test_status(device: ESPLogger):
+    """Verify idle status flags are returned and consistent."""
     status = await device.get_status()
     assert status is not None
     assert not status["logging"]
@@ -50,34 +57,42 @@ async def test_status(device: ESPLogger):
 
 
 async def test_reset(device: ESPLogger):
+    """Verify force reset command succeeds."""
     assert await device.force_reset_state()
 
 
 async def test_battery(device: ESPLogger):
+    """Verify battery query returns a value."""
     assert await device.get_battery()
 
 
 async def test_epoch(device: ESPLogger):
+    """Verify device epoch can be queried."""
     assert await device.get_epoch()
 
 
 async def test_put_epoch(device: ESPLogger):
+    """Verify device epoch can be updated."""
     assert await device.put_epoch()
 
 
 async def test_free_space(device: ESPLogger):
+    """Verify free-space query succeeds."""
     assert await device.get_free_space()
 
 
 async def test_get_error_log(device: ESPLogger):
+    """Verify error log can be downloaded."""
     assert await device.get_error_log() is not None
 
 
 async def test_delete_error_log(device: ESPLogger):
+    """Verify error log deletion succeeds."""
     assert await device.delete_error_log()
 
 
 async def test_get_logs(device: ESPLogger):
+    """Verify log listing and directory operations."""
     logs = await device.list_logs(show_archived=False)
     assert logs is not None
 
@@ -100,6 +115,7 @@ async def test_get_logs(device: ESPLogger):
 
 
 async def test_config(device: ESPLogger):
+    """Verify address configuration roundtrip through config file."""
     movesense_address = "00:00:00:00:00:00"
     movesense_id = "FakeID"
     assert await device.set_address(movesense_address, movesense_id)
@@ -111,6 +127,7 @@ async def test_config(device: ESPLogger):
 
 
 async def test_movesense(device: ESPLogger):
+    """Verify end-to-end Movesense BLE control flow via logger."""
     devices = await device.scan()
     assert devices is not None
 

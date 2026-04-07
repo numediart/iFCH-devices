@@ -1,3 +1,5 @@
+"""View classes composing the Movesense logger desktop interface."""
+
 from enum import Enum, auto
 
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
@@ -44,6 +46,8 @@ from .ui_components import (
 
 
 class UIState(Enum):
+    """Application states mapped to stacked UI pages."""
+
     ERROR = auto()
     DISCONNECTED = auto()
     INFO = auto()
@@ -57,6 +61,8 @@ class UIState(Enum):
 
 
 class DisconnectedView(BaseView):
+    """Landing view shown while searching for available devices."""
+
     def __init__(self):
         # Use base view with grey theme, no max width
         super().__init__(
@@ -67,6 +73,8 @@ class DisconnectedView(BaseView):
 
 
 class ErrorView(BaseMessageView):
+    """Error message page with reset action."""
+
     def __init__(self):
         super().__init__(
             title="ERROR",
@@ -78,6 +86,8 @@ class ErrorView(BaseMessageView):
 
 
 class WarningView(BaseMessageView):
+    """Warning page used for recoverable user decisions."""
+
     def __init__(self):
         super().__init__(
             title="WARNING",
@@ -92,6 +102,8 @@ class WarningView(BaseMessageView):
 
 
 class SuccessView(BaseMessageView):
+    """Success page shown after save/transition actions."""
+
     def __init__(self):
         super().__init__(
             title="Success!",
@@ -105,6 +117,8 @@ class SuccessView(BaseMessageView):
 
 
 class ConfirmView(BaseMessageView):
+    """Confirmation page for destructive operations."""
+
     def __init__(self):
         super().__init__(
             title="Are you sure?",
@@ -119,6 +133,8 @@ class ConfirmView(BaseMessageView):
 
 
 class SettingsView(BaseView):
+    """Settings page for output path and app metadata."""
+
     def __init__(self):
         super().__init__(
             title="Settings",
@@ -127,6 +143,7 @@ class SettingsView(BaseView):
         )
 
     def _setup_content(self):
+        """Build directory selector, close action, and version label."""
         # Directory selection
         dir_label = WidgetFactory.create_status_label(
             "Output directory:",
@@ -153,6 +170,8 @@ class SettingsView(BaseView):
 
 
 class InfoView(BaseView):
+    """Neutral information page used during transitions."""
+
     def __init__(self):
         super().__init__(
             title="Title",
@@ -162,6 +181,8 @@ class InfoView(BaseView):
 
 
 class FormView(QWidget):
+    """Form page collecting metadata before record export."""
+
     def __init__(self):
         super().__init__()
 
@@ -237,6 +258,8 @@ class FormView(QWidget):
 
 
 class DeviceSelectionView(QWidget):
+    """Device picker page for available Movesense targets."""
+
     def __init__(self):
         super().__init__()
         layout = LayoutBuilder.create_centered_container(self, max_width=700)
@@ -281,7 +304,7 @@ class DeviceSelectionView(QWidget):
         self.connect_button.setEnabled(len(self.device_list.selectedItems()) > 0)
 
     def set_devices(self, devices):
-        """Populate the device list"""
+        """Populate the device list from discovered BLE devices."""
         self.device_list.clear()
         for parts in devices:
             if len(parts) >= 2:
@@ -297,7 +320,7 @@ class DeviceSelectionView(QWidget):
             self.device_list.setCurrentRow(0)
 
     def get_selected_device(self):
-        """Get the selected device string"""
+        """Return selected device tuple ``(address, name)`` if available."""
         selected_items = self.device_list.selectedItems()
         if selected_items:
             selection = selected_items[0].data(Qt.ItemDataRole.UserRole)
@@ -306,6 +329,8 @@ class DeviceSelectionView(QWidget):
 
 
 class MovesenseChart(QWidget):
+    """Live ECG chart widget used in monitoring mode."""
+
     PLOT_DURATION = 10
 
     def __init__(self):
@@ -344,6 +369,8 @@ class MovesenseChart(QWidget):
 
 
 class MonitoringView(QWidget):
+    """Monitoring page with live graph and control buttons."""
+
     FIELDS = [
         ("mov", "Movesense ID"),
         ("mov_bat", "Movesense battery"),
@@ -437,6 +464,8 @@ class MonitoringView(QWidget):
 
 
 class DownloadView(BaseView):
+    """Progress page displayed while fetching stored logs."""
+
     def __init__(self):
         super().__init__(
             title="Downloading record",
@@ -449,6 +478,7 @@ class DownloadView(BaseView):
         # Main message
 
     def _setup_content(self):
+        """Build progress bar content for active download operations."""
 
         self.main_layout.addSpacing(BUTTON_SPACING)
 

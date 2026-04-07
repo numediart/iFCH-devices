@@ -1,3 +1,5 @@
+"""Main window and event handlers for the iFCH Movesense logger desktop app."""
+
 import asyncio
 import logging
 import pathlib
@@ -44,6 +46,8 @@ from src.views import (
 
 
 class MainWindow(QWidget):
+    """Top-level GUI controller coordinating views and backend actions."""
+
     FORCE_SHUTDOWN_ATTEMPTS = 3
 
     def __init__(self, loop):
@@ -189,6 +193,7 @@ class MainWindow(QWidget):
         view: QWidget,
         on_enter: Optional[Callable[[], None]] = None,
     ):
+        """Register a UI state with its view and optional entry callback."""
         self._views_dict[key] = ViewSpec(view=view, on_enter=on_enter)
         self.stacked_widget.addWidget(view)
 
@@ -208,6 +213,7 @@ class MainWindow(QWidget):
         connect: Optional[bool] = None,
         refresh: Optional[bool] = None,
     ):
+        """Update enabled state for device-selection actions."""
         if connect is not None:
             self.device_selection_view.connect_button.setEnabled(connect)
         if refresh is not None:
@@ -222,6 +228,7 @@ class MainWindow(QWidget):
         start_visible: Optional[bool] = None,
         stop_visible: Optional[bool] = None,
     ):
+        """Update enabled and visible states for monitoring controls."""
         if start_visible is not None:
             self.monitoring_view.start_button.setVisible(start_visible)
         if stop_visible is not None:
@@ -239,6 +246,7 @@ class MainWindow(QWidget):
         self,
         monitor: Optional[bool] = None,
     ):
+        """Update enabled state of success-view actions."""
         if monitor is not None:
             self.success_view.monitor_button.setEnabled(monitor)
 
@@ -247,22 +255,27 @@ class MainWindow(QWidget):
         confirm: Optional[bool] = None,
         cancel: Optional[bool] = None,
     ):
+        """Update enabled state of confirmation-view actions."""
         if confirm is not None:
             self.confirm_view.proceed_button.setEnabled(confirm)
         if cancel is not None:
             self.confirm_view.cancel_button.setEnabled(cancel)
 
     def _set_form_inputs_enabled(self, enabled: bool):
+        """Enable or disable form input widgets."""
         self.form_view.name_input.setEnabled(enabled)
         self.form_view.notes_input.setEnabled(enabled)
 
     def _enter_error_state(self):
+        """Apply UI defaults when entering error state."""
         self.error_view.ok_button.setEnabled(True)
 
     def _enter_warning_state(self):
+        """Apply UI defaults when entering warning state."""
         self.warning_view.ok_button.setEnabled(True)
 
     def _enter_device_selection_state(self):
+        """Populate device list and enable selection controls."""
         self.device_selection_view.set_devices(self.backend.available_devices)
         self._set_device_selection_buttons(
             connect=len(self.backend.available_devices) > 0,
@@ -270,17 +283,21 @@ class MainWindow(QWidget):
         )
 
     def _enter_monitoring_state(self):
+        """Apply UI defaults when entering monitoring state."""
         self._set_monitoring_buttons(
             switch=True,
         )
 
     def _enter_success_state(self):
+        """Apply UI defaults when entering success state."""
         self._set_success_buttons(monitor=True)
 
     def _enter_confirm_state(self):
+        """Apply UI defaults when entering confirmation state."""
         self._set_confirm_buttons(confirm=True, cancel=True)
 
     def _enter_form_state(self):
+        """Reset and enable metadata form before saving."""
         self.form_view.clear()
 
         self.form_view.save_button.setEnabled(False)
@@ -288,6 +305,7 @@ class MainWindow(QWidget):
 
     @Slot()
     def select_output_dir(self):
+        """Prompt user for output directory and persist it in settings."""
         path = QFileDialog.getExistingDirectory(
             self, "Select output directory", self.settings_view.dir_edit.text()
         )
@@ -329,16 +347,19 @@ class MainWindow(QWidget):
 
     @Slot()
     def handle_success_monitor(self):
+        """Handle monitor button on success view."""
         self._set_success_buttons(monitor=False)
         asyncio.create_task(self.backend.start_monitoring())
 
     @Slot()
     def handle_confirm_proceed(self):
+        """Handle confirm action to force-start a new recording."""
         self._set_confirm_buttons(confirm=False, cancel=False)
         asyncio.create_task(self.backend.start_logging(force=True))
 
     @Slot()
     def handle_confirm_cancel(self):
+        """Handle cancel action and return to monitoring."""
         self._set_confirm_buttons(confirm=False, cancel=False)
         asyncio.create_task(self.backend.start_monitoring())
 
@@ -385,6 +406,7 @@ class MainWindow(QWidget):
 
     @Slot(int, int)
     def update_progress(self, value: int, value_max: int):
+        """Update download progress bar using current and maximum values."""
         if value_max == 0:
             progress = 0
         else:
@@ -393,6 +415,7 @@ class MainWindow(QWidget):
         self.download_view.progress_bar.setValue(progress)
 
     def update_settings(self):
+        """Load persisted settings and apply them to UI fields."""
         output_dir = self.settings.value("output_dir", "", type=str)
         if output_dir == "":
             output_dir = str(pathlib.Path(".", "iFCH_records").absolute())
@@ -402,6 +425,7 @@ class MainWindow(QWidget):
         self.form_view.save_path.setText(output_dir)
 
     async def cleanup(self):
+        """Stop timers, backend tasks, and pending async work."""
         logging.debug("Cleaning up...")
 
         # Stop the plot timer first
@@ -428,6 +452,7 @@ class MainWindow(QWidget):
 
     @Slot()
     def poll_stream_data(self):
+        """Refresh live ECG chart from streamed backend data."""
         # Only update plot if we're in monitoring view
         if self.current_state != UIState.MONITORING:
             return
@@ -466,6 +491,7 @@ class MainWindow(QWidget):
         title="Scanning for Movesense Devices",
         message="Please make sure your Movesense device is powered on and in range.",
     ):
+        """Update disconnected-page title and status message."""
         self.disconnected_view.title_label.setText(title)
         self.disconnected_view.status_label.setText(message)
 
@@ -474,14 +500,17 @@ class MainWindow(QWidget):
         title,
         message,
     ):
+        """Update success-page title and status message."""
         self.success_view.title_label.setText(title)
         self.success_view.status_label.setText(message)
 
     def update_info_status(self, title, status):
+        """Update info-page title and status message."""
         self.info_view.title_label.setText(title)
         self.info_view.status_label.setText(status)
 
     def update_device_info(self, **kwargs):
+        """Update monitoring fields and button states from backend metadata."""
         if "logging" in kwargs:
             is_logging = kwargs["logging"]
             n_logs = len(self.backend.log_list) if self.backend.log_list else 0
@@ -499,6 +528,7 @@ class MainWindow(QWidget):
                 self.monitoring_view.fields[key].setText(str(kwargs[key]))
 
     def closeEvent(self, event):
+        """Coordinate graceful asynchronous shutdown when the window closes."""
         if self.prevent_close:
             event.ignore()
 
@@ -547,6 +577,7 @@ class MainWindow(QWidget):
         self._shutdown_attempts += 1
 
     async def _finish_shutdown(self):
+        """Finalize cleanup and terminate the Qt application."""
         try:
             await self.cleanup()
         except Exception as e:
@@ -560,6 +591,7 @@ class MainWindow(QWidget):
 
 @wakepy.keep.presenting()
 def main():
+    """Run the Movesense logger desktop application."""
     logging.basicConfig(level=logging.INFO)
 
     app = QApplication(sys.argv)

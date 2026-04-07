@@ -10,6 +10,11 @@
 #include <esp_sleep.h>
 #include <esp_mac.h>
 
+// Runtime queue architecture:
+// - dataQueue: streamed sensor notifications from Movesense.
+// - responseQueue: command/response messages exchanged with host.
+// - logQueue: datalogger payload chunks during fetch operations.
+
 Config config;
 Record record;
 
@@ -872,6 +877,8 @@ void handleSerialCommand(CmdType cmd)
 
 void loop()
 {
+    // Cooperative main scheduler: process periodic fetch, async queues, and host commands.
+
     // The clock interrupt is active, fetch data
     // Give some time after boot to let serial commands be processed first
     // Do not fetch if we reached the maximum number of connection failures
@@ -900,6 +907,7 @@ void loop()
         }
     }
 
+    // Any remaining log/response packets here indicate an out-of-sequence command flow.
     while (xQueueReceive(logQueue, queueNotif, 0) == pdTRUE)
     {
         // We should not be here, commands should have been processed
@@ -968,7 +976,7 @@ extern "C" void app_main()
 
     isStreaming = false;
 
-    // Set up all components
+    // Boot order : board + storage + time + comms + config before entering loop.
     setupBoard();
     setupSDCard();
     setupFlash();

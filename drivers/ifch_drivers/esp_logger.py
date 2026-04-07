@@ -1,3 +1,5 @@
+"""Serial protocol client for the iFCH ESP logger device."""
+
 import asyncio
 import datetime
 import enum
@@ -56,21 +58,10 @@ class Commands(enum.IntEnum):
     CMD_TIMEOUT = 0xFE
     CMD_INVALID = 0xFF
 
-    def put_nowait(self, item):
-        if self.full():
-            try:
-                dropped = self.get_nowait()
-                logging.log(
-                    self.level, "Queue is full, discarding oldest item: %s", dropped
-                )
-
-            except asyncio.QueueEmpty:
-                pass
-
-        super().put_nowait(item)
-
 
 class FrameProtocol(asyncio.Protocol):
+    """Frame-based serial protocol used by the ESP logger firmware."""
+
     START_BYTE = 0xFA
     MAX_PAYLOAD_SIZE = 512
     BAUD = 921_600
@@ -79,7 +70,12 @@ class FrameProtocol(asyncio.Protocol):
     NOTIF_QUEUE_SIZE = 64
     RX_QUEUE_SIZE = 32
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, stream_callback=None):
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        stream_callback: typing.Callable[[bytes], None] | None = None,
+    ):
+        """Initialize transport state and parser buffers for one serial session."""
         self._transport = None
         self._buffer = bytearray()
         self._rx_queue = BoundedQueue(self.RX_QUEUE_SIZE)
@@ -95,30 +91,35 @@ class FrameProtocol(asyncio.Protocol):
         self._stream_callback = stream_callback
 
     @property
-    def is_connected(self):
+    def is_connected(self) -> bool:
+        """Return whether the serial transport is connected."""
         return self._is_connected
 
-    def connection_made(self, transport):
+    def connection_made(self, transport) -> None:
+        """Record transport state when the serial link is established."""
         self._transport = transport
         self._is_connected = True
         self.connected.set()
 
-    def close(self):
+    def close(self) -> None:
+        """Close the active serial transport if present."""
         if self._transport:
             self._transport.close()
 
-    def data_received(self, data: bytes):
+    def data_received(self, data: bytes) -> None:
+        """Feed incoming serial bytes into the frame parser."""
         self._buffer += data
         self._try_parse_buffer()
 
-    def connection_lost(self, exc):
-        # Optional: push a sentinel onto the queue or emit a signal
+    def connection_lost(self, exc: Exception | None) -> None:
+        """Mark protocol as disconnected when the transport closes."""
         if exc:
             logging.warning(f"Serial connection lost: {exc}")
         self._is_connected = False
         self.disconnected.set()
 
-    def send_frame(self, cmd: Commands, payload: bytes = b""):
+    def send_frame(self, cmd: Commands, payload: bytes = b"") -> None:
+        """Serialize and send one framed command with CRC."""
         logging.debug("Sending command: %s, payload: %s", cmd.name, payload.hex(" "))
         header = struct.pack(">B H", cmd, len(payload))
         crc = zlib.crc32(header + payload)
@@ -133,6 +134,7 @@ class FrameProtocol(asyncio.Protocol):
         timeout: float = SERIAL_TIMEOUT_S,
         retries: int = SERIAL_RETRIES,
     ) -> bool:
+        """Send a frame and wait for matching ACK with retries."""
         for attempt in range(retries):
             self.send_frame(cmd, payload)
 
@@ -145,7 +147,16 @@ class FrameProtocol(asyncio.Protocol):
         logging.error("failed to send frame (id: %d) after %d retries", seq, retries)
         return False
 
-    async def send_file(self, file_data: bytes, file_name: str):
+    async def send_file(self, file_data: bytes, file_name: str) -> bool:
+        """Send a file in sequenced protected chunks.
+
+        Args:
+            file_data: File bytes to transmit.
+            file_name: Remote file name used by the logger firmware.
+
+        Returns:
+            bool: ``True`` when all chunks are acknowledged, else ``False``.
+        """
         # Step 1 – send file name
         chunk_seq = 0
         payload = chunk_seq.to_bytes(1) + file_name.encode()
@@ -264,7 +275,8 @@ class FrameProtocol(asyncio.Protocol):
                 )
 
     @staticmethod
-    def _decode_frame(frame: bytes):
+    def _decode_frame(frame: bytes) -> tuple[int, bytes, bool]:
+        """Decode one raw frame into command id, payload and CRC status."""
         cmd, length = struct.unpack(">B H", frame[1:4])
         payload = frame[4 : 4 + length]
         crc_recv = struct.unpack("<I", frame[-4:])[0]
@@ -274,6 +286,7 @@ class FrameProtocol(asyncio.Protocol):
     async def wait_for_cmd(
         self, wanted: Commands, timeout=SERIAL_TIMEOUT_S
     ) -> typing.Optional[bytes]:
+        """Wait for one command payload from the receive queue."""
         # Enforce a single active waiter. Cancel the previous one if present.
         this_task = asyncio.current_task()
         if this_task is None:
@@ -328,6 +341,7 @@ class FrameProtocol(asyncio.Protocol):
                 self._current_waiter = None
 
     async def _wait_for_ack(self, seq: int, timeout: float = SERIAL_TIMEOUT_S) -> bool:
+        """Wait for an ACK matching a given sequence id."""
         current_time = self._loop.time()
         deadline = current_time + timeout
 
@@ -355,6 +369,7 @@ class FrameProtocol(asyncio.Protocol):
         return False
 
     async def _wait_for_file(self):
+        """Receive one file transfer and return ``(name, bytes)``."""
         file_name = None
         expected_seq = 0
         file_chunks = []
@@ -401,6 +416,7 @@ class FrameProtocol(asyncio.Protocol):
         return file_name, b"".join(file_chunks)
 
     async def _wait_for_dir(self):
+        """Receive one directory listing transfer."""
         dir_name = None
         expected_seq = 0
         dir_files = []
@@ -467,7 +483,8 @@ class FrameProtocol(asyncio.Protocol):
         return port, payload
 
     @staticmethod
-    async def _reset_port(port: str, baud: int = BAUD):
+    async def _reset_port(port: str, baud: int = BAUD) -> None:
+        """Toggle DTR to reset a serial device port."""
         logging.warning("RESET DTR on %s", port)
         try:
             with serial.Serial(port, baud) as s:
@@ -480,7 +497,12 @@ class FrameProtocol(asyncio.Protocol):
             return None
 
     @staticmethod
-    async def open_connection(port: str, baud: int = BAUD, stream_callback=None):
+    async def open_connection(
+        port: str,
+        baud: int = BAUD,
+        stream_callback: typing.Callable[[bytes], None] | None = None,
+    ) -> typing.Optional["FrameProtocol"]:
+        """Open and initialize a serial connection."""
         loop = asyncio.get_running_loop()
         try:
             _, protocol = await serial_asyncio.create_serial_connection(
@@ -501,6 +523,8 @@ class FrameProtocol(asyncio.Protocol):
 
 
 class ESPLogger:
+    """High-level async API for configuring and controlling an ESP logger."""
+
     BLE_TIMEOUT_S = 2.5
     BLE_CONNECT_TIMEOUT_S = 10
     BLE_BATTERY_TIMEOUT_S = 5
@@ -510,7 +534,18 @@ class ESPLogger:
     CONFIG_FILE = "config.jsn"
     ERROR_LOG_FILE = "log.txt"
 
-    def __init__(self, port: str, stream_callback=None):
+    def __init__(
+        self,
+        port: str,
+        stream_callback: typing.Callable[["ESPLogger", tuple[str, dict]], None]
+        | None = None,
+    ):
+        """Create a logger client bound to one serial port.
+
+        Args:
+            port: Serial port path of the logger, for example ``/dev/ttyUSB0``.
+            stream_callback: Optional callback receiving decoded stream samples.
+        """
         self._port = port
         self._proto: typing.Optional[FrameProtocol] = None
 
@@ -530,29 +565,49 @@ class ESPLogger:
 
         self._device_info = None
 
-    def _stream_callback(self, payload):
+    def _stream_callback(self, payload: bytes) -> None:
+        """Decode stream packet and forward it to the external callback."""
         if self._stream_callback_ext:
             decoded = self._decoder.decode_stream_packet(payload)
             self._stream_callback_ext(self, decoded)
 
     @property
-    def disconnected(self):
+    def disconnected(self) -> asyncio.Event | None:
+        """Expose disconnection event from the active serial protocol."""
         if self._proto:
             return self._proto.disconnected
         else:
             return None
 
     @property
-    def device_info(self):
+    def device_info(self) -> str | None:
+        """Return firmware version string read from the logger."""
         return self._device_info
 
-    async def set_address(self, address: str, movesense_id: str):
+    async def set_address(self, address: str, movesense_id: str) -> bool | None:
+        """Set Movesense target address and id in logger configuration.
+
+        Args:
+            address: BLE address of the target Movesense device.
+            movesense_id: Device identifier used by the logger firmware.
+
+        Returns:
+            bool | None: Result from config upload routine.
+        """
         self._config["address"] = address
         self._config["MovesenseID"] = movesense_id
 
         return await self._put_config()
 
-    async def start(self):
+    async def start(self) -> None:
+        """Open serial link and validate communication with the logger.
+
+        Before exiting, remember to call ``stop()`` to cleanly close the serial
+        transport.
+
+        Raises:
+            RuntimeError: If serial port open or initial version query fails.
+        """
         self._proto = await FrameProtocol.open_connection(
             self._port, stream_callback=self._stream_callback
         )
@@ -569,7 +624,8 @@ class ESPLogger:
                 logging.debug("Connected to device: %s", device_info)
                 self._device_info = device_info
 
-    async def stop(self):
+    async def stop(self) -> None:
+        """Stop active logging session and close serial transport."""
         logging.debug("Stopping device service")
 
         if self._proto:
@@ -580,7 +636,18 @@ class ESPLogger:
 
         logging.debug("Device service stopped")
 
-    async def scan(self, retries=5, filter_movesense=True):
+    async def scan(
+        self, retries: int = 5, filter_movesense: bool = True
+    ) -> list[str] | None:
+        """Scan nearby BLE devices through the logger.
+
+        Args:
+            retries: Number of scan rounds before giving up.
+            filter_movesense: Keep only names starting with ``Movesense``.
+
+        Returns:
+            list[str] | None: Device descriptors, or ``None`` on communication failure.
+        """
         scanned = set()
 
         for _ in range(retries):
@@ -652,7 +719,8 @@ class ESPLogger:
         logging.debug("Config PUT request succeeded")
         return True
 
-    async def get_config(self):
+    async def get_config(self) -> dict | None:
+        """Fetch the current JSON configuration from the device."""
         logging.debug("Requesting config file")
 
         data = await self.get_file(self.CONFIG_FILE)
@@ -668,7 +736,8 @@ class ESPLogger:
             logging.error("Failed to decode config file: %s", e)
             return None
 
-    async def get_version(self):
+    async def get_version(self) -> str | None:
+        """Read firmware version string reported by the logger."""
         self._proto.send_frame(Commands.CMD_VERSION)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_VERSION, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -681,7 +750,8 @@ class ESPLogger:
             logging.warning("Get version failed")
             return None
 
-    async def get_record_id(self):
+    async def get_record_id(self) -> int | None:
+        """Read current record identifier from device state."""
         self._proto.send_frame(Commands.CMD_GET_RECORD_ID)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_GET_RECORD_ID, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -698,7 +768,8 @@ class ESPLogger:
             logging.warning("Get record ID failed")
             return None
 
-    async def get_battery(self):
+    async def get_battery(self) -> float | None:
+        """Read battery level from the logger device."""
         self._proto.send_frame(Commands.CMD_BATTERY_GET)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_BATTERY_GET, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -715,7 +786,8 @@ class ESPLogger:
             logging.warning("Get battery failed")
             return None
 
-    async def get_epoch(self):
+    async def get_epoch(self) -> int | None:
+        """Read current RTC epoch value from the logger, in seconds."""
         self._proto.send_frame(Commands.CMD_TIME_GET)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_TIME_GET, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -732,7 +804,17 @@ class ESPLogger:
             logging.warning("Get epoch failed")
             return None
 
-    async def put_epoch(self, epoch=None):
+    async def put_epoch(self, epoch: int | None = None) -> bool | None:
+        """Set RTC epoch value on the logger.
+
+        Args:
+            epoch: Epoch time in seconds to set on the device. If ``None``, the
+                current system time will be used.
+
+        Returns:
+            bool | None: ``True`` on success, ``False`` on invalid response, or
+                ``None`` on communication failure.
+        """
         if epoch is None:
             epoch = int(datetime.datetime.now().timestamp())
 
@@ -752,7 +834,8 @@ class ESPLogger:
             logging.warning("PUT epoch failed")
             return None
 
-    async def get_status(self):
+    async def get_status(self) -> dict[str, bool] | None:
+        """Read logger state flags (configured/connected/streaming/logging)."""
         self._proto.send_frame(Commands.CMD_STATUS)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_STATUS, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -774,7 +857,8 @@ class ESPLogger:
             logging.warning("Get status failed")
             return None
 
-    async def force_reset_state(self):
+    async def force_reset_state(self) -> bool | None:
+        """Force-reset logger state flags on device side."""
         self._proto.send_frame(Commands.CMD_RESET_STATE)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_RESET_STATE, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -786,7 +870,8 @@ class ESPLogger:
             logging.warning("Force reset state failed")
             return None
 
-    async def get_free_space(self):
+    async def get_free_space(self) -> float | None:
+        """Return free storage space on logger in GB."""
         self._proto.send_frame(Commands.CMD_GET_FREE_SPACE)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_GET_FREE_SPACE, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -804,7 +889,17 @@ class ESPLogger:
             logging.warning("Get free space failed")
             return None
 
-    async def list_logs(self, show_archived=False):
+    async def list_logs(self, show_archived: bool = False) -> list[str] | None:
+        """List available log folders on the logger storage.
+
+        Args:
+            show_archived: Whether to include archived logs (starting with "_")
+                in the result.
+
+        Returns:
+            list[str] | None: Log directory names, or ``None`` on communication
+                failure.
+        """
         self._proto.send_frame(Commands.CMD_LIST_LOG)
 
         log_list = []
@@ -829,7 +924,15 @@ class ESPLogger:
             else:
                 return log_list
 
-    async def list_dir(self, dir_name: str):
+    async def list_dir(self, dir_name: str) -> list[str] | None:
+        """List file names within one log directory.
+
+        Args:
+            dir_name: Directory to query on the device filesystem.
+
+        Returns:
+            list[str] | None: Sorted file names, or ``None`` on failure.
+        """
         self._proto.send_frame(Commands.CMD_LIST_DIR, dir_name.encode("utf-8"))
         rx_name, dir_files = await self._proto._wait_for_dir()
 
@@ -842,7 +945,15 @@ class ESPLogger:
 
         return sorted(dir_files)
 
-    async def get_file(self, file_path: str):
+    async def get_file(self, file_path: str) -> bytes | None:
+        """Download one file by path from logger storage.
+
+        Args:
+            file_path: Absolute or relative file path on device storage.
+
+        Returns:
+            bytes | None: File content bytes, or ``None`` on failure.
+        """
         self._proto.send_frame(Commands.CMD_GET_FILE, file_path.encode("utf-8"))
         file_name, data = await self._proto._wait_for_file()
 
@@ -859,7 +970,15 @@ class ESPLogger:
 
         return data
 
-    async def archive_log(self, log_id: str):
+    async def archive_log(self, log_id: str) -> bool | None:
+        """Archive one log folder on device storage.
+
+        Args:
+            log_id: Log directory identifier.
+
+        Returns:
+            bool | None: ``True`` on success, or ``None`` on failure.
+        """
         self._proto.send_frame(Commands.CMD_ARCHIVE_LOG, log_id.encode("utf-8"))
         result = await self._proto.wait_for_cmd(
             Commands.CMD_ARCHIVE_LOG, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -871,7 +990,13 @@ class ESPLogger:
             logging.debug("Archived log: %s", log_id)
             return True
 
-    async def get_error_log(self):
+    async def get_error_log(self) -> str | bytes | None:
+        """Fetch current error log file content from the device.
+
+        Returns:
+            str | bytes | None: UTF-8 text if decodable, raw bytes otherwise,
+                or ``None`` on failure.
+        """
         self._proto.send_frame(Commands.CMD_GET_ERROR_LOG)
         file_name, data = await self._proto._wait_for_file()
 
@@ -892,7 +1017,12 @@ class ESPLogger:
             logging.error("Failed to decode error log file: %s", e)
             return data
 
-    async def delete_error_log(self):
+    async def delete_error_log(self) -> bool | None:
+        """Delete the error log file stored on the logger.
+
+        Returns:
+            bool | None: ``True`` on success, or ``None`` on failure.
+        """
         self._proto.send_frame(Commands.CMD_DELETE_ERROR_LOG)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_DELETE_ERROR_LOG, timeout=self.ERROR_LOG_DELETE_TIMEOUT_S
@@ -906,7 +1036,13 @@ class ESPLogger:
 
     # --------------------------------------------------------------------------
     # Movesense related methods
-    async def connect(self, require_hello=True):
+    async def connect(self, require_hello: bool = True) -> bool | None:
+        """Connect the logger to the configured Movesense over BLE.
+
+        Args:
+            require_hello: Whether to require a successful hello_movesense()
+                after connecting, or just rely on the CMD_CONNECT response.
+        """
         self._proto.send_frame(Commands.CMD_CONNECT)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_CONNECT, timeout=self.BLE_CONNECT_TIMEOUT_S
@@ -930,7 +1066,8 @@ class ESPLogger:
             logging.warning("Failed to connect to Movesense")
             return False
 
-    async def disconnect(self):
+    async def disconnect(self) -> bool | None:
+        """Disconnect the logger from the currently connected Movesense."""
         self._proto.send_frame(Commands.CMD_DISCONNECT)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_DISCONNECT, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -945,7 +1082,8 @@ class ESPLogger:
             logging.warning("Failed to connect from Movesense")
             return False
 
-    async def hello_movesense(self):
+    async def hello_movesense(self) -> bytes | None:
+        """Send hello command to the connected Movesense and return payload."""
         self._proto.send_frame(Commands.CMD_BLE_HELLO)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_BLE_HELLO, timeout=self.BLE_TIMEOUT_S
@@ -957,7 +1095,8 @@ class ESPLogger:
             logging.warning("Hello Movesense failed")
             return None
 
-    async def get_mov_battery(self):
+    async def get_mov_battery(self) -> int | None:
+        """Read battery percentage from the connected Movesense."""
         self._proto.send_frame(Commands.CMD_MOV_BATTERY_GET)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_MOV_BATTERY_GET, timeout=self.BLE_BATTERY_TIMEOUT_S
@@ -973,7 +1112,8 @@ class ESPLogger:
             logging.error("Invalid Movesense battery response: %s", result)
             return -1
 
-    async def get_mov_islogging(self):
+    async def get_mov_islogging(self) -> bool | None:
+        """Return whether the connected Movesense datalogger is active."""
         self._proto.send_frame(Commands.CMD_MOV_GET_LOGGING_STATE)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_MOV_GET_LOGGING_STATE, timeout=self.BLE_TIMEOUT_S
@@ -992,7 +1132,9 @@ class ESPLogger:
             logging.warning("Hello Movesense failed")
             return None
 
-    async def sub_stream(self):
+    async def sub_stream(self) -> bool | None:
+        """Enable BLE stream forwarding from Movesense through the logger. It
+        will subscribe to the sensors path in config file."""
         self._proto.send_frame(Commands.CMD_MOV_STREAM)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_MOV_STREAM, timeout=self.BLE_TIMEOUT_S
@@ -1004,7 +1146,8 @@ class ESPLogger:
             logging.debug("Subscribed to Movesense stream")
             return True
 
-    async def unsub_stream(self):
+    async def unsub_stream(self) -> bool | None:
+        """Disable BLE stream forwarding from Movesense."""
         self._proto.send_frame(Commands.CMD_MOV_UNSTREAM)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_MOV_UNSTREAM, timeout=self.BLE_TIMEOUT_S
@@ -1016,7 +1159,8 @@ class ESPLogger:
             logging.warning("Unsubscribe failed")
             return None
 
-    async def start_movesense_logging(self):
+    async def start_movesense_logging(self) -> bool | None:
+        """Start on-device logging on the connected Movesense."""
         self._proto.send_frame(Commands.CMD_MOV_LOG_START)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_MOV_LOG_START, timeout=2 * self.BLE_TIMEOUT_S
@@ -1028,7 +1172,8 @@ class ESPLogger:
             logging.debug("Started Movesense logging")
             return True
 
-    async def stop_movesense_logging(self):
+    async def stop_movesense_logging(self) -> int | None:
+        """Stop on-device logging and return produced log id."""
         self._proto.send_frame(Commands.CMD_MOV_LOG_END)
         processing = await self._proto.wait_for_cmd(
             Commands.CMD_MOV_LOG_END, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -1054,8 +1199,16 @@ class ESPLogger:
     @staticmethod
     async def detect_devices(
         probe_timeout: float = FrameProtocol.SERIAL_TIMEOUT_S,
-        reset_ports=False,
+        reset_ports: bool = False,
     ) -> list[tuple[str, str]]:
+        """Probe serial ports and return detected ESP logger devices.
+
+        Args:
+            probe_timeout: Timeout in seconds for probing each port.
+            reset_ports: Whether to toggle DTR on each port before probing,
+                which can help with devices stuck in a bad state but may cause
+                side effects on other serial devices.
+        """
         ports = [p.device for p in serial.tools.list_ports.comports()]
 
         if reset_ports:
