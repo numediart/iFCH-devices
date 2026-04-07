@@ -13,7 +13,7 @@ uv run main.py
 ## Build Executable
 
 ```bash
-uv run pyinstaller main.py
+uv run pyinstaller --windowed main.py
 ```
 
 Use `--onefile` for a single binary. Startup time is usually longer.
