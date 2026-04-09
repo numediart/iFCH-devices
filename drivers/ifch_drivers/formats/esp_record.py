@@ -9,9 +9,9 @@ import zipfile
 
 import numpy as np
 
-from . import movesense_record
-from .movesense_sbem import SBEMDecoder
-from .movesense_stream import MovesenseStreamDecoder
+from ifch_drivers.formats import movesense_record
+from ifch_drivers.formats.movesense_sbem import SBEMDecoder
+from ifch_drivers.formats.movesense_stream import MovesenseStreamDecoder
 
 UTC_DESC = movesense_record.MovesenseDataTypes.UTCTIME.name
 
@@ -81,7 +81,10 @@ class ESPRecordConverter:
     """
 
     def __init__(
-        self, record_path: pathlib.Path | str, time_deviation_threshold: float = 10
+        self,
+        record_path: pathlib.Path | str,
+        time_deviation_threshold: float = 60,
+        time_deviation_warning_threshold: float = 5,
     ):
         """
         Initialize the converter.
@@ -90,7 +93,10 @@ class ESPRecordConverter:
             record_path (pathlib.Path|str): path to the directory containing the record files
             time_deviation_threshold (float, optional): threshold above which a
                 deviation in time between the RTC and Movesense is considered as
-                an anomaly, in seconds. Defaults to 10 seconds.
+                an boot anomaly, in seconds. Defaults to 60 seconds.
+            time_deviation_warning_threshold (float, optional): threshold above which a
+                deviation in time between the RTC and Movesense is logged as
+                a warning, in seconds. Defaults to 5 seconds.
         """
         self.record_path = record_path
         if not isinstance(self.record_path, pathlib.Path):
@@ -100,6 +106,7 @@ class ESPRecordConverter:
             self.record_path = zipfile.Path(self.record_path)
 
         self.time_deviation_threshold = time_deviation_threshold
+        self.time_deviation_warning_threshold = time_deviation_warning_threshold
 
         self.record = None
         self.checkpoints = None
@@ -130,14 +137,17 @@ class ESPRecordConverter:
         # Patches the timestamps in case of a reboot
 
         if UTC_DESC not in chunk:
-            raise RuntimeError(
+            logging.error(
                 "UTCTIME subscription not found in chunk, cannot patch timestamps"
             )
 
-        utc = chunk[UTC_DESC][UTC_DESC][0]
-        rel = chunk[UTC_DESC]["timestamps"][0]
+            boot_id = -1
 
-        boot_id = int((utc / 1000 - rel) / (self.time_deviation_threshold * 1000))
+        else:
+            utc = chunk[UTC_DESC][UTC_DESC][0]
+            rel = chunk[UTC_DESC]["timestamps"][0]
+
+            boot_id = int((utc / 1000 - rel) / (self.time_deviation_threshold * 1000))
 
         if boot_id in self._time_corrections:
             rel_corr, utc_corr = self._time_corrections[boot_id]
@@ -160,17 +170,22 @@ class ESPRecordConverter:
                 t + utc_corr for t in chunk[UTC_DESC][UTC_DESC]
             ]
 
-    async def _read_data(self):
+    async def _read_data_async(self):
 
+        logging.info("Reading record data from %s", self.record_path)
         self.record = {}
 
         if self.checkpoints is None:
-            await self._read_checkpoints()
+            self._read_checkpoints()
+
+        await asyncio.sleep(0)
 
         self._compute_time_corrections()
 
         if self.config is None:
-            await self._read_metadata()
+            self._read_metadata()
+
+        await asyncio.sleep(0)
 
         bin_decoder = ESPBinReader(self.config["sensorPaths"])
         sbem_decoder = SBEMDecoder()
@@ -249,7 +264,91 @@ class ESPRecordConverter:
                 bin_decoded = bin_decoder.read(bin_files[0])
                 self._append_chunk(bin_decoded)
 
-    async def _read_metadata(self):
+    def _read_data(self):
+        self.record = {}
+
+        if self.checkpoints is None:
+            self._read_checkpoints()
+
+        self._compute_time_corrections()
+
+        if self.config is None:
+            self._read_metadata()
+
+        bin_decoder = ESPBinReader(self.config["sensorPaths"])
+        sbem_decoder = SBEMDecoder()
+        sbem_glob = "*.SBM" if self.esp_filenames else "*.sbem"
+        bin_glob = "*.BIN" if self.esp_filenames else "*.bin"
+        sbem_list = sorted(self.record_path.glob(sbem_glob), key=lambda p: p.name)
+        bin_list = sorted(self.record_path.glob(bin_glob), key=lambda p: p.name)
+
+        if len(sbem_list):
+            max_sbem = int(sbem_list[-1].stem.split("_")[0])
+        else:
+            max_sbem = 0
+        if len(bin_list):
+            max_bin = int(bin_list[-1].stem.split("_")[0])
+        else:
+            max_bin = 0
+        max_id = max(max_sbem, max_bin)
+
+        logging.info("Reading record data from %s", self.record_path)
+
+        for chunk_id in range(1, max_id + 1):
+            sbem_ext = "SBM" if self.esp_filenames else "sbem"
+            sbem_files = sorted(
+                self.record_path.glob(f"{chunk_id:03d}*{sbem_ext}*"),
+                key=lambda p: p.name,
+            )
+
+            if len(sbem_files) > 1:
+                for sbem_file in sbem_files[1:]:
+                    logging.warning("Backup SBEM file found: %s", sbem_file.name)
+                    try:
+                        sbem_decoded = sbem_decoder.decode(sbem_file)
+                        self._append_chunk(sbem_decoded)
+                    except Exception as e:
+                        logging.warning(
+                            "Error decoding SBEM file %s: %s, skipping",
+                            sbem_file.name,
+                            e,
+                        )
+
+            if not sbem_files:
+                logging.warning("Missing SBEM file for chunk ID: %s", chunk_id)
+            else:
+                logging.info("Decoding SBEM file: %s", sbem_files[0].name)
+                try:
+                    sbem_decoded = sbem_decoder.decode(sbem_files[0])
+                    self._append_chunk(sbem_decoded)
+                except Exception as e:
+                    logging.warning(
+                        "Error decoding SBEM file %s: %s, skipping",
+                        sbem_files[0].name,
+                        e,
+                    )
+
+            bin_ext = "BIN" if self.esp_filenames else "bin"
+            bin_files = sorted(
+                self.record_path.glob(f"{chunk_id:03d}*{bin_ext}*"),
+                key=lambda p: p.name,
+            )
+            if len(bin_files) > 1:
+                for bin_file in bin_files[1:]:
+                    logging.warning("Backup BIN file found: %s", bin_file.name)
+                    bin_decoded = bin_decoder.read(bin_file)
+                    self._append_chunk(bin_decoded)
+
+            if not bin_files:
+                if chunk_id != max_id:
+                    logging.warning("Missing BIN file for chunk ID: %s", chunk_id)
+            else:
+                logging.info("Decoding BIN file: %s", bin_files[0].name)
+                bin_decoded = bin_decoder.read(bin_files[0])
+                self._append_chunk(bin_decoded)
+
+    def _read_metadata(self):
+        logging.info("Reading metadata from %s", self.record_path)
         self.metadata = {}
         metadata_file = self.record_path / "metadata.json"
 
@@ -317,18 +416,17 @@ class ESPRecordConverter:
 
             else:
                 if (
-                    abs(rel_corr - self._time_corrections[boot][0]) > 1000
-                    or abs(utc_corr - self._time_corrections[boot][1]) > 1000000
+                    abs(rel_corr - self._time_corrections[boot][0])
+                    > 1000 * self.time_deviation_warning_threshold
+                    or abs(utc_corr - self._time_corrections[boot][1])
+                    > 1000000 * self.time_deviation_warning_threshold
                 ):
                     logging.warning(
-                        "Inconsistent time corrections for boot %s: "
-                        "rel_corr=%s, utc_corr=%s, "
-                        "existing_rel_corr=%s, existing_utc_corr=%s",
+                        "Large time deviation detected for boot %s: "
+                        "rel_deviation=%s s, utc_deviation=%s s",
                         boot,
-                        rel_corr,
-                        utc_corr,
-                        self._time_corrections[boot][0],
-                        self._time_corrections[boot][1],
+                        (rel_corr - self._time_corrections[boot][0]) / 1e3,
+                        (utc_corr - self._time_corrections[boot][1]) / 1e6,
                     )
 
         if len(self._time_corrections) > 1:
@@ -336,7 +434,8 @@ class ESPRecordConverter:
                 "Detected %s Movesense reboot(s)", len(self._time_corrections) - 1
             )
 
-    async def _read_checkpoints(self):
+    def _read_checkpoints(self):
+        logging.info("Reading checkpoints from %s", self.record_path)
         ignored = ["metadata.json", "config.json"]
         if self.esp_filenames:
             ignored = ["metadata.json", "CONFIG.JSN"]
@@ -379,21 +478,30 @@ class ESPRecordConverter:
 
         self.checkpoints = checkpoints
 
-    async def read(self) -> None:
+    async def read_async(self) -> None:
+        """Read record data, metadata, and checkpoints into memory. Async
+        version allowing cancellation."""
+
+        self._read_checkpoints()
+        await asyncio.sleep(0)
+        await self._read_data_async()
+
+    def read(self) -> None:
         """Read record data, metadata, and checkpoints into memory."""
 
-        await self._read_checkpoints()
-        await self._read_data()
+        self._read_checkpoints()
+        self._read_data()
 
-    async def write(self, output_path: pathlib.Path | str) -> None:
+    async def write_async(self, output_path: pathlib.Path | str) -> None:
         """
         Write the record in HDF5 format, along with its metadata and checkpoints.
+        Async version allowing cancellation.
 
         Args:
             output_path (pathlib.Path|str): the directory where to write the output files
         """
         if self.record is None or self.checkpoints is None or self.metadata is None:
-            await self.read()
+            await self.read_async()
 
         if not isinstance(output_path, pathlib.Path):
             output_path = pathlib.Path(output_path)
@@ -417,3 +525,48 @@ class ESPRecordConverter:
             self.config["sensorPaths"],
             dump_metadata=True,
         )
+
+    def write(self, output_path: pathlib.Path | str) -> None:
+        """
+        Write the record in HDF5 format, along with its metadata and checkpoints.
+
+        Args:
+            output_path (pathlib.Path|str): the directory where to write the output files
+        """
+        if self.record is None or self.checkpoints is None or self.metadata is None:
+            self.read()
+
+        if not isinstance(output_path, pathlib.Path):
+            output_path = pathlib.Path(output_path)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        with open(output_path / "checkpoints.csv", "w") as f:
+            writer = csv.writer(f)
+            writer.writerow(self.checkpoints.keys())
+            writer.writerows(zip(*self.checkpoints.values()))
+
+        movesense_record.write(
+            output_path / "record.h5",
+            self.record,
+            self.metadata,
+            self.config["sensorPaths"],
+            dump_metadata=True,
+        )
+
+
+if __name__ == "__main__":
+    import argparse
+
+    logging.basicConfig(level=logging.INFO)
+
+    parser = argparse.ArgumentParser(description="Decode iFCH ESP raw files")
+    parser.add_argument(
+        "data_path", type=str, help="Path to the raw zip file to decode"
+    )
+    args = parser.parse_args()
+
+    data_path = pathlib.Path(args.data_path)
+    out_path = data_path.parent / "converted"
+
+    decoder = ESPRecordConverter(data_path)
+    decoder.write(out_path)

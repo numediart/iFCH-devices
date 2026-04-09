@@ -2464,7 +2464,7 @@ class CmdSaveRecord:
 
         try:
             converter = ESPRecordConverter(raw_zip)
-            await converter.write(convert_dir)
+            await converter.write_async(convert_dir)
 
             back.ui.update_success_status(
                 "Record saved",
