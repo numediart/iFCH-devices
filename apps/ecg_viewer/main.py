@@ -2,13 +2,14 @@
 
 import datetime
 import logging
+import pathlib
 import sys
 
 import numpy as np
 from ifch_drivers.formats import movesense_record
 from PySide6.QtCharts import QChart, QChartView, QDateTimeAxis, QLineSeries, QValueAxis
 from PySide6.QtCore import QDateTime, QSettings, Qt, QTimer, QTimeZone, Slot
-from PySide6.QtGui import QMouseEvent, QPainter
+from PySide6.QtGui import QMouseEvent, QPainter, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -124,8 +125,10 @@ class MonitoringView(QWidget):
     AUTO_SCROLL_DELAY = 200  # Timer interval in ms
     ZOOM_STEP = 5
 
-    def __init__(self):
+    def __init__(self, settings: QSettings):
         super().__init__()
+        self.settings = settings
+
         # Main layout: split horizontally
         main_layout = QVBoxLayout(self)
 
@@ -143,8 +146,9 @@ class MonitoringView(QWidget):
         self.current_start_idx = 0
         self._current_window_size = None
 
-        # Handle dragging in summary
+        # Handle mouse dragging
         self._summary_mouse_dragging = None
+        self._main_mouse_dragging = None
 
         # Auto-scroll functionality
         self._is_auto_scrolling = False
@@ -162,6 +166,23 @@ class MonitoringView(QWidget):
         self.zoom_in_btn.clicked.connect(self.zoom_in)
         self.zoom_out_btn.clicked.connect(self.zoom_out)
 
+    def get_initial_record_directory(self):
+        """Return the preferred starting directory for the record picker."""
+        last_directory = self.settings.value("record_directory", "")
+        if last_directory:
+            last_path = pathlib.Path(last_directory)
+            if last_path.is_dir():
+                return str(last_path)
+
+        return str(pathlib.Path.home())
+
+    def remember_record_path(self, path):
+        """Persist the parent directory of a successfully opened record."""
+        record_path = pathlib.Path(path).expanduser().resolve(strict=False)
+        parent_directory = record_path.parent.parent
+        if parent_directory.is_dir():
+            self.settings.setValue("record_directory", str(parent_directory))
+
     def create_plot_widget(self):
         """Create the main ECG chart widget and its axes."""
         # Create a line series
@@ -174,8 +195,8 @@ class MonitoringView(QWidget):
         self.ecg_series.setPen(pen)
 
         # Create chart and add series
-        chart = QChart()
-        chart.addSeries(self.ecg_series)
+        self.chart = QChart()
+        self.chart.addSeries(self.ecg_series)
 
         # Create axes with fixed ranges
         self.axis_x = QDateTimeAxis()
@@ -187,17 +208,34 @@ class MonitoringView(QWidget):
         self.axis_y.setTitleText("ECG (mV)")
         self.axis_y.setGridLineVisible(False)
 
-        chart.addAxis(self.axis_x, Qt.AlignBottom)
-        chart.addAxis(self.axis_y, Qt.AlignLeft)
+        self.chart.addAxis(self.axis_x, Qt.AlignBottom)
+        self.chart.addAxis(self.axis_y, Qt.AlignLeft)
 
-        chart.legend().setVisible(False)
+        self.chart.legend().setVisible(False)
 
         self.ecg_series.attachAxis(self.axis_x)
         self.ecg_series.attachAxis(self.axis_y)
 
-        chart_view = QChartView(chart)
+        # Create dragging indicator series
+        self.main_dragging_indicator_series = QLineSeries()
+        pen = self.main_dragging_indicator_series.pen()
+        pen.setWidth(1)
+        pen.setColor(Qt.blue)
+        self.main_dragging_indicator_series.setPen(pen)
+
+        self.chart.addSeries(self.main_dragging_indicator_series)
+        self.main_dragging_indicator_series.attachAxis(self.axis_x)
+        self.main_dragging_indicator_series.attachAxis(self.axis_y)
+
+        chart_view = QChartView(self.chart)
         chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
         chart_view.setMinimumWidth(500)
+
+        # Enable mouse tracking for click navigation
+        chart_view.mousePressEvent = self.on_main_mouse
+        chart_view.mouseMoveEvent = self.on_main_mouse
+        chart_view.mouseReleaseEvent = self.on_main_mouse
+        chart_view.wheelEvent = self.on_main_wheel
 
         return chart_view
 
@@ -285,6 +323,24 @@ class MonitoringView(QWidget):
 
         return index
 
+    def main_mouse_to_index(self, coords):
+        """Map main-chart mouse coordinates to a nearest sample index."""
+        if self.ecg_timestamps is None:
+            return None
+
+        coords = self.chart.mapToValue(coords)
+
+        if np.abs(coords.y()) > self.axis_y.max():
+            return None
+
+        time_coord = coords.x()
+
+        index = np.searchsorted(self.ecg_timestamps, time_coord)
+        if index >= len(self.ecg_timestamps):
+            index = len(self.ecg_timestamps) - 1
+
+        return index
+
     @Slot(QMouseEvent)
     def on_summary_mouse(self, event: QMouseEvent):
         if self._is_auto_scrolling:
@@ -328,6 +384,53 @@ class MonitoringView(QWidget):
             self._summary_mouse_dragging = None
 
         self.update_summary_dragging()
+
+    @Slot(QMouseEvent)
+    def on_main_mouse(self, event: QMouseEvent):
+        if self._is_auto_scrolling:
+            return
+        if event.type() == QMouseEvent.Type.MouseButtonPress:
+            coords = self.main_mouse_to_index(event.position())
+            if coords is not None:
+                self._main_mouse_dragging = [coords, None]
+            else:
+                self._main_mouse_dragging = None
+
+        elif event.type() == QMouseEvent.Type.MouseMove:
+            if self._main_mouse_dragging is not None:
+                coords = self.main_mouse_to_index(event.position())
+                if coords is not None:
+                    self._main_mouse_dragging[1] = coords
+                else:
+                    self._main_mouse_dragging = None
+
+        elif event.type() == QMouseEvent.Type.MouseButtonRelease:
+            if self._main_mouse_dragging is not None:
+                start_index, end_index = self._main_mouse_dragging
+
+                if end_index is None:
+                    end_index = start_index
+
+                if start_index > end_index:
+                    start_index, end_index = end_index, start_index
+
+                # Center current window on the selected range
+                if end_index - start_index > 0:
+                    if end_index - start_index < 3:
+                        end_index = start_index + 3
+                    self.current_start_idx = start_index
+                    self.current_window_size = end_index - start_index
+
+            self._main_mouse_dragging = None
+
+        self.update_main_dragging()
+
+    @Slot(QWheelEvent)
+    def on_main_wheel(self, event: QWheelEvent):
+        if event.angleDelta().y() > 0:
+            self.zoom_in()
+        else:
+            self.zoom_out()
 
     def create_controls_widget(self):
         """Create side controls for metadata, navigation, zoom, and file loading."""
@@ -652,11 +755,13 @@ class MonitoringView(QWidget):
         path = QFileDialog.getOpenFileName(
             self,
             "Select record file to open",
+            self.get_initial_record_directory(),
             filter="Record files (*.h5);;All files (*)",
         )
 
         if path and path[0]:
             self.load_record(path[0])
+            self.remember_record_path(path[0])
 
     def update_plot(self):
         """Update the plot with current window"""
@@ -773,6 +878,33 @@ class MonitoringView(QWidget):
                 (start_time, -1),
             ]
             self.dragging_indicator_series.replaceNp(
+                np.array([pt[0] for pt in dragging_points], dtype=float),
+                np.array([pt[1] for pt in dragging_points], dtype=float),
+            )
+
+    def update_main_dragging(self):
+        """Update temporary drag-selection overlay on the main chart."""
+        if self._main_mouse_dragging is None:
+            self.main_dragging_indicator_series.clear()
+            return
+
+        else:
+            start_index, current_index = self._main_mouse_dragging
+            if current_index is None:
+                self.main_dragging_indicator_series.clear()
+                return
+
+            start_time = self.ecg_timestamps[start_index]
+            current_time = self.ecg_timestamps[current_index]
+
+            dragging_points = [
+                (start_time, -self.axis_y.max()),
+                (start_time, self.axis_y.max()),
+                (current_time, self.axis_y.max()),
+                (current_time, -self.axis_y.max()),
+                (start_time, -self.axis_y.max()),
+            ]
+            self.main_dragging_indicator_series.replaceNp(
                 np.array([pt[0] for pt in dragging_points], dtype=float),
                 np.array([pt[1] for pt in dragging_points], dtype=float),
             )
@@ -913,10 +1045,12 @@ class MainWindow(QWidget):
         self.setWindowTitle("iFCH ECG Viewer")
         self.resize(1200, 675)
 
+        self.settings = QSettings("UMONS", "iFCH-viewer")
+
         # Create stacked widget to hold different views
         self.settings_stack = QStackedWidget(self)
         self.settings_view = SettingsView()
-        self.monitoring_view = MonitoringView()
+        self.monitoring_view = MonitoringView(self.settings)
 
         # Set main layout
         views_widget = QWidget(self)
@@ -956,8 +1090,6 @@ class MainWindow(QWidget):
         settings_button.clicked.connect(self.handle_settings)
         self.settings_view.close_button.clicked.connect(self.handle_settings_close)
 
-        # Load settings
-        self.settings = QSettings("UMONS", "iFCH-viewer")
         self.update_settings()
 
     @Slot()

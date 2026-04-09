@@ -2454,7 +2454,7 @@ class CmdSaveRecord:
             if not deleted:
                 logging.warning("Delete error log failed")
 
-        convert_dir = back.record_dir / "converted"
+        convert_dir = back.record_dir
 
         back.ui.update_info_status(
             "Saving record",

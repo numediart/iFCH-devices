@@ -566,7 +566,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     data_path = pathlib.Path(args.data_path)
-    out_path = data_path.parent / "converted"
+    out_path = data_path.parent
 
     decoder = ESPRecordConverter(data_path)
     decoder.write(out_path)
