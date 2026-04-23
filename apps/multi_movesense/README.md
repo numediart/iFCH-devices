@@ -4,6 +4,8 @@ Desktop application for monitoring and coordinating multiple Movesense devices.
 
 ## Run
 
+First install UV (see parent README).
+
 From this directory:
 
 ```bash

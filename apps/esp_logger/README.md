@@ -4,6 +4,8 @@ Desktop controller for iFCH ESP logger hardware and Movesense recording workflow
 
 ## Run
 
+First install UV (see parent README).
+
 From this directory:
 
 ```bash

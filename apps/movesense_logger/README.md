@@ -4,6 +4,8 @@ Desktop application for controlling one Movesense device, recording data, and ex
 
 ## Run
 
+First install UV (see parent README).
+
 From this directory:
 
 ```bash
