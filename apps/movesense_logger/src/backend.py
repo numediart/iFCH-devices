@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any, Optional
 import numpy as np
 from ifch_drivers.formats import movesense_record, movesense_sbem
 from ifch_drivers.movesense_gatt import MovesenseGatt
-from pyedflib import highlevel
 
 from . import __version__
 from .views import UIState
@@ -681,8 +680,6 @@ class CmdSaveRecord:
             dump_metadata=True,
         )
 
-        write_edf(record, self.metadata, back.SENSOR_PATHS, output_dir / "record.edf")
-
         back.ui.prevent_close = False
 
         try:
@@ -701,101 +698,3 @@ class CmdSaveRecord:
             f"Your record was saved in:\n{output_dir}\nYou can go back to monitoring.",
         )
         back.ui.set_state(UIState.SUCCESS)
-
-
-def write_edf(record, metadata, sensor_paths, output_file):
-    """Export a decoded record to EDF using selected sensor paths."""
-
-    # Compute the boot time as a time reference
-    boot_time = (
-        record["UTCTIME"]["UTCTIME"][0] / 1e3 - record["UTCTIME"]["timestamps"][0]
-    )
-
-    if len(record) > 2:
-        raise NotImplementedError("Only one sensor is supported for EDF export")
-
-    # Get sampling rates for each sensor
-    _sensor_props = [
-        movesense_record.MovesenseDataTypes.from_path(path) for path in sensor_paths
-    ]
-    sensor_props = {prop[0].name: (prop[1], prop[0].scale) for prop in _sensor_props}
-
-    edf_metadata = {}
-
-    if "name" in metadata:
-        edf_metadata["patientname"] = metadata["name"]
-    if "device_id" in metadata:
-        edf_metadata["equipment"] = metadata["device_id"]
-
-    timestamps = None
-    signals = []
-    signal_headers = []
-
-    for sensor, sensor_dict in record.items():
-        if sensor == "UTCTIME":
-            continue
-
-        timestamps = np.asarray(sensor_dict["timestamps"])
-
-        delta_t = np.unique(np.diff(timestamps))
-
-        # If the sampling rate is not constant, we will have to interpolate
-        if len(delta_t) != 1:
-            logging.warning(
-                f"Non-uniform sampling detected for sensor {sensor}. EDF export may not be accurate"
-            )
-
-        delta_t = delta_t[0]
-
-        if len(sensor_dict) != 2:
-            raise ValueError(
-                f"EDF export only supports sensors with 'timestamps' and 'data' keys, but {sensor} has {len(sensor_dict)} keys"
-            )
-
-        for key, value in sensor_dict.items():
-            if key == "timestamps":
-                continue
-
-            elif not key.startswith("ECG"):
-                raise ValueError(
-                    f"EDF export only supports ECG sensors, but {sensor} has data key '{key}'"
-                )
-
-            signal = np.asarray(value)
-
-            measured_sampling = 1000 * signal.shape[-1] / delta_t
-
-            # Check that the sampling rate is as expected
-            if not np.isclose(measured_sampling, sensor_props[sensor][0]):
-                logging.warning(
-                    f"Measured sampling rate {measured_sampling} does not match expected sampling rate {sensor_props[sensor]} for sensor {sensor}"
-                )
-
-            # Scale the signal to physical units
-            signal = np.concatenate(signal) * sensor_props[sensor][1] * 1e3
-
-            signal_header = highlevel.make_signal_header(
-                sensor,
-                dimension="mV",
-                sample_frequency=sensor_props[sensor][0],
-                physical_min=-50,
-                physical_max=50,
-            )
-
-            signals.append(signal)
-            signal_headers.append(signal_header)
-
-    start_time = (boot_time + timestamps[0]) / 1e3
-    start_time = datetime.datetime.fromtimestamp(start_time).astimezone()
-
-    record_header = highlevel.make_header(**edf_metadata, startdate=start_time)
-
-    output_file = pathlib.Path(output_file)
-    output_file = output_file.with_suffix(".edf")
-
-    highlevel.write_edf(
-        str(output_file),
-        signals,
-        signal_headers=signal_headers,
-        header=record_header,
-    )
