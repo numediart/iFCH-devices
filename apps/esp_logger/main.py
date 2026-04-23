@@ -126,7 +126,7 @@ class DisconnectedView(QWidget):
         layout.addSpacing(30)
 
         # Status label
-        self.status_label = QLabel("Waiting for device...")
+        self.status_label = QLabel("Waiting for iFCH device...")
         self.status_label.setStyleSheet(
             f"""
             QLabel {{
@@ -381,7 +381,9 @@ class SuccessView(QWidget):
         layout.addSpacing(30)
 
         # Status label
-        self.status_label = QLabel("Click OK to reset")
+        self.status_label = QLabel(
+            "You can disconnect your iFCH device and close the app."
+        )
         self.status_label.setStyleSheet(
             f"""
             QLabel {{
@@ -398,22 +400,22 @@ class SuccessView(QWidget):
         layout.addWidget(self.status_label)
 
         button_layout = QHBoxLayout()
-        self.ok_button = QPushButton("OK")
+        self.ok_button = QPushButton("Close")
         self.ok_button.setStyleSheet(
             f"""
             QPushButton {{
                 font-size: 16px;
                 padding: 10px 30px;
-                background-color: {GREEN_L};
+                background-color: {RED_L};
                 border: none;
                 border-radius: 4px;
                 color: white;
             }}
             QPushButton:hover {{
-                background-color: {GREEN_M};
+                background-color: {RED_M};
             }}
             QPushButton:pressed {{
-                background-color: {GREEN_D};
+                background-color: {RED_D};
             }}
         """
         )
@@ -743,7 +745,9 @@ class DeviceSelectionView(QWidget):
         layout.addSpacing(30)
 
         # Instructions
-        instructions = QLabel("Please select the device you want to connect to:")
+        instructions = QLabel(
+            "Please select the Movesense device you want to connect to:"
+        )
         instructions.setStyleSheet(
             f"""
             QLabel {{
@@ -907,7 +911,7 @@ class LoggingView(QWidget):
         layout.addSpacing(30)
 
         # Warning message
-        warning = QLabel("Device is currently recording data.")
+        warning = QLabel("iFCH device is currently recording data.")
         warning.setStyleSheet(
             f"""
             QLabel {{
@@ -1019,7 +1023,7 @@ class MonitoringView(QWidget):
         info_layout.addStretch(1)
 
         # Main message
-        message = QLabel("Device ready")
+        message = QLabel("Ready")
         message.setStyleSheet(
             f"""
             QLabel {{
@@ -1155,7 +1159,7 @@ class DownloadView(QWidget):
 
         # Status label
         self.status_label = QLabel(
-            "Downloading recorded data from device...\nThis may take up to 1 hour. Please make sure that your computer does not go to sleep."
+            "Downloading recorded data from iFCH device...\nThis may take up to 1 hour. Please make sure that your computer does not go to sleep."
         )
         self.status_label.setStyleSheet(
             f"""
@@ -1274,7 +1278,7 @@ class MainWindow(QWidget):
         self.warning_view.cancel_button.clicked.connect(self.handle_error_ok)
         self.warning_view.ok_button.clicked.connect(self.handle_warning_ok)
 
-        self.success_view.ok_button.clicked.connect(self.handle_error_ok)
+        self.success_view.ok_button.clicked.connect(self.close)
 
         settings_button.clicked.connect(self.handle_settings)
         self.settings_view.close_button.clicked.connect(self.handle_settings_close)
@@ -1511,11 +1515,10 @@ class MainWindow(QWidget):
         self.warning_view.ok_button.setText(ok_text)
         self.warning_view.cancel_button.setVisible(show_cancel)
 
-    def update_success_status(self, title, message, ok_text="OK"):
+    def update_success_status(self, title, message):
         """Update the warning view with a title and message"""
         self.success_view.message.setText(title)
         self.success_view.status_label.setText(message)
-        self.success_view.ok_button.setText(ok_text)
 
     def show_device_selection(self):
         """Populate and display the device selection page."""
@@ -1734,7 +1737,7 @@ class Backend:
     async def _actor_loop(self):
         # Initial UI
         self.ui.update_ui_state(GUIState.DISCONNECTED)
-        self.ui.update_disconnected_status("Waiting for device...")
+        self.ui.update_disconnected_status("Waiting for iFCH device...")
 
         while True:
             cmd = await self._cmd_q.get()
@@ -1874,7 +1877,7 @@ class Backend:
     async def show_error(
         self,
         title: str = "Connection error",
-        message: str = "Communication with the device failed. Please try again.",
+        message: str = "Communication with the iFCH device failed. Please try again.",
     ):
         self.ui.update_error_status(title, message)
         self.ui.update_ui_state(GUIState.ERROR)
@@ -1920,8 +1923,8 @@ class CmdProbeUSB:
                         dev_id,
                     )
                     await back.show_error(
-                        "Incorrect device connected",
-                        "The device connected is different from the one used in the current download.\nPlease reconnect the correct device to avoid data loss.\nTo proceed anyway, please restart the application.",
+                        "Incorrect iFCH device connected",
+                        "The iFCH device connected is different from the one used in the current download.\nPlease reconnect the correct iFCH device to avoid data loss.\nTo proceed anyway, please restart the application.",
                     )
                     return
 
@@ -1935,7 +1938,9 @@ class CmdProbeUSB:
                 status = await retry(back.device.get_status)
 
                 if not status:
-                    logging.error("Failed to get device status after USB connection")
+                    logging.error(
+                        "Failed to get iFCH device status after USB connection"
+                    )
                     await back.show_error()
                     return
 
@@ -1948,7 +1953,7 @@ class CmdProbeUSB:
                     logging.error("Device already streaming on connect")
                     await back.show_error(
                         "Incorrect device state",
-                        "Please unplug your device if the error persists.",
+                        "Please unplug your iFCH device if the error persists.",
                     )
                     return
 
@@ -1962,7 +1967,7 @@ class CmdProbeUSB:
                 back.schedule_after(self.SCAN_PERIOD_S, CmdProbeUSB())
         else:
             # We should not be here
-            raise RuntimeError("USB probe called while device already running")
+            raise RuntimeError("USB probe called while iFCH device already running")
 
 
 @dataclass
@@ -1974,7 +1979,7 @@ class CmdLogging:
             raise RuntimeError("CmdLogging called without USB device")
 
         back.ui.update_info_status(
-            "Device found",
+            "iFCH device found",
             "Recording in progress, connecting to Movesense...\nThis might take up to 10 seconds.",
         )
         back.ui.update_ui_state(GUIState.INFO)
@@ -2000,7 +2005,7 @@ class CmdLogging:
             back.ui.update_ui_state(GUIState.WARNING)
             return
 
-        back.ui.update_info_status("Device found", "Fetching Movesense info...")
+        back.ui.update_info_status("Movesense device found", "Fetching info...")
 
         mov_status = await retry(back.device.get_mov_islogging)
 
@@ -2038,7 +2043,9 @@ class CmdOnDisconnected:
             # If not ending record, clear state
             await back.clear_state()
             back.ui.update_ui_state(GUIState.DISCONNECTED)
-            back.ui.update_disconnected_status("Disconnected, waiting for device...")
+            back.ui.update_disconnected_status(
+                "Disconnected, waiting for iFCH device..."
+            )
 
         else:
             back.ui.update_ui_state(GUIState.CONNECTION_LOST)
@@ -2116,7 +2123,7 @@ class CmdStreamDevice:
             # Show error pop-up when device is already logging
             await back.show_error(
                 "Movesense currently recording",
-                "The Movesense you selected is recording data. It may be paired to a different device.\nTo force-reset it, remove its battery (any ongoing recording will be lost).",
+                "The Movesense you selected is recording data. It may be paired to a different iFCH device.\nTo force-reset it, remove its battery (any ongoing recording will be lost).",
             )
             return
 
@@ -2164,7 +2171,7 @@ class CmdBatteryTick:
             if dev_bat is not None:
                 back.ui.update_device_info(bat=f"{dev_bat:.0f}%")
             else:
-                logging.warning("Failed to get device battery")
+                logging.warning("Failed to get iFCH device battery")
                 await back.show_error()
                 return
 
@@ -2215,10 +2222,13 @@ class CmdStartLogging:
 
         else:
             logging.debug("Movesense logging started")
-            back.ui.update_info_status(
-                "Recording started", "You can disconnect your device"
+            back.ui.update_success_status(
+                "Recording started",
+                "You can disconnect your iFCH device and close the app.",
             )
-            back.ui.update_ui_state(GUIState.INFO)
+
+            back.ui.update_ui_state(GUIState.SUCCESS)
+            await back.clear_devices()
             return
 
 
@@ -2232,7 +2242,7 @@ class CmdStopLogging:
 
         status = await retry(back.device.get_status)
         if not status:
-            logging.error("Failed to get device status when stopping logging")
+            logging.error("Failed to get iFCH device status when stopping logging")
             await back.show_error()
             return
 
@@ -2278,7 +2288,7 @@ class CmdForceStopLogging:
             return
 
         back.ui.update_info_status(
-            "Force ending recording", "Resetting device state..."
+            "Force ending recording", "Resetting iFCH device state..."
         )
         back.ui.update_ui_state(GUIState.INFO)
 
@@ -2313,7 +2323,7 @@ class CmdListLog:
 
         back.ui.update_info_status(
             "Listing record files",
-            "Fetching file list from device...",
+            "Fetching file list from iFCH device...",
         )
 
         record_list = await retry(back.device.list_logs, show_archived=True)
@@ -2333,7 +2343,7 @@ class CmdListLog:
             )
             await back.show_error(
                 "Record not found",
-                "The requested record was not found on the device, no data were saved.",
+                "The requested record was not found on the iFCH device, no data were saved.",
             )
             return
 
@@ -2454,23 +2464,24 @@ class CmdSaveRecord:
             if not deleted:
                 logging.warning("Delete error log failed")
 
-        convert_dir = back.record_dir / "converted"
+        convert_dir = back.record_dir
 
         back.ui.update_info_status(
             "Saving record",
-            "Converting to standard format...\nThis might take a few minutes. Please do not disconnect the device.",
+            "Converting to standard format...\nThis might take a few minutes. Please do not disconnect the iFCH device.",
         )
         back.ui.update_ui_state(GUIState.INFO)
 
         try:
             converter = ESPRecordConverter(raw_zip)
-            await converter.write(convert_dir)
+            await converter.write_async(convert_dir)
 
             back.ui.update_success_status(
                 "Record saved",
-                f"The data were successfully saved to:\n{str(back.record_dir)}",
+                f"The data were successfully saved to:\n{str(back.record_dir)}\n\nYou can now disconnect your iFCH device and close the app.",
             )
             back.ui.update_ui_state(GUIState.SUCCESS)
+            await back.clear_devices()
 
         except Exception as e:
             logging.error("Record conversion failed: %s", e)
