@@ -11,7 +11,6 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
-import numpy as np
 from ifch_drivers.formats import movesense_record, movesense_sbem
 from ifch_drivers.movesense_gatt import MovesenseGatt
 
