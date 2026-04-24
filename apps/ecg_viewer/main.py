@@ -5,7 +5,9 @@ import logging
 import pathlib
 import sys
 
+import neurokit2 as nk
 import numpy as np
+import r_peaks
 from ifch_drivers.formats import movesense_record
 from PySide6.QtCharts import QChart, QChartView, QDateTimeAxis, QLineSeries, QValueAxis
 from PySide6.QtCore import QDateTime, QSettings, Qt, QTimer, QTimeZone, Slot
@@ -142,6 +144,7 @@ class MonitoringView(QWidget):
         # Initialize data storage
         self.ecg_timestamps = None
         self.ecg_samples = None
+        self.r_peaks = None
         self.ecg_sampling = None
         self.current_start_idx = 0
         self._current_window_size = None
@@ -196,7 +199,6 @@ class MonitoringView(QWidget):
 
         # Create chart and add series
         self.chart = QChart()
-        self.chart.addSeries(self.ecg_series)
 
         # Create axes with fixed ranges
         self.axis_x = QDateTimeAxis()
@@ -213,15 +215,29 @@ class MonitoringView(QWidget):
 
         self.chart.legend().setVisible(False)
 
-        self.ecg_series.attachAxis(self.axis_x)
-        self.ecg_series.attachAxis(self.axis_y)
-
         # Create dragging indicator series
         self.main_dragging_indicator_series = QLineSeries()
         pen = self.main_dragging_indicator_series.pen()
         pen.setWidth(1)
         pen.setColor(Qt.blue)
         self.main_dragging_indicator_series.setPen(pen)
+
+        # Create R-peak indicator series
+        self.r_peak_indicator_series = QLineSeries()
+        pen = self.r_peak_indicator_series.pen()
+        pen.setWidth(1)
+        pen.setColor(Qt.gray)
+        self.r_peak_indicator_series.setPen(pen)
+
+        # Draw order: R-peaks below ECG, dragging overlay above ECG.
+
+        self.chart.addSeries(self.r_peak_indicator_series)
+        self.r_peak_indicator_series.attachAxis(self.axis_x)
+        self.r_peak_indicator_series.attachAxis(self.axis_y)
+
+        self.chart.addSeries(self.ecg_series)
+        self.ecg_series.attachAxis(self.axis_x)
+        self.ecg_series.attachAxis(self.axis_y)
 
         self.chart.addSeries(self.main_dragging_indicator_series)
         self.main_dragging_indicator_series.attachAxis(self.axis_x)
@@ -475,6 +491,26 @@ class MonitoringView(QWidget):
 
         controls_layout.addSpacing(30)
 
+        info_widget = QWidget()
+        info_widget.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: 16px;
+                color: {GREY_D};
+            }}
+            """
+        )
+        self.info_form = QFormLayout(info_widget)
+        self.info_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self.info_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+
+        self.info_form.addRow("Average BPM:", QLabel("N/A"))
+        controls_layout.addWidget(info_widget)
+
+        controls_layout.addSpacing(30)
+
         # Navigation controls
         nav_label = QLabel("Navigation")
         nav_label.setStyleSheet(
@@ -691,6 +727,9 @@ class MonitoringView(QWidget):
 
         self.ecg_samples = ecg_sensor["ECGMV"] * 1000  # Convert to mV
 
+        clean_lead = nk.ecg_clean(self.ecg_samples, sampling_rate=200)
+        self.r_peaks = r_peaks.findpeaks_ifch(clean_lead, 200)
+
         if "scale" in properties["ECGMV"]:
             self.ecg_samples = self.ecg_samples * properties["ECGMV"]["scale"]
         if "sampling" in properties["ECGMV"]:
@@ -805,6 +844,40 @@ class MonitoringView(QWidget):
             y_max = np.max(np.abs(window_samples))
             y_max *= 1.1  # Add 10% margin
             self.axis_y.setRange(-y_max, y_max)
+
+        # Update R-peak indicators in the visible window.
+        if self.r_peaks is None or len(self.r_peaks) == 0:
+            self.r_peak_indicator_series.clear()
+        else:
+            visible_start = np.searchsorted(
+                self.r_peaks, self.current_start_idx, side="left"
+            )
+            visible_end = np.searchsorted(self.r_peaks, end_idx, side="left")
+            visible_peaks = self.r_peaks[visible_start:visible_end]
+
+            if len(visible_peaks) == 0:
+                self.r_peak_indicator_series.clear()
+            else:
+                peak_times = self.ecg_timestamps[visible_peaks].astype(float)
+
+                if len(visible_peaks) < 150:
+                    self.r_peak_indicator_series.clear()
+                    indicator_x = np.repeat(peak_times, 3)
+                    indicator_y = np.empty(indicator_x.shape[0], dtype=float)
+                    indicator_y[0::3] = self.axis_y.min()
+                    indicator_y[1::3] = self.axis_y.max()
+                    indicator_y[2::3] = np.nan
+                    self.r_peak_indicator_series.replaceNp(indicator_x, indicator_y)
+                else:
+                    self.r_peak_indicator_series.clear()
+
+            bpm = "N/A"
+            if len(visible_peaks) > 1:
+                bpm = 60000 / np.diff(peak_times).mean()
+
+            self.info_form.itemAt(0, QFormLayout.ItemRole.FieldRole).widget().setText(
+                f"{bpm:.1f}" if isinstance(bpm, float) else bpm
+            )
 
         # Update window indicator
         window_start_time = window_times[0]
