@@ -443,6 +443,8 @@ class MonitoringView(QWidget):
 
     @Slot(QWheelEvent)
     def on_main_wheel(self, event: QWheelEvent):
+        if self._is_auto_scrolling:
+            return
         if event.angleDelta().y() > 0:
             self.zoom_in()
         else:
