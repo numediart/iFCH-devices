@@ -994,9 +994,9 @@ class MonitoringView(QWidget):
         self.axis_x.setVisible(False)
 
         self.axis_y = QValueAxis()
-        self.axis_y.setTitleText("ECG (mV)")
+        self.axis_y.setTitleText("ECG")
         self.axis_y.setRange(-1, 1)
-        self.axis_y.setGridLineVisible(False)  # Hide Y-axis grid lines
+        self.axis_y.setVisible(False)
 
         # Add axes to chart
         chart.addAxis(self.axis_x, Qt.AlignBottom)
@@ -1484,7 +1484,7 @@ class MainWindow(QWidget):
 
         if len(ecg_data) != 0:
             x_time = ecg_data[:, 0] / 1000 - t
-            y_ecg = ecg_data[:, 1] * 0.38147e-3  # Convert to mV
+            y_ecg = ecg_data[:, 1]
             self.monitoring_view.series.replaceNp(
                 x_time.astype(float), y_ecg.astype(float)
             )
