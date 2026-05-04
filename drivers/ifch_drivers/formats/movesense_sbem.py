@@ -455,3 +455,7 @@ if __name__ == "__main__":
     decoder = SBEMDecoder()
     data = decoder.decode(data_path)
     print(data)
+
+
+# FIXME investigate why SBEM files generated from standard MD firmware have
+# different descriptor numbers and can thus not be decoded

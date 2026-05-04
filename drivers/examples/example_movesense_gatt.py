@@ -53,8 +53,7 @@ async def main():
         logging.info(f"Movesense description: {device.device_info}")
 
         if not device.is_ifch_firmware:
-            logging.warning("Device is not running iFCH firmware, exiting")
-            return
+            logging.warning("Device is not running iFCH firmware")
 
         battery = await device.get_battery()
         if battery is not None:

@@ -1,6 +1,6 @@
 """Integration tests for MovesenseGatt high-level BLE workflows. Requires a
-Movesense device with iFCH firmware to be powered and in range to run the full
-test suite."""
+Movesense device (optionally with iFCH firmware) to be powered and in range to
+run the full test suite."""
 
 import asyncio
 import datetime
@@ -76,8 +76,6 @@ async def test_subscribe(client):
 
 async def test_unsubscribe_all(client: MovesenseGatt):
     """Verify unsubscribe-all clears active stream subscriptions."""
-    if not client.is_ifch_firmware:
-        pytest.skip("Device is not running iFCH firmware")
 
     data_notifications.clear()
 
@@ -98,8 +96,6 @@ async def test_unsubscribe_all(client: MovesenseGatt):
 
 async def test_battery(client: MovesenseGatt):
     """Verify battery endpoint returns a valid percentage."""
-    if not client.is_ifch_firmware:
-        pytest.skip("Device is not running iFCH firmware")
 
     battery = await client.get_battery()
     assert battery is not None
@@ -108,8 +104,6 @@ async def test_battery(client: MovesenseGatt):
 
 async def test_time(client: MovesenseGatt):
     """Verify time get/set operations for UTC synchronization."""
-    if not client.is_ifch_firmware:
-        pytest.skip("Device is not running iFCH firmware")
 
     dev_time = await client.get_time()
     assert dev_time is not None
@@ -141,11 +135,6 @@ async def test_time(client: MovesenseGatt):
 
 async def test_log(client: MovesenseGatt):
     """Verify logging lifecycle and log retrieval commands."""
-    if not client.is_ifch_firmware:
-        with pytest.raises(RuntimeError):
-            await client.reset()
-        return
-
     assert await client.reset()
 
     is_logging = await client.get_logging_state()

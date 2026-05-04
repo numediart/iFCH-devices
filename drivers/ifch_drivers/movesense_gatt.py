@@ -22,11 +22,12 @@ class Responses(enum.Enum):
 
 
 class Commands(enum.Enum):
-    # Standard Movesense commands
+    # Standard GSP Movesense commands
     HELLO = 0
     SUBSCRIBE = 1
     UNSUBSCRIBE = 2
     FETCH_LOG = 3
+
     # Custom iFCH Movesense commands
     CLEAR_LOGS = 4
     SUB_LOG = 5
@@ -43,7 +44,17 @@ class Commands(enum.Enum):
     INVALID = 0xFF
 
 
+class GSPCommands(enum.Enum):
+    GET = 4
+    CLEAR_LOGBOOK = 5
+    PUT_DATALOGGER_CONFIG = 6
+    PUT_SYSTEMMODE = 7
+    PUT_UTCTIME = 8
+    PUT_DATALOGGER_STATE = 9
+
+
 class StatusCodes(enum.Enum):
+    CONTINUE_100 = (100).to_bytes(2, "little")
     OK_200 = (200).to_bytes(2, "little")
     OK_201 = (201).to_bytes(2, "little")
     OK_202 = (202).to_bytes(2, "little")
@@ -62,7 +73,7 @@ class StatusCodes(enum.Enum):
 class GATTCommand:
     """Outgoing command payload for the BLE writer loop."""
 
-    command: Commands
+    command: Commands | GSPCommands
     reference: int
     data: bytes | None = None
 
@@ -285,6 +296,10 @@ class MovesenseGatt:
                 self._decode_response(data)
                 return
 
+        if not self._is_ifch_firmware and self._log_listening:
+            self._log_notification_handler(_, data)
+            return
+
         if self._stream_callback:
             decoded = self._stream_decoder(data)
             self._stream_callback(self, decoded)
@@ -313,6 +328,9 @@ class MovesenseGatt:
                 logging.warning(
                     "Disabling log listening, but log queue not empty, discarding data"
                 )
+                print("Remaining log queue data:")
+                while not self._log_queue.empty():
+                    print(self._log_queue.get_nowait())
                 self._log_queue.clear()
 
     def _response_notification_handler(self, _, data: bytes):
@@ -370,7 +388,7 @@ class MovesenseGatt:
             )
 
     async def _send_command(
-        self, command: Commands, reference: int, data: bytes | None = None
+        self, command: Commands | GSPCommands, reference: int, data: bytes | None = None
     ):
         """Queue one low-level command for BLE transmission."""
         if not self.connected.is_set():
@@ -444,7 +462,7 @@ class MovesenseGatt:
 
     async def send_and_wait(
         self,
-        command: Commands,
+        command: Commands | GSPCommands,
         reference: int | None = None,
         data: bytes | None = None,
         timeout: float = BLE_TIMEOUT,
@@ -539,11 +557,19 @@ class MovesenseGatt:
             logging.warning("Path not subscribed to: %s", path)
             return False
 
-        byte_path = bytearray(path, "utf-8")
-        result = await self.send_and_wait(Commands.UNSUBSCRIBE, reference, byte_path)
+        result = await self.send_and_wait(Commands.UNSUBSCRIBE, reference)
         success, _, _ = result
 
         if success:
+            del self._stream_subscribtions[reference]
+            self._stream_decoder.subscriptions = self._stream_subscribtions
+            return True
+
+        elif not self._is_ifch_firmware:
+            # TODO remove this when patched in the standard firmware
+            logging.warning(
+                "Unsubscribe command failed, but assuming success on standard Movesense firmware"
+            )
             del self._stream_subscribtions[reference]
             self._stream_decoder.subscriptions = self._stream_subscribtions
             return True
@@ -553,47 +579,66 @@ class MovesenseGatt:
     async def unsubscribe_all(self) -> bool | None:
         """Clear all stream and log subscriptions on iFCH firmware.
 
-        Raises:
-            RuntimeError: If called on standard (non-iFCH) Movesense firmware.
-
         Returns:
             bool | None: ``True`` on success, ``False`` if rejected, or ``None``
             on communication error.
         """
+
+        # If standard Movesense, unsubscribe one by one
         if not self._is_ifch_firmware:
-            logging.warning(
-                "Unsubscribe all command not supported on standard Movesense firmware"
-            )
-            raise RuntimeError("Not iFCH Movesense firmware")
+            for ref in list(self._stream_subscribtions.keys()):
+                result = await self.unsubscribe(self._stream_subscribtions[ref])
+                if not result:
+                    return result
+            success = True
 
-        result = await self.send_and_wait(Commands.UNSUBSCRIBE_ALL)
-        success, _, _ = result
+        else:
+            result = await self.send_and_wait(Commands.UNSUBSCRIBE_ALL)
+            success, _, _ = result
 
-        if success:
-            self._stream_subscribtions.clear()
-            self._stream_decoder.subscriptions = self._stream_subscribtions
-            self._log_subscriptions.clear()
+            if success:
+                self._stream_subscribtions.clear()
+                self._stream_decoder.subscriptions = self._stream_subscribtions
+                self._log_subscriptions.clear()
 
         return success
 
     async def clear_logs(self) -> bool | None:
         """Delete all logbook entries on iFCH firmware.
 
-        Raises:
-            RuntimeError: If called on standard (non-iFCH) Movesense firmware.
-
         Returns:
             bool | None: ``True`` on success, ``False`` if rejected, or ``None``
             on communication error.
         """
         if not self._is_ifch_firmware:
-            logging.warning(
-                "Clear logs command not supported on standard Movesense firmware"
-            )
-            raise RuntimeError("Not iFCH Movesense firmware")
+            result = await self.send_and_wait(GSPCommands.CLEAR_LOGBOOK)
+            success, _, _ = result
 
-        result = await self.send_and_wait(Commands.CLEAR_LOGS)
-        success, _, _ = result
+        else:
+            result = await self.send_and_wait(Commands.CLEAR_LOGS)
+            success, _, _ = result
+
+        return success
+
+    async def _mov_config_sub_log(self) -> bool | None:
+        """Helper to configure log subscriptions on standard Movesense firmware."""
+        config_data = bytearray()
+
+        success = True  # Needed if no log subscriptions
+
+        for path in self._log_subscriptions.values():
+            config_data.extend(path.encode("utf-8") + b"\x00")
+            result = await self.send_and_wait(
+                GSPCommands.PUT_DATALOGGER_CONFIG, data=config_data
+            )
+
+            success, _, _ = result
+            if not success:
+                logging.warning(
+                    "Failed to update datalogger config after unsubscribing log %s",
+                    path,
+                )
+                break
 
         return success
 
@@ -603,18 +648,10 @@ class MovesenseGatt:
         Args:
             path: Movesense sensor endpoint to log, e.g. ``/Meas/IMU9/52``.
 
-        Raises:
-            RuntimeError: If called on standard (non-iFCH) Movesense firmware.
-
         Returns:
             bool | None: ``True`` on success, ``False`` if already subscribed,
             or ``None`` if the device command fails.
         """
-        if not self._is_ifch_firmware:
-            logging.warning(
-                "Subscribe log command not supported on standard Movesense firmware"
-            )
-            raise RuntimeError("Not iFCH Movesense firmware")
 
         if path in self._log_subscriptions.values():
             logging.warning("Already subscribed to log %s", path)
@@ -624,15 +661,22 @@ class MovesenseGatt:
         while reference in self._log_subscriptions:
             reference += 1
 
-        byte_path = bytearray(path, "utf-8")
-        result = await self.send_and_wait(Commands.SUB_LOG, reference, byte_path)
-        success, _, _ = result
+        self._log_subscriptions[reference] = path
 
-        if success:
-            self._log_subscriptions[reference] = path
+        if self._is_ifch_firmware:
+            byte_path = bytearray(path, "utf-8")
+            result = await self.send_and_wait(Commands.SUB_LOG, reference, byte_path)
+            success, _, _ = result
+
+        else:
+            success = await self._mov_config_sub_log()
+
+        if not success:
+            del self._log_subscriptions[reference]
+            return None
+
+        else:
             return True
-
-        return None
 
     async def unsub_log(self, path: str) -> bool | None:
         """Unsubscribe one path from the on-device datalogger.
@@ -640,19 +684,10 @@ class MovesenseGatt:
         Args:
             path: Sensor endpoint to remove from the datalogger subscription.
 
-        Raises:
-            RuntimeError: If called on standard (non-iFCH) Movesense firmware.
-
         Returns:
             bool | None: ``True`` on success, ``False`` if path is not subscribed,
             or ``None`` if the device command fails.
         """
-        if not self._is_ifch_firmware:
-            logging.warning(
-                "Unsubscribe log command not supported on standard Movesense firmware"
-            )
-            raise RuntimeError("Not iFCH Movesense firmware")
-
         reference = None
         for key, value in self._log_subscriptions.items():
             if value == path:
@@ -663,33 +698,37 @@ class MovesenseGatt:
             logging.warning("Log path not subscribed to: %s", path)
             return False
 
-        byte_path = bytearray(path, "utf-8")
-        result = await self.send_and_wait(Commands.UNSUB_LOG, reference, byte_path)
-        success, _, _ = result
+        del self._log_subscriptions[reference]
 
-        if success:
-            del self._log_subscriptions[reference]
+        if self._is_ifch_firmware:
+            byte_path = bytearray(path, "utf-8")
+            result = await self.send_and_wait(Commands.UNSUB_LOG, reference, byte_path)
+            success, _, _ = result
+
+        else:
+            success = await self._mov_config_sub_log()
+
+        if not success:
+            self._log_subscriptions[reference] = path
+            return None
+        else:
             return True
-
-        return None
 
     async def start_log(self) -> bool | None:
         """Start datalogger recording on the connected device.
-
-        Raises:
-            RuntimeError: If called on standard (non-iFCH) Movesense firmware.
 
         Returns:
             bool | None: ``True`` on success, ``False`` if rejected (e.g. already
             recording), or ``None`` on communication error.
         """
         if not self._is_ifch_firmware:
-            logging.warning(
-                "Start log command not supported on standard Movesense firmware"
+            result = await self.send_and_wait(
+                GSPCommands.PUT_DATALOGGER_STATE, data=b"\x03"
             )
-            raise RuntimeError("Not iFCH Movesense firmware")
 
-        result = await self.send_and_wait(Commands.START_LOG)
+        else:
+            result = await self.send_and_wait(Commands.START_LOG)
+
         success, _, _ = result
 
         return success
@@ -697,20 +736,18 @@ class MovesenseGatt:
     async def stop_log(self) -> bool | None:
         """Stop datalogger recording on the connected device.
 
-        Raises:
-            RuntimeError: If called on standard (non-iFCH) Movesense firmware.
-
         Returns:
             bool | None: ``True`` on success, ``False`` if rejected (e.g. not
             recording), or ``None`` on communication error.
         """
         if not self._is_ifch_firmware:
-            logging.warning(
-                "Stop log command not supported on standard Movesense firmware"
+            result = await self.send_and_wait(
+                GSPCommands.PUT_DATALOGGER_STATE, data=b"\x02"
             )
-            raise RuntimeError("Not iFCH Movesense firmware")
 
-        result = await self.send_and_wait(Commands.STOP_LOG)
+        else:
+            result = await self.send_and_wait(Commands.STOP_LOG)
+
         success, _, _ = result
 
         return success
@@ -718,56 +755,78 @@ class MovesenseGatt:
     async def list_logs(self) -> list[tuple[int, int]] | None:
         """List available logs stored on the device.
 
-        Raises:
-            RuntimeError: If called on standard (non-iFCH) Movesense firmware.
-
         Returns:
             list[tuple[int, int]] | None: List of ``(log_id, byte_length)`` pairs,
             or ``None`` on failure.
         """
         if not self._is_ifch_firmware:
-            logging.warning(
-                "List logs command not supported on standard Movesense firmware"
-            )
-            raise RuntimeError("Not iFCH Movesense firmware")
-
-        with self.log_listener():
-            reference = Commands.LIST_LOGS.value + 10
-            success, _, payload = await self.send_and_wait(
-                Commands.LIST_LOGS, reference
-            )
-
-            if not success:
-                return None
-
-            if len(payload) != 4:
-                logging.warning("Unexpected payload for LIST_LOGS: %s", payload)
-                return None
-
-            num_logs_packets = int.from_bytes(payload, byteorder="little")
-
             log_list = []
-            for _ in range(num_logs_packets):
-                success, _, payload = await self._wait_for_message(
-                    reference, log_queue=True
+
+            result = await self.send_and_wait(
+                GSPCommands.GET, data=b"/Mem/Logbook/entries\x00"
+            )
+
+            while True:
+                success, code, payload = result
+
+                if not success:
+                    return None
+                if len(payload) % 16 != 1:
+                    logging.warning(
+                        "Unexpected payload length for log list: %d", len(payload)
+                    )
+                    return None
+
+                for i in range(1, len(payload), 16):
+                    log_id = int.from_bytes(payload[i : i + 4], byteorder="little")
+                    log_len = int.from_bytes(
+                        payload[i + 8 : i + 16], byteorder="little"
+                    )
+                    log_list.append((log_id, log_len))
+
+                if code != StatusCodes.CONTINUE_100:
+                    break
+
+            return log_list
+
+        else:
+            with self.log_listener():
+                reference = Commands.LIST_LOGS.value + 10
+                success, _, payload = await self.send_and_wait(
+                    Commands.LIST_LOGS, reference
                 )
 
                 if not success:
-                    logging.warning("Incomplete log list received")
                     return None
 
-                if len(payload) % 4 != 0:
-                    logging.warning(
-                        "Unexpected payload for LIST_LOGS data: %s", payload
-                    )
+                if len(payload) != 4:
+                    logging.warning("Unexpected payload for LIST_LOGS: %s", payload)
                     return None
 
-                for i in range(0, len(payload), 12):
-                    log_id = int.from_bytes(payload[i : i + 4], byteorder="little")
-                    log_len = int.from_bytes(
-                        payload[i + 4 : i + 12], byteorder="little"
+                num_logs_packets = int.from_bytes(payload, byteorder="little")
+
+                log_list = []
+                for _ in range(num_logs_packets):
+                    success, _, payload = await self._wait_for_message(
+                        reference, log_queue=True
                     )
-                    log_list.append((log_id, log_len))
+
+                    if not success:
+                        logging.warning("Incomplete log list received")
+                        return None
+
+                    if len(payload) % 12 != 0:
+                        logging.warning(
+                            "Unexpected payload for LIST_LOGS data: %s", payload
+                        )
+                        return None
+
+                    for i in range(0, len(payload), 12):
+                        log_id = int.from_bytes(payload[i : i + 4], byteorder="little")
+                        log_len = int.from_bytes(
+                            payload[i + 4 : i + 12], byteorder="little"
+                        )
+                        log_list.append((log_id, log_len))
 
             return log_list
 
@@ -834,42 +893,70 @@ class MovesenseGatt:
             if not success:
                 logging.warning("No completion message after log fetch")
                 return None
-            if len(payload) != 4:
-                logging.warning(
-                    "Unexpected payload for FETCH_LOG completion: %s", payload
-                )
-                return None
 
-            total_sent = int.from_bytes(payload, byteorder="little")
+            if self._is_ifch_firmware:
+                if len(payload) != 4:
+                    logging.warning(
+                        "Unexpected payload for FETCH_LOG completion: %s", payload
+                    )
+                    return None
 
-            if chunk_count != total_sent:
-                logging.warning(
-                    "Mismatch in chunk count received (%d) and sent (%d)",
-                    chunk_count,
-                    total_sent,
-                )
-                return None
+                total_sent = int.from_bytes(payload, byteorder="little")
+
+                if chunk_count != total_sent:
+                    logging.warning(
+                        "Mismatch in chunk count received (%d) and sent (%d)",
+                        chunk_count,
+                        total_sent,
+                    )
+                    return None
+
+            else:
+                if len(payload) != 0:
+                    logging.warning(
+                        "Unexpected payload for FETCH_LOG completion on standard firmware: %s",
+                        payload,
+                    )
+                    return None
+
+                while True:
+                    # The standard firmware sends a bunch of copies of the last message
+                    success, _, _ = await self._wait_for_message(
+                        reference, log_queue=True
+                    )
+                    if not success:
+                        break
 
             return sbem_data
 
     async def get_time(self) -> tuple[int, int] | None:
         """Read device relative time and UTC time.
 
-        Raises:
-            RuntimeError: If called on standard (non-iFCH) Movesense firmware.
-
         Returns:
             tuple[int, int] | None: ``(relative_time_ms, utc_time_us)`` on success,
             or ``None`` on failure.
         """
         if not self._is_ifch_firmware:
-            logging.warning(
-                "Get time command not supported on standard Movesense firmware"
+            result = await self.send_and_wait(
+                GSPCommands.GET, data="/Time/Detailed".encode("utf-8") + b"\x00"
             )
-            raise RuntimeError("Not iFCH Movesense firmware")
+            success, _, payload = result
 
-        result = await self.send_and_wait(Commands.GET_TIME)
-        success, _, payload = result
+            if not success:
+                return None
+
+            if len(payload) == 20:
+                utc_time = int.from_bytes(payload[:8], byteorder="little")
+                rel_time = int.from_bytes(payload[8:12], byteorder="little")
+                return (rel_time, utc_time)
+
+            else:
+                logging.error("Unexpected payload for GET_TIME: %s", payload)
+                return None
+
+        else:
+            result = await self.send_and_wait(Commands.GET_TIME)
+            success, _, payload = result
 
         if success:
             if len(payload) == 12:
@@ -891,19 +978,10 @@ class MovesenseGatt:
             timestamp_us: UTC timestamp in microseconds, or a UTC-aware
                 ``datetime``. Defaults to the current system time.
 
-        Raises:
-            RuntimeError: If called on standard (non-iFCH) Movesense firmware.
-
         Returns:
             bool | None: ``True`` on success, ``False`` if rejected, or ``None``
             on communication error.
         """
-        if not self._is_ifch_firmware:
-            logging.warning(
-                "Set UTC time command not supported on standard Movesense firmware"
-            )
-            raise RuntimeError("Not iFCH Movesense firmware")
-
         if timestamp_us is None:
             timestamp_us = datetime.datetime.now(tz=datetime.timezone.utc)
 
@@ -911,7 +989,17 @@ class MovesenseGatt:
             timestamp_us = int(timestamp_us.timestamp() * 1e6)
 
         timestamp_bytes = timestamp_us.to_bytes(8, byteorder="little")
-        result = await self.send_and_wait(Commands.SET_UTCTIME, data=timestamp_bytes)
+
+        if not self._is_ifch_firmware:
+            result = await self.send_and_wait(
+                GSPCommands.PUT_UTCTIME, data=timestamp_bytes
+            )
+
+        else:
+            result = await self.send_and_wait(
+                Commands.SET_UTCTIME, data=timestamp_bytes
+            )
+
         success, _, _ = result
 
         return success
@@ -921,42 +1009,56 @@ class MovesenseGatt:
 
         The command is refused if logging is currently active.
 
-        Raises:
-            RuntimeError: If called on standard (non-iFCH) Movesense firmware.
-
         Returns:
             bool | None: ``True`` on success, ``False`` if rejected, or ``None``
             on communication error.
         """
 
         if not self._is_ifch_firmware:
-            logging.warning(
-                "Reset command not supported on standard Movesense firmware"
-            )
-            raise RuntimeError("Not iFCH Movesense firmware")
+            is_logging = await self.get_logging_state()
+            if is_logging is None:
+                logging.warning("Failed to get logging state before reset")
+                return None
+            if is_logging:
+                # Cannot reset while logging is active
+                return False
 
-        result = await self.send_and_wait(Commands.RESET)
-        success, _, _ = result
+            success = await self.unsubscribe_all()
+            if not success:
+                logging.warning("Failed to unsubscribe all paths before reset")
+                return None
+
+            for path in list(self._log_subscriptions.values()):
+                success = await self.unsub_log(path)
+                if not success:
+                    logging.warning(f"Failed to unsubscribe from log {path}")
+
+            success = await self.clear_logs()
+            if not success:
+                logging.warning("Failed to clear logs before reset")
+                return None
+
+        else:
+            result = await self.send_and_wait(Commands.RESET)
+            success, _, _ = result
 
         return success
 
     async def get_logging_state(self) -> bool | None:
         """Return whether the datalogger is currently recording.
 
-        Raises:
-            RuntimeError: If called on standard (non-iFCH) Movesense firmware.
-
         Returns:
             bool | None: ``True`` if actively recording, ``False`` if idle, or
             ``None`` on communication error.
         """
         if not self._is_ifch_firmware:
-            logging.warning(
-                "Get logging state command not supported on standard Movesense firmware"
+            result = await self.send_and_wait(
+                GSPCommands.GET, data="/Mem/Datalogger/State".encode("utf-8") + b"\x00"
             )
-            raise RuntimeError("Not iFCH Movesense firmware")
 
-        result = await self.send_and_wait(Commands.GET_LOGGING_STATE)
+        else:
+            result = await self.send_and_wait(Commands.GET_LOGGING_STATE)
+
         success, _, payload = result
 
         if success:
@@ -971,22 +1073,22 @@ class MovesenseGatt:
     async def get_battery(self) -> int | None:
         """Return the device battery level as a percentage.
 
-        Raises:
-            RuntimeError: If called on standard (non-iFCH) Movesense firmware.
-
         Returns:
             int | None: Battery percentage (0–100) on success, or ``None`` on
             communication error.
         """
         if not self._is_ifch_firmware:
-            logging.warning(
-                "Get battery command not supported on standard Movesense firmware"
+            result = await self.send_and_wait(
+                GSPCommands.GET,
+                data="/System/Energy/Level".encode("utf-8") + b"\x00",
+                timeout=self.BLE_CONNECT_TIMEOUT,
             )
-            raise RuntimeError("Not iFCH Movesense firmware")
 
-        result = await self.send_and_wait(
-            Commands.GET_BATTERY, timeout=self.BLE_CONNECT_TIMEOUT
-        )
+        else:
+            result = await self.send_and_wait(
+                Commands.GET_BATTERY, timeout=self.BLE_CONNECT_TIMEOUT
+            )
+
         success, _, payload = result
 
         if success:
