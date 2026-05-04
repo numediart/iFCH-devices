@@ -21,11 +21,28 @@ ESP32-S3 firmware for the iFCH logger device.
 
 Reference: [ESP-IDF getting started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/get-started/index.html#installation)
 
-If toolchains are missing, run:
+**Recommended**: use the EIM-CLI tool to install ESP-IDF:
+
+- Download EIM-CLI from [here](https://dl.espressif.com/dl/eim/)
+
+- Create a virtual environment to install the tools (or use Python from your system)
 
 ```shell
-source ~/.espressif/tools/activate_idf_v6.0.sh
-~/.espressif/v6.0/esp-idf/tools/idf_tools.py install
+uv venv --python 3.13
+uv pip install pip
+source .venv/bin/activate
+```
+
+- Install ESP-IDF using EIM-CLI
+
+```shell
+./eim install -i v6.0.1
+```
+
+- Activate using
+
+```shell
+source $HOME/.espressif/tools/activate_idf_v6.0.1.sh 
 ```
 
 ## Build and Flash
