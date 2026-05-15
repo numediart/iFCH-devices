@@ -46,6 +46,14 @@ uv run pytest
 - ESP logger firmware: see `devices/esp_logger/README.md`.
 - Movesense GATT firmware: see `devices/movesense_gatt/README.md`.
 
+## Third-Party Notices
+
+Third-party attributions are included directly in this repository:
+
+- `NOTICE.txt`: short attribution summary.
+- `THIRD_PARTY_NOTICES.md`: detailed component-level notices.
+- `licenses/`: included third-party license texts and vendor terms.
+
 ## Authors
 
 This project is developed by the Computational Health group at [ISIA Lab](https://web.umons.ac.be/isia/),

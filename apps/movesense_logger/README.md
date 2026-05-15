@@ -12,7 +12,7 @@ From this directory:
 uv run main.py
 ```
 
-## Build Executable
+## Build Your Own Executable
 
 ```bash
 uv run pyinstaller --windowed main.py

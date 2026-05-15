@@ -11,11 +11,11 @@ Desktop applications for viewing, recording, and managing iFCH device data.
 
 ## Run an app
 
-The easiest way to run the apps is to use the pre-compiled binaries available
-for Windows (you can compile binaries for Linux easily too using pyinstaller).
+This repository is distributed as source code. If you want executable app
+artifacts, generate them locally from source (for example with PyInstaller).
 
-Alternatively, you can use your own Python to run the code. We recommend using
-UV to easily manage all the dependencies and environments.
+You can also run the apps directly with Python. We recommend using UV to easily
+manage dependencies and environments.
 
 On Linux and macOS, you can install UV from the terminal:
 
@@ -35,8 +35,31 @@ Then, to run an app, use the following directly in the app directory:
 uv run main.py
 ```
 
+To build your own executable from an app directory:
+
+```bash
+uv run pyinstaller --windowed main.py
+```
+
+Use `--onefile` for a single binary. Startup time is usually longer.
+
 For **macOS**: we provide helper scripts to easily run the apps without
 requiring to manually open a terminal. These are located in each app directory,
 and called `launch.command`. You can create a shortcut to these scripts for
 convenience, but do not move the scripts themselves.
 *These helper scripts still require UV to be installed.*
+
+## Licensing Notes For Executable Distribution
+
+These apps depend on PySide6/Qt and are packaged with PyInstaller.
+
+- PySide6 packages are distributed under LGPL-3.0-only OR GPL-2.0-only OR
+  GPL-3.0-only.
+- PyInstaller includes GPL terms with a bundling exception; keep its license
+  text with your distributed artifacts.
+
+Notices and included license files are available in:
+
+- `../NOTICE.txt`
+- `../THIRD_PARTY_NOTICES.md`
+- `../licenses/`

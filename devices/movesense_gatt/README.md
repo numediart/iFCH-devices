@@ -41,3 +41,19 @@ and follow the DFU instructions.
 
 You can reset to a Movesense default firmware by using the officially provided
 binaries [here](https://bitbucket.org/movesense/movesense-device-lib/src/master/samples/bin/release/default_firmware/).
+
+## Licensing Notes
+
+This firmware is built against Movesense SDK/device-lib components that are
+covered by a separate Movesense SDK evaluation license.
+
+- The license text is included in this repository at
+  `../../licenses/Movesense_SDK_LICENSE.pdf`.
+- The SDK license defines "Purpose" as evaluation/testing and indicates that
+  commercialization and broader distribution are subject to a separate
+  agreement with Movesense.
+
+Related notices are included in:
+
+- `../../NOTICE.txt`
+- `../../THIRD_PARTY_NOTICES.md`

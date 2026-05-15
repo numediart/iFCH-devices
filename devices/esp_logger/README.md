@@ -58,3 +58,15 @@ idf.py build flash
 ## Serial protocol
 
 See [SERIAL_PROTOCOL.md](SERIAL_PROTOCOL.md) for the detailed protocol specification.
+
+## Licensing Notes
+
+This firmware uses ESP-IDF and ESP-IDF components.
+
+- ESP-IDF is Apache-2.0 licensed, which generally allows binary
+  redistribution with preservation of copyright/license notices.
+
+Related notices are included in:
+
+- `../../NOTICE.txt`
+- `../../THIRD_PARTY_NOTICES.md`
