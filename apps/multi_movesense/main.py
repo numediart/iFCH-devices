@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Multi-Movesense Control Application - Main entry point and window."""
 
 import asyncio
@@ -5,7 +8,7 @@ import logging
 import pathlib
 import sys
 import time
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import numpy as np
 import qasync
@@ -20,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from src.backend import Backend
 from src.ui_components import (
     GREY_D,
@@ -70,9 +74,7 @@ class MainWindow(QWidget):
         # Create and register all views with signal connections
         self.error_view = ErrorView()
         self.error_view.ok_button.clicked.connect(self.handle_error_ok)
-        self._register_state(
-            UIState.ERROR, self.error_view, on_enter=self._enter_error_state
-        )
+        self._register_state(UIState.ERROR, self.error_view, on_enter=self._enter_error_state)
 
         self.disconnected_view = DisconnectedView()
         self._register_state(UIState.DISCONNECTED, self.disconnected_view)
@@ -81,13 +83,9 @@ class MainWindow(QWidget):
         self._register_state(UIState.INFO, self.info_view)
 
         self.device_selection_view = DeviceSelectionView()
-        self.device_selection_view.connect_button.clicked.connect(
-            self.handle_device_connect
-        )
+        self.device_selection_view.connect_button.clicked.connect(self.handle_device_connect)
         self.device_selection_view.monitor_button.clicked.connect(self.handle_monitor)
-        self.device_selection_view.refresh_button.clicked.connect(
-            self.handle_device_refresh
-        )
+        self.device_selection_view.refresh_button.clicked.connect(self.handle_device_refresh)
         self._register_state(
             UIState.DEVICE_SELECTION,
             self.device_selection_view,
@@ -173,7 +171,7 @@ class MainWindow(QWidget):
         self,
         key: UIState,
         view: QWidget,
-        on_enter: Optional[Callable[[], None]] = None,
+        on_enter: Callable[[], None] | None = None,
     ):
         self._views_dict[key] = ViewSpec(view=view, on_enter=on_enter)
         self.stacked_widget.addWidget(view)
@@ -191,9 +189,9 @@ class MainWindow(QWidget):
 
     def _set_device_selection_buttons(
         self,
-        connect: Optional[bool] = None,
-        monitor: Optional[bool] = None,
-        refresh: Optional[bool] = None,
+        connect: bool | None = None,
+        monitor: bool | None = None,
+        refresh: bool | None = None,
     ):
         if connect is not None:
             self.device_selection_view.connect_button.setEnabled(connect)
@@ -204,11 +202,11 @@ class MainWindow(QWidget):
 
     def _set_monitoring_buttons(
         self,
-        start: Optional[bool] = None,
-        stop: Optional[bool] = None,
-        switch: Optional[bool] = None,
-        start_visible: Optional[bool] = None,
-        stop_visible: Optional[bool] = None,
+        start: bool | None = None,
+        stop: bool | None = None,
+        switch: bool | None = None,
+        start_visible: bool | None = None,
+        stop_visible: bool | None = None,
     ):
         if start is not None:
             self.monitoring_view.start_button.setEnabled(start)
@@ -223,8 +221,8 @@ class MainWindow(QWidget):
 
     def _set_success_buttons(
         self,
-        more: Optional[bool] = None,
-        monitor: Optional[bool] = None,
+        more: bool | None = None,
+        monitor: bool | None = None,
     ):
         if more is not None:
             self.success_view.more_button.setEnabled(more)
@@ -257,9 +255,7 @@ class MainWindow(QWidget):
         )
 
     def _enter_monitoring_state(self):
-        self.monitoring_view.set_charts(
-            [device.movesense_id for device in self.backend.devices]
-        )
+        self.monitoring_view.set_charts([device.movesense_id for device in self.backend.devices])
         self._set_monitoring_buttons(
             start=True,
             stop=False,
@@ -289,9 +285,7 @@ class MainWindow(QWidget):
 
         for idx, device in enumerate(self.backend.devices):
             pos_input = WidgetFactory.create_line_edit(placeholder="Position")
-            self.form_view.form_layout.insertRow(
-                1 + idx, f"{device.movesense_id}:", pos_input
-            )
+            self.form_view.form_layout.insertRow(1 + idx, f"{device.movesense_id}:", pos_input)
             self.form_view.position_inputs[device.movesense_id] = pos_input
 
             # Set tab order
@@ -332,9 +326,7 @@ class MainWindow(QWidget):
         """Handle device selection and connection"""
         selected_device = self.device_selection_view.get_selected_device()
         if selected_device:
-            self._set_device_selection_buttons(
-                connect=False, monitor=False, refresh=False
-            )
+            self._set_device_selection_buttons(connect=False, monitor=False, refresh=False)
             asyncio.create_task(self.backend.connect_to_device(selected_device))
 
     @Slot()
@@ -432,10 +424,8 @@ class MainWindow(QWidget):
         # Wait for tasks to complete cancellation
         if self._tasks:
             try:
-                await asyncio.wait(
-                    self._tasks, timeout=2.0, return_when=asyncio.ALL_COMPLETED
-                )
-            except asyncio.TimeoutError:
+                await asyncio.wait(self._tasks, timeout=2.0, return_when=asyncio.ALL_COMPLETED)
+            except TimeoutError:
                 logging.warning("Some tasks did not cancel within timeout")
 
     @Slot()
@@ -470,9 +460,7 @@ class MainWindow(QWidget):
         self.error_view.title_label.setText(title)
         self.error_view.status_label.setText(message)
 
-    def update_warning_status(
-        self, title, message, ok_text="OK", ok_cb=None, show_cancel=False
-    ):
+    def update_warning_status(self, title, message, ok_text="OK", ok_cb=None, show_cancel=False):
         """Update the warning view with a title and message"""
         self._warning_ok_cb = ok_cb
         self.warning_view.title_label.setText(title)
@@ -535,9 +523,7 @@ class MainWindow(QWidget):
         if self._shutdown_attempts > self.FORCE_SHUTDOWN_ATTEMPTS:
             # If shutdown already started, accept the event to close the window
             # This will force the application to quit, preventing further cleanup
-            logging.warning(
-                "Multiple shutdown attempts detected, force closing application."
-            )
+            logging.warning("Multiple shutdown attempts detected, force closing application.")
             event.accept()
             return
 

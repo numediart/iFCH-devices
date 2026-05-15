@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """View classes for the multi-movesense application."""
 
 from enum import Enum, auto
@@ -100,9 +103,7 @@ class SuccessView(BaseMessageView):
             max_width=700,
             button_specs=[
                 MessageButton("more", "Add devices", ORANGE_BUTTON, min_width=180),
-                MessageButton(
-                    "monitor", "Start monitoring", GREEN_BUTTON, min_width=180
-                ),
+                MessageButton("monitor", "Start monitoring", GREEN_BUTTON, min_width=180),
             ],
         )
 
@@ -134,9 +135,7 @@ class SettingsView(BaseView):
         self.main_layout.addSpacing(30)
 
         self.close_button = WidgetFactory.create_button("Close", GREY_BUTTON)
-        self.main_layout.addWidget(
-            self.close_button, alignment=Qt.AlignmentFlag.AlignCenter
-        )
+        self.main_layout.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignCenter)
         version_label = WidgetFactory.create_status_label(f"App version: {__version__}")
         self.main_layout.addWidget(version_label)
 
@@ -169,9 +168,7 @@ class FormView(QWidget):
         layout.addWidget(status_label)
         layout.addSpacing(BUTTON_SPACING)
 
-        self.form_layout, form_widget = LayoutBuilder.create_form_layout(
-            vertical_spacing=20
-        )
+        self.form_layout, form_widget = LayoutBuilder.create_form_layout(vertical_spacing=20)
         layout.addWidget(form_widget)
 
         # Name
@@ -251,12 +248,8 @@ class DeviceSelectionView(QWidget):
         self.device_list = WidgetFactory.create_list_widget(min_height=200)
         layout.addWidget(self.device_list)
 
-        self.refresh_button = WidgetFactory.create_button(
-            "Refresh", BLUE_BUTTON, min_width=180
-        )
-        self.connect_button = WidgetFactory.create_button(
-            "Connect", ORANGE_BUTTON, min_width=180
-        )
+        self.refresh_button = WidgetFactory.create_button("Refresh", BLUE_BUTTON, min_width=180)
+        self.connect_button = WidgetFactory.create_button("Connect", ORANGE_BUTTON, min_width=180)
         self.monitor_button = WidgetFactory.create_button(
             "Start monitoring", GREEN_BUTTON, min_width=180
         )
@@ -424,9 +417,7 @@ class MonitoringView(QWidget):
         self.start_button = WidgetFactory.create_button(
             "START RECORDING", start_style, min_height=60
         )
-        self.stop_button = WidgetFactory.create_button(
-            "STOP RECORDING", stop_style, min_height=60
-        )
+        self.stop_button = WidgetFactory.create_button("STOP RECORDING", stop_style, min_height=60)
         self.switch_button = WidgetFactory.create_button(
             "Switch device", switch_style, min_height=60
         )

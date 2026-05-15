@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 # /// script
 # dependencies = [
 #   "asyncio",
@@ -32,7 +35,9 @@ def process_notification(device: MovesenseGatt, data):
         sensor, samples = data
         timestamps = samples["timestamps"]
         logging.info(
-            f"Notification from {device.movesense_id} - {sensor}: {len(timestamps)} samples, t0 = {timestamps[0]:.3f}s - data: {list(samples.keys())}"
+            f"Notification from {device.movesense_id} - {sensor}: "
+            f"{len(timestamps)} samples, t0 = {timestamps[0]:.3f}s - "
+            f"data: {list(samples.keys())}"
         )
 
 
@@ -63,9 +68,7 @@ async def main():
 
         dev_time = await device.get_time()
         if dev_time is not None:
-            utc_time = datetime.datetime.fromtimestamp(
-                dev_time[1] / 1e6, tz=datetime.timezone.utc
-            )
+            utc_time = datetime.datetime.fromtimestamp(dev_time[1] / 1e6, tz=datetime.UTC)
             logging.info(
                 f"Device time: {dev_time[0]}ms since boot, UTC time: {utc_time.isoformat()}"
             )
@@ -80,9 +83,7 @@ async def main():
 
         dev_time = await device.get_time()
         if dev_time is not None:
-            utc_time = datetime.datetime.fromtimestamp(
-                dev_time[1] / 1e6, tz=datetime.timezone.utc
-            )
+            utc_time = datetime.datetime.fromtimestamp(dev_time[1] / 1e6, tz=datetime.UTC)
             logging.info(
                 f"Updated device time: {dev_time[0]}ms since boot, UTC time: {utc_time.isoformat()}"
             )
@@ -140,9 +141,7 @@ async def main():
                 else:
                     decoder = SBEMDecoder()
                     data = decoder.decode(log_data)
-                    logging.info(
-                        f"Retrieved log data from sensors: {list(data.keys())}"
-                    )
+                    logging.info(f"Retrieved log data from sensors: {list(data.keys())}")
 
                 if not await device.clear_logs():
                     logging.error("Failed to clear logs")

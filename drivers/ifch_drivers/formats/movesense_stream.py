@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Streaming packet decoder for Movesense real-time data notifications."""
 
 import enum
@@ -22,9 +25,7 @@ class MovesenseStreamDecoder:
     def __init__(self, subscriptions: dict[int, str] | list[str]):
         """Initialize decoder with active subscription references."""
         if isinstance(subscriptions, list):
-            subscriptions = {
-                ref: path for ref, path in enumerate(subscriptions, start=1)
-            }
+            subscriptions = {ref: path for ref, path in enumerate(subscriptions, start=1)}
 
         self.subscriptions = subscriptions
         self._partial_data = defaultdict(lambda: None)
@@ -56,9 +57,7 @@ class MovesenseStreamDecoder:
         """
         return self.decode_stream_packet(packet, flatten=flatten)
 
-    def decode_stream_packet(
-        self, packet: bytes, flatten: bool = True
-    ) -> tuple[str, dict] | None:
+    def decode_stream_packet(self, packet: bytes, flatten: bool = True) -> tuple[str, dict] | None:
         """Decode one stream packet into ``(sensor_name, data_dict)`` format.
 
         Args:
@@ -122,9 +121,7 @@ class MovesenseStreamDecoder:
 
             else:
                 timestamp = int.from_bytes(packet[2:6], byteorder="little")
-                samples = {
-                    data_type.name: self._unpack_vectors(packet[6:], size=3, stride=4)
-                }
+                samples = {data_type.name: self._unpack_vectors(packet[6:], size=3, stride=4)}
 
         elif data_type == MovesenseDataTypes.IMU6:
             if packet_type == Responses.DATA:
@@ -205,9 +202,7 @@ class MovesenseStreamDecoder:
             packet = packet[6:]
             extent = len(packet) // 3
             acc_samples = self._unpack_vectors(packet[:extent], size=3, stride=4)
-            gyr_samples = self._unpack_vectors(
-                packet[extent : 2 * extent], size=3, stride=4
-            )
+            gyr_samples = self._unpack_vectors(packet[extent : 2 * extent], size=3, stride=4)
             mag_samples = self._unpack_vectors(packet[2 * extent :], size=3, stride=4)
 
             samples = {

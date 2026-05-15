@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Utility helpers shared across driver modules."""
 
 import asyncio
@@ -28,7 +31,9 @@ class BoundedQueue(asyncio.Queue):
             try:
                 dropped = self.get_nowait()
                 logging.log(
-                    self.level, "Queue is full, discarding oldest item: %s", dropped
+                    self.level,
+                    "Queue is full, discarding oldest item: %s",
+                    dropped,
                 )
 
             except asyncio.QueueEmpty:
@@ -46,7 +51,9 @@ class BoundedQueue(asyncio.Queue):
             try:
                 dropped = self.get_nowait()
                 logging.log(
-                    self.level, "Queue is full, discarding oldest item: %s", dropped
+                    self.level,
+                    "Queue is full, discarding oldest item: %s",
+                    dropped,
                 )
 
             except asyncio.QueueEmpty:

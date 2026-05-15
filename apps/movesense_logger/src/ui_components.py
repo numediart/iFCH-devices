@@ -1,7 +1,10 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Reusable UI styles, dataclasses, and widget factory helpers."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -66,8 +69,8 @@ class MessageButton:
     key: str
     text: str
     style: ButtonStyle
-    min_width: Optional[int] = None
-    min_height: Optional[int] = None
+    min_width: int | None = None
+    min_height: int | None = None
 
 
 @dataclass
@@ -75,7 +78,7 @@ class ViewSpec:
     """Association of a view widget and optional state-entry callback."""
 
     view: QWidget
-    on_enter: Optional[Callable[[], None]] = None
+    on_enter: Callable[[], None] | None = None
 
 
 @dataclass
@@ -108,8 +111,8 @@ class WidgetFactory:
     def create_button(
         text: str,
         style: ButtonStyle,
-        min_width: Optional[int] = None,
-        min_height: Optional[int] = None,
+        min_width: int | None = None,
+        min_height: int | None = None,
     ) -> QPushButton:
         """Create a styled button"""
         button = QPushButton(text)
@@ -226,9 +229,7 @@ class WidgetFactory:
         return line_edit
 
     @staticmethod
-    def create_text_edit(
-        placeholder: str = "", max_height: Optional[int] = None
-    ) -> QTextEdit:
+    def create_text_edit(placeholder: str = "", max_height: int | None = None) -> QTextEdit:
         """Create a styled text edit"""
         text_edit = QTextEdit()
         if placeholder:
@@ -242,7 +243,7 @@ class WidgetFactory:
     def create_message_box(
         title: str,
         message: str,
-        parent: Optional[QWidget] = None,
+        parent: QWidget | None = None,
     ) -> QMessageBox:
         """Create a styled warning messagebox with Ignore/Cancel buttons"""
         msg = QMessageBox(
@@ -289,9 +290,7 @@ class LayoutBuilder:
     """Helper class for building common layout patterns"""
 
     @staticmethod
-    def create_centered_container(
-        parent, max_width: Optional[int] = None
-    ) -> QVBoxLayout:
+    def create_centered_container(parent, max_width: int | None = None) -> QVBoxLayout:
         """Create a centered container layout with optional max width"""
         over_layout = QVBoxLayout()
         over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -329,9 +328,7 @@ class LayoutBuilder:
         """Create a styled form layout and widget"""
         form_layout = QFormLayout(verticalSpacing=vertical_spacing)
         form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form_layout.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-        )
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
         # Form widget
         form_widget = QWidget()
@@ -356,7 +353,7 @@ class BaseView(QWidget):
         title: str,
         title_color: str,
         status_text: str = "",
-        max_width: Optional[int] = None,
+        max_width: int | None = None,
     ):
         super().__init__()
 
@@ -374,9 +371,7 @@ class BaseView(QWidget):
 
         # Create status label if provided
         if status_text:
-            self.status_label = WidgetFactory.create_status_label(
-                status_text, selectable=True
-            )
+            self.status_label = WidgetFactory.create_status_label(status_text, selectable=True)
             self.main_layout.addWidget(self.status_label)
         else:
             self.status_label = None
@@ -406,8 +401,8 @@ class BaseMessageView(BaseView):
         title: str,
         title_color: str,
         status_text: str = "",
-        max_width: Optional[int] = None,
-        button_specs: Optional[list[MessageButton]] = None,
+        max_width: int | None = None,
+        button_specs: list[MessageButton] | None = None,
         align_right: bool = True,
     ):
         self.buttons = {}
@@ -436,7 +431,5 @@ class BaseMessageView(BaseView):
                 setattr(self, f"{spec.key}_button", button)
                 buttons.append(button)
 
-            button_layout = LayoutBuilder.create_layout_row(
-                *buttons, align_right=self._align_right
-            )
+            button_layout = LayoutBuilder.create_layout_row(*buttons, align_right=self._align_right)
             self.main_layout.addLayout(button_layout)

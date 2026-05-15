@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Serial protocol client for the iFCH ESP logger device."""
 
 import asyncio
@@ -86,7 +89,7 @@ class FrameProtocol(asyncio.Protocol):
         self._is_connected = False
 
         self._other_rx: list[str] = []
-        self._current_waiter: typing.Optional[asyncio.Task] = None
+        self._current_waiter: asyncio.Task | None = None
 
         self._stream_callback = stream_callback
 
@@ -160,9 +163,7 @@ class FrameProtocol(asyncio.Protocol):
         # Step 1 – send file name
         chunk_seq = 0
         payload = chunk_seq.to_bytes(1) + file_name.encode()
-        ok = await self.send_protected_frame(
-            chunk_seq, Commands.CMD_FILE_CHUNK, payload
-        )
+        ok = await self.send_protected_frame(chunk_seq, Commands.CMD_FILE_CHUNK, payload)
         if not ok:
             logging.error("failed to send file name: %s", file_name)
             return False
@@ -179,13 +180,9 @@ class FrameProtocol(asyncio.Protocol):
             offset += len(chunk)
 
             payload = chunk_seq.to_bytes(1) + chunk
-            ok = await self.send_protected_frame(
-                chunk_seq, Commands.CMD_FILE_CHUNK, payload
-            )
+            ok = await self.send_protected_frame(chunk_seq, Commands.CMD_FILE_CHUNK, payload)
             if not ok:
-                logging.error(
-                    "failed to send file chunk %d of %s", chunk_seq, file_name
-                )
+                logging.error("failed to send file chunk %d of %s", chunk_seq, file_name)
                 return False
             chunk_seq = (chunk_seq + 1) % 256
 
@@ -236,7 +233,10 @@ class FrameProtocol(asyncio.Protocol):
                 return  # wait for more data
 
             # We have a full frame – validate CRC
-            frame, self._buffer = self._buffer[:frame_len], self._buffer[frame_len:]
+            frame, self._buffer = (
+                self._buffer[:frame_len],
+                self._buffer[frame_len:],
+            )
             cmd, payload, ok = self._decode_frame(frame)
 
             if ok:
@@ -254,7 +254,9 @@ class FrameProtocol(asyncio.Protocol):
                                 self._stream_callback(payload)
                             except Exception as e:
                                 logging.warning(
-                                    "Stream callback error: %s", e, exc_info=True
+                                    "Stream callback error: %s",
+                                    e,
+                                    exc_info=True,
                                 )
 
                     else:
@@ -271,7 +273,9 @@ class FrameProtocol(asyncio.Protocol):
                     return
             else:
                 logging.warning(
-                    "CRC mismatch - discarded one frame: %s - %s", cmd, payload.hex(" ")
+                    "CRC mismatch - discarded one frame: %s - %s",
+                    cmd,
+                    payload.hex(" "),
                 )
 
     @staticmethod
@@ -283,16 +287,12 @@ class FrameProtocol(asyncio.Protocol):
         crc_calc = zlib.crc32(frame[1:-4])
         return cmd, payload, (crc_recv == crc_calc)
 
-    async def wait_for_cmd(
-        self, wanted: Commands, timeout=SERIAL_TIMEOUT_S
-    ) -> typing.Optional[bytes]:
+    async def wait_for_cmd(self, wanted: Commands, timeout=SERIAL_TIMEOUT_S) -> bytes | None:
         """Wait for one command payload from the receive queue."""
         # Enforce a single active waiter. Cancel the previous one if present.
         this_task = asyncio.current_task()
         if this_task is None:
-            raise RuntimeError(
-                "wait_for_cmd must be called from within an asyncio Task"
-            )
+            raise RuntimeError("wait_for_cmd must be called from within an asyncio Task")
 
         prev = self._current_waiter
         if prev is not None and prev is not this_task and not prev.done():
@@ -307,19 +307,13 @@ class FrameProtocol(asyncio.Protocol):
             while True:
                 remaining = deadline - self._loop.time()
                 if remaining <= 0:
-                    raise asyncio.TimeoutError
+                    raise TimeoutError
 
-                cmd, payload = await asyncio.wait_for(
-                    self._rx_queue.get(), timeout=remaining
-                )
+                cmd, payload = await asyncio.wait_for(self._rx_queue.get(), timeout=remaining)
 
                 if cmd == wanted:
                     return payload
-                elif (
-                    cmd == Commands.CMD_ERROR
-                    and len(payload) == 1
-                    and payload[0] == wanted
-                ):
+                elif cmd == Commands.CMD_ERROR and len(payload) == 1 and payload[0] == wanted:
                     logging.warning("Received ERR for command: %s", wanted.name)
                     return None
                 else:
@@ -329,7 +323,7 @@ class FrameProtocol(asyncio.Protocol):
                         wanted.name,
                     )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logging.warning("Timeout waiting for command: %s", wanted.name)
             return None
         except asyncio.CancelledError:
@@ -408,9 +402,7 @@ class FrameProtocol(asyncio.Protocol):
                     self.send_frame(Commands.CMD_ACK, seq.to_bytes(1))
 
                 else:
-                    logging.error(
-                        "Out of order chunk %d (expected %d)", seq, expected_seq
-                    )
+                    logging.error("Out of order chunk %d (expected %d)", seq, expected_seq)
                     return None, None
 
         return file_name, b"".join(file_chunks)
@@ -461,9 +453,7 @@ class FrameProtocol(asyncio.Protocol):
                     self.send_frame(Commands.CMD_ACK, seq.to_bytes(1))
 
                 else:
-                    logging.error(
-                        "Out of order chunk %d (expected %d)", seq, expected_seq
-                    )
+                    logging.error("Out of order chunk %d (expected %d)", seq, expected_seq)
                     return None, None
 
         return dir_name, dir_files
@@ -537,8 +527,7 @@ class ESPLogger:
     def __init__(
         self,
         port: str,
-        stream_callback: typing.Callable[["ESPLogger", tuple[str, dict]], None]
-        | None = None,
+        stream_callback: typing.Callable[["ESPLogger", tuple[str, dict]], None] | None = None,
     ):
         """Create a logger client bound to one serial port.
 
@@ -547,7 +536,7 @@ class ESPLogger:
             stream_callback: Optional callback receiving decoded stream samples.
         """
         self._port = port
-        self._proto: typing.Optional[FrameProtocol] = None
+        self._proto: FrameProtocol | None = None
 
         self._config = {
             "address": None,
@@ -617,9 +606,7 @@ class ESPLogger:
         else:
             device_info = await self.get_version()
             if device_info is None:
-                raise RuntimeError(
-                    "Failed to get device version on port %s", self._port
-                )
+                raise RuntimeError("Failed to get device version on port %s", self._port)
             else:
                 logging.debug("Connected to device: %s", device_info)
                 self._device_info = device_info
@@ -636,9 +623,7 @@ class ESPLogger:
 
         logging.debug("Device service stopped")
 
-    async def scan(
-        self, retries: int = 5, filter_movesense: bool = True
-    ) -> list[str] | None:
+    async def scan(self, retries: int = 5, filter_movesense: bool = True) -> list[str] | None:
         """Scan nearby BLE devices through the logger.
 
         Args:
@@ -712,7 +697,8 @@ class ESPLogger:
             return None
         elif payload.decode("utf-8") != self.CONFIG_FILE:
             logging.error(
-                "Config PUT request failed, received: %s", payload.decode("utf-8")
+                "Config PUT request failed, received: %s",
+                payload.decode("utf-8"),
             )
             return False
 
@@ -1025,7 +1011,8 @@ class ESPLogger:
         """
         self._proto.send_frame(Commands.CMD_DELETE_ERROR_LOG)
         result = await self._proto.wait_for_cmd(
-            Commands.CMD_DELETE_ERROR_LOG, timeout=self.ERROR_LOG_DELETE_TIMEOUT_S
+            Commands.CMD_DELETE_ERROR_LOG,
+            timeout=self.ERROR_LOG_DELETE_TIMEOUT_S,
         )
         if result is None:
             logging.warning("Delete error log failed")
@@ -1085,9 +1072,7 @@ class ESPLogger:
     async def hello_movesense(self) -> bytes | None:
         """Send hello command to the connected Movesense and return payload."""
         self._proto.send_frame(Commands.CMD_BLE_HELLO)
-        result = await self._proto.wait_for_cmd(
-            Commands.CMD_BLE_HELLO, timeout=self.BLE_TIMEOUT_S
-        )
+        result = await self._proto.wait_for_cmd(Commands.CMD_BLE_HELLO, timeout=self.BLE_TIMEOUT_S)
         if result is not None:
             logging.debug("Received hello from Movesense, response: %s", result)
             return result
@@ -1136,9 +1121,7 @@ class ESPLogger:
         """Enable BLE stream forwarding from Movesense through the logger. It
         will subscribe to the sensors path in config file."""
         self._proto.send_frame(Commands.CMD_MOV_STREAM)
-        result = await self._proto.wait_for_cmd(
-            Commands.CMD_MOV_STREAM, timeout=self.BLE_TIMEOUT_S
-        )
+        result = await self._proto.wait_for_cmd(Commands.CMD_MOV_STREAM, timeout=self.BLE_TIMEOUT_S)
         if result is None:
             logging.warning("Subscribe failed")
             return None
@@ -1215,9 +1198,7 @@ class ESPLogger:
             tasks = [asyncio.create_task(FrameProtocol._reset_port(p)) for p in ports]
             await asyncio.gather(*tasks)
 
-        tasks = [
-            asyncio.create_task(FrameProtocol._probe(p, probe_timeout)) for p in ports
-        ]
+        tasks = [asyncio.create_task(FrameProtocol._probe(p, probe_timeout)) for p in ports]
         found = []
 
         for fut in asyncio.as_completed(tasks):

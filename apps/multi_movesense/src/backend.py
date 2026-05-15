@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Backend and command classes for the multi-movesense application."""
 
 import asyncio
@@ -9,7 +12,7 @@ import logging
 import pathlib
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from ifch_drivers.formats import movesense_record
 from ifch_drivers.movesense_gatt import MovesenseGatt
@@ -37,7 +40,7 @@ class Backend:
 
         # Actor machinery
         self._cmd_q: asyncio.Queue[Any] = asyncio.Queue()
-        self._actor_task: Optional[asyncio.Task] = None
+        self._actor_task: asyncio.Task | None = None
 
         # Timers/watchers that only enqueue messages (no I/O)
         self._timers: set[asyncio.Task] = set()
@@ -83,18 +86,14 @@ class Backend:
         origin = self.time_origins[device.movesense_id]
 
         if self._logging:
-            self.sensor_log[device.movesense_id][sensor]["timestamps"].append(
-                int(timestamps[0])
-            )
+            self.sensor_log[device.movesense_id][sensor]["timestamps"].append(int(timestamps[0]))
             for key, value in sensor_dict.items():
                 self.sensor_log[device.movesense_id][sensor][key].append(value)
 
         timestamps = [t + origin for t in timestamps]
 
         with self.data_lock:
-            self.sensors_data[device.movesense_id][sensor]["timestamps"].extend(
-                timestamps
-            )
+            self.sensors_data[device.movesense_id][sensor]["timestamps"].extend(timestamps)
             for key, value in sensor_dict.items():
                 try:
                     self.sensors_data[device.movesense_id][sensor][key].extend(value)
@@ -172,7 +171,7 @@ class Backend:
                             await asyncio.wait(
                                 pending, timeout=1.0, return_when=asyncio.ALL_COMPLETED
                             )
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
                             logging.warning(
                                 "Some tasks did not cancel within timeout after BLE disconnect"
                             )
@@ -185,9 +184,7 @@ class Backend:
                 logging.error("Actor command error in %s: %s", cmd, e)
                 logging.exception(e)
                 # Try to keep running, but ensure replies are resolved
-                await self.show_error(
-                    "Internal error", f"Exception in {str(cmd)}: {str(e)}"
-                )
+                await self.show_error("Internal error", f"Exception in {str(cmd)}: {str(e)}")
 
     async def queue_command(self, cmd: Any):
         """Enqueue a command to be processed by the actor."""
@@ -200,10 +197,7 @@ class Backend:
 
     async def stop_devices(self):
         if self._disconnect_watchers:
-            [
-                disconnect_watch.cancel()
-                for disconnect_watch in self._disconnect_watchers
-            ]
+            [disconnect_watch.cancel() for disconnect_watch in self._disconnect_watchers]
             self._disconnect_watchers.clear()
 
         for t in list(self._timers):
@@ -286,9 +280,7 @@ class Backend:
             return collections.defaultdict(sensor_deque)
 
         with self.data_lock:
-            self.sensors_data[device.movesense_id] = collections.defaultdict(
-                sensor_dict
-            )
+            self.sensors_data[device.movesense_id] = collections.defaultdict(sensor_dict)
 
         return True
 
@@ -337,10 +329,9 @@ class Backend:
 
 @dataclass
 class CmdOnDisconnected:
-    device_id: Optional[str] = None
+    device_id: str | None = None
 
     async def handle(self, back: Backend):
-
         if self.device_id:
             back.ui.update_disconnected_status(
                 "Connection lost",
@@ -374,7 +365,8 @@ class CmdOnDisconnected:
         else:
             back.ui.update_warning_status(
                 "Connection lost",
-                f"Connection with device {self.device_id} was lost. You can save the already recorded data.",
+                f"Connection with device {self.device_id} was lost. You can save the already"
+                f" recorded data.",
                 ok_cb=back.stop_logging(),
             )
             back.ui.set_state(UIState.WARNING)
@@ -505,8 +497,7 @@ class CmdSaveRecord:
         # Save data to files
         timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         output_dir = (
-            pathlib.Path(back.ui.settings.value("output_dir", type=str)).absolute()
-            / timestamp
+            pathlib.Path(back.ui.settings.value("output_dir", type=str)).absolute() / timestamp
         )
 
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -535,7 +526,7 @@ class CmdSaveRecord:
         end_time = None
 
         for device_metadata in metadata_files:
-            with open(device_metadata, "r") as f:
+            with open(device_metadata) as f:
                 device_metadata_dict = json.load(f)
 
             if "start_time" in device_metadata_dict:
@@ -546,9 +537,7 @@ class CmdSaveRecord:
                     start_time = device_start_time
 
             if "end_time" in device_metadata_dict:
-                device_end_time = datetime.datetime.fromisoformat(
-                    device_metadata_dict["end_time"]
-                )
+                device_end_time = datetime.datetime.fromisoformat(device_metadata_dict["end_time"])
                 if end_time is None or device_end_time > end_time:
                     end_time = device_end_time
 

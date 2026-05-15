@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 # /// script
 # dependencies = [
 #   "asyncio",
@@ -42,7 +45,10 @@ async def retry(func, retries=3, delay=0.3, *args, **kwargs):
             return result
         if attempt < retries - 1:
             logging.warning(
-                "Retrying %s (attempt %d/%d)", func.__name__, attempt + 1, retries
+                "Retrying %s (attempt %d/%d)",
+                func.__name__,
+                attempt + 1,
+                retries,
             )
             await asyncio.sleep(delay)
     return None
@@ -130,9 +136,7 @@ async def manual_log(device: MovesenseGatt):
     else:
         logging.warning("Device is already logging, continuing existing session")
 
-    await asyncio.get_event_loop().run_in_executor(
-        None, input, "\nPress ENTER to stop logging..."
-    )
+    await asyncio.get_event_loop().run_in_executor(None, input, "\nPress ENTER to stop logging...")
 
     if not await retry(device.stop_log):
         logging.error("Failed to stop logging")

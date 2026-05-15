@@ -1,8 +1,12 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Command/status-code validation tests for iFCH Movesense firmware. Requires a
 Movesense device with iFCH firmware to be powered and in range to run the full
 test suite."""
 
 import pytest
+
 from ifch_drivers.movesense_gatt import (
     Commands,
     MovesenseGatt,

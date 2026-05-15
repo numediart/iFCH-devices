@@ -19,6 +19,8 @@ It gives fine control over the Movesense device for streaming and logging data.
 
 It is possible to subscribe to max 4 sensors simultaneously.
 
+See [GATT_PROTOCOL.md](GATT_PROTOCOL.md) for the detailed protocol specification.
+
 ## Prerequisites
 
 - Docker
@@ -29,3 +31,13 @@ It is possible to subscribe to max 4 sensors simultaneously.
 
 Use repository `Makefile` targets for repeatable build/flash operations.
 Run `make` for more info.
+
+## Flash
+
+Use the official Movesense Showcase mobile app to flash the firmware to a device.
+First check that you compiled for the right variant (FLASH or MD) by selecting
+the appropriate build flags. Then, select the generated `.zip` file in the app
+and follow the DFU instructions.
+
+You can reset to a Movesense default firmware by using the officially provided
+binaries [here](https://bitbucket.org/movesense/movesense-device-lib/src/master/samples/bin/release/default_firmware/).

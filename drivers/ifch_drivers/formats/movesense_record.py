@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """HDF5 read/write helpers for iFCH Movesense record files."""
 
 import datetime
@@ -56,7 +59,7 @@ def write(
     file_path: pathlib.Path | str,
     record: dict,
     metadata: dict | None = None,
-    sensor_paths: list[str] = [],
+    sensor_paths: list[str] = None,
     dump_metadata: bool = False,
 ):
     """
@@ -69,7 +72,8 @@ def write(
         metadata (dict, optional): the metadata to write as attributes
         sensor_paths (list, optional): list of sensor paths included in the record
             (this will be used to extract sampling and scale information for each sensor)
-        dump_metadata (bool, optional): whether to also save the metadata to a separate JSON file. By default, True
+        dump_metadata (bool, optional): whether to also save the metadata to a
+            separate JSON file. By default, True
     Raises:
         ValueError: if the provided sensor_paths do not match sensors in the record
     """
@@ -77,6 +81,9 @@ def write(
     sensor_properties = {}
     if metadata is None:
         metadata = {}
+
+    if sensor_paths is None:
+        sensor_paths = []
 
     # Store sampling and scale for each sensor in sensor_paths
     for sensor in sensor_paths:
@@ -93,15 +100,14 @@ def write(
             }
 
     if "sensor_paths" in metadata:
-        logging.warning(
-            "'sensor_paths' is a reserved metadata key. It will be overwritten"
-        )
+        logging.warning("'sensor_paths' is a reserved metadata key. It will be overwritten")
     metadata["sensor_paths"] = sensor_paths
 
     for sensor_name in record.keys():
         if sensor_name not in sensor_properties:
             logging.warning(
-                f"Sensor {sensor_name} found in record but not provided in sensor_paths, flagging invalid properties"
+                f"Sensor {sensor_name} found in record but not provided in sensor_paths,"
+                f" flagging invalid properties"
             )
             sensor_properties[sensor_name] = {
                 "sampling": -1,
@@ -153,14 +159,12 @@ def write(
             reference_utc_us = record[MovesenseDataTypes.UTCTIME.name][
                 MovesenseDataTypes.UTCTIME.name
             ][0]
-            reference_timestamp = record[MovesenseDataTypes.UTCTIME.name]["timestamps"][
-                0
-            ]
+            reference_timestamp = record[MovesenseDataTypes.UTCTIME.name]["timestamps"][0]
 
             min_timestamp = reference_timestamp
             max_timestamp = reference_timestamp
 
-            for sensor_name, sensor_dict in record.items():
+            for _sensor_name, sensor_dict in record.items():
                 timestamps = sensor_dict["timestamps"]
                 min_timestamp = min(timestamps[0], min_timestamp)
 
@@ -170,7 +174,8 @@ def write(
 
             if "start_time" in metadata or "end_time" in metadata:
                 logging.warning(
-                    "start_time and/or end_time are provided in metadata but will be overwritten based on UTCTIME data"
+                    "start_time and/or end_time are provided in metadata but will be overwritten"
+                    " based on UTCTIME data"
                 )
 
             min_time = (min_timestamp - reference_timestamp) + reference_utc_us / 1e3
@@ -184,7 +189,8 @@ def write(
 
         if "start_time" not in metadata or "end_time" not in metadata:
             logging.warning(
-                "start_time and end_time are not provided in metadata and could not be computed based on UTCTIME data"
+                "start_time and end_time are not provided in metadata and could not be computed"
+                " based on UTCTIME data"
             )
 
         # Store the metadata as attributes of the root group
@@ -200,9 +206,7 @@ def write(
                 json.dump(metadata, f, indent=4)
 
 
-def load(
-    file_path: pathlib.Path | str, flatten: bool = True
-) -> tuple[dict, dict, dict]:
+def load(file_path: pathlib.Path | str, flatten: bool = True) -> tuple[dict, dict, dict]:
     """
     Read a Movesense record from an HDF5 file.
 
@@ -250,7 +254,7 @@ def load(
             del metadata[key]
 
     if flatten:
-        for sensor_name, sensor_dict in record.items():
+        for _sensor_name, sensor_dict in record.items():
             n_samples = 1
             for key, samples in sensor_dict.items():
                 if samples.ndim == 1:
@@ -267,9 +271,7 @@ def load(
             delta_t = np.diff(timestamps)
             delta_t = np.append(delta_t, delta_t[-1])
 
-            delta_t = (
-                delta_t.reshape(-1, 1) / n_samples * np.arange(n_samples).reshape(1, -1)
-            )
+            delta_t = delta_t.reshape(-1, 1) / n_samples * np.arange(n_samples).reshape(1, -1)
 
             timestamps = (timestamps.reshape(-1, 1) + delta_t).flatten()
 

@@ -4,10 +4,10 @@ dynamic = ["version"]
 description = "GUI for iFCH Logger"
 requires-python = ">=3.12"
 dependencies = [
-    "qasync",
+    "qasync>=0.28.0",
     "PySide6>=6.9.2",
-    "numpy",
-    "wakepy",
+    "numpy>=2.4.2",
+    "wakepy>=1.0.0",
     "ifch_drivers[esp_logger]",
 ]
 
@@ -15,4 +15,14 @@ dependencies = [
 ifch_drivers = { path = "../../drivers/", editable = true }
 
 [dependency-groups]
-dev = ["pyinstaller"]
+dev = ["pyinstaller>=6.19.0", "ruff>=0.15.12", "pre-commit>=4.6.0"]
+
+[tool.hatch.version]
+path = "main.py"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

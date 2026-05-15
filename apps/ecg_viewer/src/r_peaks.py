@@ -1,9 +1,11 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """
 This module implements algorithms to detect R-peaks, and filter RR intervals
 before performing HRV analysis.
 """
 
-import matplotlib.pyplot as plt
 import numpy as np
 import scipy
 from neurokit2.signal.signal_smooth import signal_smooth
@@ -21,7 +23,6 @@ def findpeaks_neurokit_mod(
     rel_sharpness_thresh=0.7,
     use_prominence: bool = True,
     compute_inverted: bool = False,
-    show: bool = False,
 ) -> tuple[np.ndarray, list]:
     """
     Modified version of the neurokit ECG R peaks detection algorithm, which
@@ -67,8 +68,6 @@ def findpeaks_neurokit_mod(
         If True, also find the peaks for the inverted signal (i.e., R peaks are
         negative).  Then the function returns two tuples, (peaks, sharpness) and
         (peaks_inv, sharpness_inv).  By default, False
-    show : bool, optional
-        Plot the result and gradients, by default False
 
     Returns
     -------
@@ -76,11 +75,7 @@ def findpeaks_neurokit_mod(
         A tuple containing the list of detected R peaks, and their "sharpness"
     """
 
-    if show:
-        __, (ax1, ax2) = plt.subplots(nrows=2, ncols=1, sharex=True)
-
     # Compute the ECG's gradient as well as the gradient threshold. Run with
-    # show=True in order to get an idea of the threshold.
     grad = np.gradient(signal)
     absgrad = np.abs(grad)
     smooth_kernel = int(np.rint(smoothwindow * sampling_rate))
@@ -89,11 +84,6 @@ def findpeaks_neurokit_mod(
     avggrad = signal_smooth(smoothgrad, kernel="boxcar", size=avg_kernel)
     gradthreshold = gradthreshweight * avggrad
     mindelay = int(np.rint(sampling_rate * mindelay))
-
-    if show:
-        ax1.plot(signal)
-        ax2.plot(smoothgrad)
-        ax2.plot(gradthreshold)
 
     # Identify start and end of QRS complexes.
     qrs = smoothgrad > gradthreshold
@@ -123,9 +113,6 @@ def findpeaks_neurokit_mod(
         if len_qrs < min_len:
             continue
 
-        if show:
-            ax2.axvspan(beg, end, facecolor="m", alpha=0.5)
-
         data = signal[beg:end]
         sharpness_ = np.max(smoothgrad[beg:end]) / np.max(gradthreshold[beg:end]) - 1
 
@@ -151,10 +138,10 @@ def findpeaks_neurokit_mod(
 
         # Enforce minimum delay between peaks.
         if peak - peaks[-1] < mindelay:
-            # Check if old peak is significantly sharper or if new peak is smaller and neither is sharper
+            # Check if old peak is significantly sharper or if new peak is
+            # smaller and neither is sharper
             if sharpness_ / sharpness[-1] < rel_sharpness_thresh or (
-                sharpness[-1] / sharpness_ > rel_sharpness_thresh
-                and last_amp > peak_amp
+                sharpness[-1] / sharpness_ > rel_sharpness_thresh and last_amp > peak_amp
             ):
                 ignore = True
             # Else, discard the preceding one
@@ -187,7 +174,8 @@ def findpeaks_neurokit_mod(
 
             # Enforce minimum delay between peaks.
             if peak - peaks_inv[-1] < mindelay:
-                # Check if old peak is significantly sharper or if new peak is smaller and neither is sharper
+                # Check if old peak is significantly sharper or if new peak is
+                # smaller and neither is sharper
                 if sharpness_ / sharpness_inv[-1] < rel_sharpness_thresh or (
                     sharpness_inv[-1] / sharpness_ > rel_sharpness_thresh
                     and last_amp_inv > peak_amp
@@ -209,11 +197,6 @@ def findpeaks_neurokit_mod(
         peaks_inv.pop(0)
         peaks_inv = np.asarray(peaks_inv).astype(int)  # Convert to int
 
-    if show:
-        ax1.scatter(peaks, signal[peaks], c="r")
-        if compute_inverted:
-            ax1.scatter(peaks_inv, signal[peaks_inv], c="g")
-
     if compute_inverted:
         return (peaks, sharpness), (peaks_inv, sharpness_inv)
 
@@ -228,7 +211,6 @@ def filter_sharpness(
     abs_thresh: float = 0.5,
     uncertainty_margin: float = 0.1,
     amp_thresh: float = 0.6,
-    show: bool = False,
 ) -> np.ndarray:
     """
     Filter R peaks to remove fake positives based on the local sharpness.
@@ -250,8 +232,6 @@ def filter_sharpness(
         by default 0.1
     amp_thresh : float, optional
         The relative peak amplitude threshold, by default 0.6
-    show : bool, optional
-        Plot the sharpness and threshold, by default False
 
     Returns
     -------
@@ -284,18 +264,8 @@ def filter_sharpness(
 
     low_peaks = np.concatenate((low_peaks, uncertain_peaks))
 
-    if show:
-        __, (ax1, ax2) = plt.subplots(nrows=2, ncols=1, sharex=True)
-        ax1.plot(lead)
-        ax1.scatter(peaks, lead[peaks], c="r")
-        ax2.plot(peaks, sharpness)
-        ax2.plot(peaks[1:-1], sharpness_thresh)
-
     # Filter out all detected wrong R peaks
     peaks = np.delete(peaks, low_peaks)
-
-    if show:
-        ax1.scatter(peaks, lead[peaks], c="g")
 
     return peaks
 
@@ -344,9 +314,7 @@ def findpeaks_ifch(
     findpeaks_kwargs["compute_inverted"] = detect_inverted
 
     if detect_inverted:
-        result, result_inv = findpeaks_neurokit_mod(
-            signal, sampling_rate, **findpeaks_kwargs
-        )
+        result, result_inv = findpeaks_neurokit_mod(signal, sampling_rate, **findpeaks_kwargs)
         peaks, sharpness = result
         peaks_inv, sharpness_inv = result_inv
 
@@ -357,9 +325,7 @@ def findpeaks_ifch(
             peaks, sharpness = peaks_inv, sharpness_inv
 
     else:
-        peaks, sharpness = findpeaks_neurokit_mod(
-            signal, sampling_rate, **findpeaks_kwargs
-        )
+        peaks, sharpness = findpeaks_neurokit_mod(signal, sampling_rate, **findpeaks_kwargs)
 
     peaks = filter_sharpness(peaks, signal, sharpness, **filter_kwargs)
 
@@ -439,9 +405,7 @@ def filter_rr_outliers(
     all_outliers = np.full(rr.shape, False, dtype=bool)
 
     for _ in range(max_iter):
-        rr_mean = scipy.ndimage.uniform_filter1d(
-            rr, avgsize, mode="mirror", origin=origin
-        )
+        rr_mean = scipy.ndimage.uniform_filter1d(rr, avgsize, mode="mirror", origin=origin)
         rr_mean = ((rr_mean * avgsize) - rr) / (avgsize - 1)
 
         rr_var = (rr - rr_mean) / rr_mean

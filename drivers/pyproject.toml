@@ -4,7 +4,7 @@ dynamic = ["version"]
 description = "Drivers for iFCH devices"
 authors = [{ name = "M. Francois", email = "francois.marelli@umons.ac.be" }]
 requires-python = ">=3.12"
-dependencies = ["h5py", "numpy"]
+dependencies = ["h5py>=3.15.1", "numpy>=2.4.2"]
 
 [build-system]
 requires = ["hatchling"]
@@ -15,19 +15,27 @@ path = "ifch_drivers/__init__.py"
 
 [dependency-groups]
 dev = [
-    "pytest",
-    "pytest-asyncio",
-    { include-group = "esp_logger" },
-    { include-group = "movesense_gatt" },
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.15.12",
+    "pre-commit>=4.6.0",
 ]
-esp_logger = ["pyserial", "pyserial-asyncio"]
-movesense_gatt = ["bleak"]
 
 [project.optional-dependencies]
-esp_logger = ["pyserial", "pyserial-asyncio"]
-movesense_gatt = ["bleak"]
+esp_logger = ["pyserial>=3.5", "pyserial-asyncio>=0.6"]
+movesense_gatt = ["bleak>=2.1.1"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 asyncio_mode = "auto"
+minversion = "9.0.3"
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

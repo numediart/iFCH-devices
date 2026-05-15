@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 import asyncio
 import bisect
 import collections
@@ -126,9 +129,7 @@ class ESPRecordConverter:
             else:
                 # Discard duplicates in incoming data
                 last_time = self.record[sensor]["timestamps"][-1]
-                overlap_index = bisect.bisect_right(
-                    sensor_dict["timestamps"], last_time
-                )
+                overlap_index = bisect.bisect_right(sensor_dict["timestamps"], last_time)
 
                 for column, values in sensor_dict.items():
                     self.record[sensor][column].extend(values[overlap_index:])
@@ -137,9 +138,7 @@ class ESPRecordConverter:
         # Patches the timestamps in case of a reboot
 
         if UTC_DESC not in chunk:
-            logging.error(
-                "UTCTIME subscription not found in chunk, cannot patch timestamps"
-            )
+            logging.error("UTCTIME subscription not found in chunk, cannot patch timestamps")
 
             boot_id = -1
 
@@ -162,16 +161,11 @@ class ESPRecordConverter:
         # Patch the timestamps
         if rel_corr != 0:
             for _, sensor_dict in chunk.items():
-                sensor_dict["timestamps"] = [
-                    t + rel_corr for t in sensor_dict["timestamps"]
-                ]
+                sensor_dict["timestamps"] = [t + rel_corr for t in sensor_dict["timestamps"]]
         if utc_corr != 0:
-            chunk[UTC_DESC][UTC_DESC] = [
-                t + utc_corr for t in chunk[UTC_DESC][UTC_DESC]
-            ]
+            chunk[UTC_DESC][UTC_DESC] = [t + utc_corr for t in chunk[UTC_DESC][UTC_DESC]]
 
     async def _read_data_async(self):
-
         logging.info("Reading record data from %s", self.record_path)
         self.record = {}
 
@@ -410,7 +404,9 @@ class ESPRecordConverter:
         # Store the corrections for each boot ID
         self._time_corrections = {}
 
-        for boot, rel_corr, utc_corr in zip(boot_id, rel_corrections, utc_corrections):
+        for boot, rel_corr, utc_corr in zip(
+            boot_id, rel_corrections, utc_corrections, strict=False
+        ):
             if boot not in self._time_corrections:
                 self._time_corrections[boot] = (int(rel_corr), utc_corr)
 
@@ -431,7 +427,8 @@ class ESPRecordConverter:
 
         if len(self._time_corrections) > 1:
             logging.warning(
-                "Detected %s Movesense reboot(s)", len(self._time_corrections) - 1
+                "Detected %s Movesense reboot(s)",
+                len(self._time_corrections) - 1,
             )
 
     def _read_checkpoints(self):
@@ -444,9 +441,7 @@ class ESPRecordConverter:
         checkpoints = collections.defaultdict(list)
 
         json_glob = "*.JSN" if self.esp_filenames else "*.json"
-        for checkpoint_path in sorted(
-            self.record_path.glob(json_glob), key=lambda p: p.name
-        ):
+        for checkpoint_path in sorted(self.record_path.glob(json_glob), key=lambda p: p.name):
             if checkpoint_path.name in ignored:
                 continue
             else:
@@ -465,9 +460,7 @@ class ESPRecordConverter:
                     expect_id += 1
 
                 except ValueError:
-                    logging.warning(
-                        "Invalid checkpoint file name: %s", checkpoint_path.name
-                    )
+                    logging.warning("Invalid checkpoint file name: %s", checkpoint_path.name)
                     continue
 
                 with checkpoint_path.open("r") as f:
@@ -513,7 +506,7 @@ class ESPRecordConverter:
         with open(output_path / "checkpoints.csv", "w") as f:
             writer = csv.writer(f)
             writer.writerow(self.checkpoints.keys())
-            writer.writerows(zip(*self.checkpoints.values()))
+            writer.writerows(zip(*self.checkpoints.values(), strict=False))
 
         # Allow cancellation before writing record
         await asyncio.sleep(0)
@@ -543,7 +536,7 @@ class ESPRecordConverter:
         with open(output_path / "checkpoints.csv", "w") as f:
             writer = csv.writer(f)
             writer.writerow(self.checkpoints.keys())
-            writer.writerows(zip(*self.checkpoints.values()))
+            writer.writerows(zip(*self.checkpoints.values(), strict=False))
 
         movesense_record.write(
             output_path / "record.h5",
@@ -560,9 +553,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser(description="Decode iFCH ESP raw files")
-    parser.add_argument(
-        "data_path", type=str, help="Path to the raw zip file to decode"
-    )
+    parser.add_argument("data_path", type=str, help="Path to the raw zip file to decode")
     args = parser.parse_args()
 
     data_path = pathlib.Path(args.data_path)

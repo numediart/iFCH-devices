@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Main window and event handlers for the iFCH Movesense logger desktop app."""
 
 import asyncio
@@ -5,7 +8,7 @@ import logging
 import pathlib
 import sys
 import time
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import numpy as np
 import qasync
@@ -20,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from src.backend import Backend
 from src.ui_components import (
     GREY_D,
@@ -74,9 +78,7 @@ class MainWindow(QWidget):
         # Create and register all views with signal connections
         self.error_view = ErrorView()
         self.error_view.ok_button.clicked.connect(self.handle_error_ok)
-        self._register_state(
-            UIState.ERROR, self.error_view, on_enter=self._enter_error_state
-        )
+        self._register_state(UIState.ERROR, self.error_view, on_enter=self._enter_error_state)
 
         self.disconnected_view = DisconnectedView()
         self._register_state(UIState.DISCONNECTED, self.disconnected_view)
@@ -85,12 +87,8 @@ class MainWindow(QWidget):
         self._register_state(UIState.INFO, self.info_view)
 
         self.device_selection_view = DeviceSelectionView()
-        self.device_selection_view.connect_button.clicked.connect(
-            self.handle_device_connect
-        )
-        self.device_selection_view.refresh_button.clicked.connect(
-            self.handle_device_refresh
-        )
+        self.device_selection_view.connect_button.clicked.connect(self.handle_device_connect)
+        self.device_selection_view.refresh_button.clicked.connect(self.handle_device_refresh)
         self._register_state(
             UIState.DEVICE_SELECTION,
             self.device_selection_view,
@@ -100,9 +98,7 @@ class MainWindow(QWidget):
         self.monitoring_view = MonitoringView()
         self.monitoring_view.start_button.clicked.connect(self.handle_monitoring_start)
         self.monitoring_view.stop_button.clicked.connect(self.handle_monitoring_stop)
-        self.monitoring_view.switch_button.clicked.connect(
-            self.handle_monitoring_switch
-        )
+        self.monitoring_view.switch_button.clicked.connect(self.handle_monitoring_switch)
         self.monitoring_view.save_button.clicked.connect(self.handle_monitoring_save)
         self._register_state(
             UIState.MONITORING,
@@ -191,7 +187,7 @@ class MainWindow(QWidget):
         self,
         key: UIState,
         view: QWidget,
-        on_enter: Optional[Callable[[], None]] = None,
+        on_enter: Callable[[], None] | None = None,
     ):
         """Register a UI state with its view and optional entry callback."""
         self._views_dict[key] = ViewSpec(view=view, on_enter=on_enter)
@@ -210,8 +206,8 @@ class MainWindow(QWidget):
 
     def _set_device_selection_buttons(
         self,
-        connect: Optional[bool] = None,
-        refresh: Optional[bool] = None,
+        connect: bool | None = None,
+        refresh: bool | None = None,
     ):
         """Update enabled state for device-selection actions."""
         if connect is not None:
@@ -221,12 +217,12 @@ class MainWindow(QWidget):
 
     def _set_monitoring_buttons(
         self,
-        start: Optional[bool] = None,
-        stop: Optional[bool] = None,
-        switch: Optional[bool] = None,
-        save: Optional[bool] = None,
-        start_visible: Optional[bool] = None,
-        stop_visible: Optional[bool] = None,
+        start: bool | None = None,
+        stop: bool | None = None,
+        switch: bool | None = None,
+        save: bool | None = None,
+        start_visible: bool | None = None,
+        stop_visible: bool | None = None,
     ):
         """Update enabled and visible states for monitoring controls."""
         if start_visible is not None:
@@ -244,7 +240,7 @@ class MainWindow(QWidget):
 
     def _set_success_buttons(
         self,
-        monitor: Optional[bool] = None,
+        monitor: bool | None = None,
     ):
         """Update enabled state of success-view actions."""
         if monitor is not None:
@@ -252,8 +248,8 @@ class MainWindow(QWidget):
 
     def _set_confirm_buttons(
         self,
-        confirm: Optional[bool] = None,
-        cancel: Optional[bool] = None,
+        confirm: bool | None = None,
+        cancel: bool | None = None,
     ):
         """Update enabled state of confirmation-view actions."""
         if confirm is not None:
@@ -444,10 +440,8 @@ class MainWindow(QWidget):
         # Wait for tasks to complete cancellation
         if self._tasks:
             try:
-                await asyncio.wait(
-                    self._tasks, timeout=2.0, return_when=asyncio.ALL_COMPLETED
-                )
-            except asyncio.TimeoutError:
+                await asyncio.wait(self._tasks, timeout=2.0, return_when=asyncio.ALL_COMPLETED)
+            except TimeoutError:
                 logging.warning("Some tasks did not cancel within timeout")
 
     @Slot()
@@ -476,9 +470,7 @@ class MainWindow(QWidget):
         self.error_view.title_label.setText(title)
         self.error_view.status_label.setText(message)
 
-    def update_warning_status(
-        self, title, message, ok_text="OK", ok_cb=None, show_cancel=False
-    ):
+    def update_warning_status(self, title, message, ok_text="OK", ok_cb=None, show_cancel=False):
         """Update the warning view with a title and message"""
         self._warning_ok_cb = ok_cb
         self.warning_view.title_label.setText(title)
@@ -554,9 +546,7 @@ class MainWindow(QWidget):
         if self._shutdown_attempts > self.FORCE_SHUTDOWN_ATTEMPTS:
             # If shutdown already started, accept the event to close the window
             # This will force the application to quit, preventing further cleanup
-            logging.warning(
-                "Multiple shutdown attempts detected, force closing application."
-            )
+            logging.warning("Multiple shutdown attempts detected, force closing application.")
             event.accept()
             return
 

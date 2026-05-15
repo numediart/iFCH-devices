@@ -1,0 +1,17 @@
+[
+    {
+        "include": [
+            "**/*.py"
+        ],
+        "license": ".github/license-check/header_CI_py.txt"
+    },
+    {
+        "include": [
+            "**/*.c",
+            "**/*.h",
+            "**/*.cpp",
+            "**/*.hpp"
+        ],
+        "license": ".github/license-check/header_CI_c.txt"
+    }
+]

@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Backend actor and command handlers for Movesense logger workflows."""
 
 import asyncio
@@ -9,7 +12,7 @@ import pathlib
 import threading
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from ifch_drivers.formats import movesense_record, movesense_sbem
 from ifch_drivers.movesense_gatt import MovesenseGatt
@@ -37,7 +40,7 @@ class Backend:
 
         # Actor machinery
         self._cmd_q: asyncio.Queue[Any] = asyncio.Queue()
-        self._actor_task: Optional[asyncio.Task] = None
+        self._actor_task: asyncio.Task | None = None
 
         # Timers/watchers that only enqueue messages (no I/O)
         self._timers: set[asyncio.Task] = set()
@@ -149,9 +152,7 @@ class Backend:
                         disconnect_tasks = []
 
                     else:
-                        disconnect_tasks = [
-                            asyncio.create_task(self.device.disconnected.wait())
-                        ]
+                        disconnect_tasks = [asyncio.create_task(self.device.disconnected.wait())]
 
                     done, pending = await asyncio.wait(
                         (*disconnect_tasks, cmd_task),
@@ -171,7 +172,7 @@ class Backend:
                             await asyncio.wait(
                                 pending, timeout=1.0, return_when=asyncio.ALL_COMPLETED
                             )
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
                             logging.warning(
                                 "Some tasks did not cancel within timeout after BLE disconnect"
                             )
@@ -184,9 +185,7 @@ class Backend:
                 logging.error("Actor command error in %s: %s", cmd, e)
                 logging.exception(e)
                 # Try to keep running, but ensure replies are resolved
-                await self.show_error(
-                    "Internal error", f"Exception in {str(cmd)}: {str(e)}"
-                )
+                await self.show_error("Internal error", f"Exception in {str(cmd)}: {str(e)}")
 
     async def queue_command(self, cmd: Any):
         """Enqueue a command to be processed by the actor."""
@@ -347,10 +346,9 @@ class Backend:
 class CmdOnDisconnected:
     """Handle disconnection transitions and state cleanup."""
 
-    device_id: Optional[str] = None
+    device_id: str | None = None
 
     async def handle(self, back: Backend):
-
         if self.device_id:
             back.ui.update_disconnected_status(
                 "Connection lost",
@@ -553,7 +551,8 @@ class CmdStartLogging:
 
         back.ui.update_success_status(
             "Recording started",
-            "The device is now recording data.\nYou can disconnect or close the app without losing data.",
+            "The device is now recording data.\nYou can disconnect or close the app"
+            " without losing data.",
         )
         back.ui.set_state(UIState.SUCCESS)
 
@@ -641,7 +640,8 @@ class CmdSaveRecord:
     async def handle(self, back: Backend):
         back.ui.update_info_status(
             "Downloading record",
-            "Data transfer from the Movesense device is in progress. This can take up to 15 minutes for 1 day of recording.",
+            "Data transfer from the Movesense device is in progress."
+            " This can take up to 15 minutes for 1 day of recording.",
         )
         back.ui.set_state(UIState.DOWNLOAD)
 
@@ -652,8 +652,7 @@ class CmdSaveRecord:
         # Save data to files
         timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         output_dir = (
-            pathlib.Path(back.ui.settings.value("output_dir", type=str)).absolute()
-            / timestamp
+            pathlib.Path(back.ui.settings.value("output_dir", type=str)).absolute() / timestamp
         )
 
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -663,14 +662,14 @@ class CmdSaveRecord:
         self.metadata["device_info"] = back.device_info
         self.metadata["device_id"] = back.device.movesense_id
 
-        raw_file = output_dir / f"raw_data.sbem"
+        raw_file = output_dir / "raw_data.sbem"
         with open(raw_file, "wb") as f:
             f.write(back.sbem_data)
 
         sbem_decoder = movesense_sbem.SBEMDecoder()
         record = sbem_decoder.decode(back.sbem_data)
 
-        record_file = output_dir / f"ifch_record.h5"
+        record_file = output_dir / "ifch_record.h5"
         movesense_record.write(
             record_file,
             record,

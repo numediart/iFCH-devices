@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 # /// script
 # dependencies = [
 #   "asyncio",
@@ -27,9 +30,7 @@ async def main():
     logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser(description="Update SBEM descriptors")
-    parser.add_argument(
-        "path", type=str, help="subscription path to add to the descriptors"
-    )
+    parser.add_argument("path", type=str, help="subscription path to add to the descriptors")
     parser.add_argument(
         "--address",
         type=str,
@@ -48,9 +49,7 @@ async def main():
     )
 
     if not desc_file.exists():
-        logging.error(
-            f"Descriptor file not found: {desc_file}, please create the file first"
-        )
+        logging.error(f"Descriptor file not found: {desc_file}, please create the file first")
         exit(1)
 
     descriptors = {}
@@ -70,17 +69,13 @@ async def main():
             exit(1)
 
         movesense_id = found[0][0]
-        logging.info(
-            f"Detected Movesense device: {found[0][1]} at address {movesense_id}"
-        )
+        logging.info(f"Detected Movesense device: {found[0][1]} at address {movesense_id}")
 
     device = movesense_gatt.MovesenseGatt(movesense_id)
 
     success = await device.start()
     if not success:
-        logging.error(
-            f"Failed to connect to Movesense device at address {movesense_id}"
-        )
+        logging.error(f"Failed to connect to Movesense device at address {movesense_id}")
         exit(1)
 
     success = await device.reset()

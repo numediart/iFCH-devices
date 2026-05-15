@@ -1,3 +1,6 @@
+// Copyright (c) 2026-2026, ISIA Lab (UMONS)
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef RTC_TIME_H
 #define RTC_TIME_H
 

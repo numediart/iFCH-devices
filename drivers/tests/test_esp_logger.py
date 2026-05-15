@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Integration tests for the ESP logger serial API.  Requires the iFCH ESP
 Logger to be connected, as well as a Movesense device with iFCH firmware to be
 powered and in range to run the full test suite."""
@@ -5,6 +8,7 @@ powered and in range to run the full test suite."""
 import warnings
 
 import pytest
+
 from ifch_drivers.esp_logger import ESPLogger
 
 
@@ -25,9 +29,7 @@ async def device():
     if status is None:
         pytest.fail("Failed to get ESP Logger status")
     elif status["logging"]:
-        pytest.skip(
-            "ESP Logger is currently logging. Please stop logging before running tests."
-        )
+        pytest.skip("ESP Logger is currently logging. Please stop logging before running tests.")
 
     yield device
 
@@ -104,7 +106,7 @@ async def test_get_logs(device: ESPLogger):
         assert await device.archive_log(log_id)
 
     else:
-        warnings.warn("No logs found to test archiving.")
+        warnings.warn("No logs found to test archiving.", stacklevel=1)
         logs = await device.list_logs(show_archived=True)
         if logs is None or len(logs) == 0:
             pytest.skip("No logs found to test directory listing.")
@@ -146,9 +148,7 @@ async def test_movesense(device: ESPLogger):
     is_mov_logging = await device.get_mov_islogging()
     assert is_mov_logging is not None
     if is_mov_logging:
-        pytest.skip(
-            "Movesense is currently logging. Please stop logging before testing."
-        )
+        pytest.skip("Movesense is currently logging. Please stop logging before testing.")
 
     result = await device.hello_movesense()
     assert result is not None

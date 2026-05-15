@@ -1,3 +1,6 @@
+// Copyright (c) 2026-2026, ISIA Lab (UMONS)
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef BLE_COM_H
 #define BLE_COM_H
 

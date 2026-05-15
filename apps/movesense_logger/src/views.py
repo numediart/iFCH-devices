@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """View classes composing the Movesense logger desktop interface."""
 
 from enum import Enum, auto
@@ -123,7 +126,10 @@ class ConfirmView(BaseMessageView):
         super().__init__(
             title="Are you sure?",
             title_color=ORANGE_L,
-            status_text="There is already a record on the device, starting a new one will overwrite it.\nYou can download and save the existing data by going back and clicking the 'Save last record' button.\n\nDo you want to proceed with a new recording and erase the existing data?",
+            status_text="There is already a record on the device, starting a new one"
+            " will overwrite it.\nYou can download and save the existing data by going"
+            " back and clicking the 'Save last record' button.\n\nDo you want to proceed"
+            " with a new recording and erase the existing data?",
             max_width=700,
             button_specs=[
                 MessageButton("cancel", "BACK", BLUE_BUTTON, min_width=180),
@@ -162,9 +168,7 @@ class SettingsView(BaseView):
         self.main_layout.addSpacing(30)
 
         self.close_button = WidgetFactory.create_button("Close", GREY_BUTTON)
-        self.main_layout.addWidget(
-            self.close_button, alignment=Qt.AlignmentFlag.AlignCenter
-        )
+        self.main_layout.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignCenter)
         version_label = WidgetFactory.create_status_label(f"App version: {__version__}")
         self.main_layout.addWidget(version_label)
 
@@ -201,9 +205,7 @@ class FormView(QWidget):
         layout.addWidget(status_label)
         layout.addSpacing(BUTTON_SPACING)
 
-        self.form_layout, form_widget = LayoutBuilder.create_form_layout(
-            vertical_spacing=20
-        )
+        self.form_layout, form_widget = LayoutBuilder.create_form_layout(vertical_spacing=20)
         layout.addWidget(form_widget)
 
         # Name
@@ -278,12 +280,8 @@ class DeviceSelectionView(QWidget):
         self.device_list = WidgetFactory.create_list_widget(min_height=200)
         layout.addWidget(self.device_list)
 
-        self.refresh_button = WidgetFactory.create_button(
-            "Refresh", BLUE_BUTTON, min_width=180
-        )
-        self.connect_button = WidgetFactory.create_button(
-            "Connect", GREEN_BUTTON, min_width=180
-        )
+        self.refresh_button = WidgetFactory.create_button("Refresh", BLUE_BUTTON, min_width=180)
+        self.connect_button = WidgetFactory.create_button("Connect", GREEN_BUTTON, min_width=180)
 
         # Initial states
         self.refresh_button.setEnabled(True)
@@ -440,15 +438,11 @@ class MonitoringView(QWidget):
         self.start_button = WidgetFactory.create_button(
             "START RECORDING", start_style, min_height=60
         )
-        self.stop_button = WidgetFactory.create_button(
-            "STOP RECORDING", stop_style, min_height=60
-        )
+        self.stop_button = WidgetFactory.create_button("STOP RECORDING", stop_style, min_height=60)
         self.switch_button = WidgetFactory.create_button(
             "Switch device", switch_style, min_height=60
         )
-        self.save_button = WidgetFactory.create_button(
-            "Save last record", PURPLE_BUTTON
-        )
+        self.save_button = WidgetFactory.create_button("Save last record", PURPLE_BUTTON)
 
         info_layout.addWidget(self.start_button)
         info_layout.addWidget(self.stop_button)
@@ -470,7 +464,8 @@ class DownloadView(BaseView):
         super().__init__(
             title="Downloading record",
             title_color=BLUE_L,
-            status_text="Downloading recorded data from device...\nThis may take up to 1 hour. Please make sure that your computer does not go to sleep.",
+            status_text="Downloading recorded data from device...\nThis may take up to 1 hour."
+            " Please make sure that your computer does not go to sleep.",
         )
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)

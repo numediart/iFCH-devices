@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Integration tests for MovesenseGatt high-level BLE workflows. Requires a
 Movesense device (optionally with iFCH firmware) to be powered and in range to
 run the full test suite."""
@@ -6,6 +9,7 @@ import asyncio
 import datetime
 
 import pytest
+
 from ifch_drivers.movesense_gatt import MovesenseGatt
 
 data_notifications = []
@@ -55,9 +59,7 @@ async def test_subscribe(client):
 
     assert await client.subscribe(PATH_ECG_125)
 
-    assert not await client.subscribe(PATH_ECG_125), (
-        "Should not be able to subscribe twice"
-    )
+    assert not await client.subscribe(PATH_ECG_125), "Should not be able to subscribe twice"
 
     assert not await client.subscribe("/Invalid/Path"), (
         "Should not be able to subscribe to invalid path"
@@ -67,9 +69,7 @@ async def test_subscribe(client):
 
     assert await client.unsubscribe(PATH_ECG_125)
 
-    assert not await client.unsubscribe(PATH_ECG_125), (
-        "Should not be able to unsubscribe twice"
-    )
+    assert not await client.unsubscribe(PATH_ECG_125), "Should not be able to unsubscribe twice"
 
     assert len(data_notifications) > 0, "No data received during subscription"
 
@@ -120,7 +120,7 @@ async def test_time(client: MovesenseGatt):
         f"Device time {dev_time[1]} is not close to set time {TEST_TIME}"
     )
 
-    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    now = datetime.datetime.now(tz=datetime.UTC)
     success = await client.set_utc_time()
     assert success is not None, "Failed to set UTC time to current time"
 
@@ -142,9 +142,7 @@ async def test_log(client: MovesenseGatt):
 
     assert await client.sub_log(PATH_ECG_125)
 
-    assert not await client.sub_log(PATH_ECG_125), (
-        "Should not be able to subscribe twice"
-    )
+    assert not await client.sub_log(PATH_ECG_125), "Should not be able to subscribe twice"
 
     assert not await client.sub_log("/Invalid/Path"), (
         "Should not be able to subscribe to invalid path"
@@ -161,9 +159,7 @@ async def test_log(client: MovesenseGatt):
 
     assert await client.unsub_log(PATH_ECG_125)
 
-    assert not await client.unsub_log(PATH_ECG_125), (
-        "Should not be able to unsubscribe twice"
-    )
+    assert not await client.unsub_log(PATH_ECG_125), "Should not be able to unsubscribe twice"
 
     is_logging = await client.get_logging_state()
     assert is_logging is False

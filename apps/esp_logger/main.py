@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Desktop GUI for controlling iFCH ESP logger devices and record workflows."""
 
 import asyncio
@@ -11,7 +14,7 @@ import time
 import zipfile
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import qasync
@@ -94,9 +97,7 @@ async def retry(func, retries=3, delay=0.2, *args, **kwargs):
         if result is not None:
             return result
         if attempt < retries - 1:
-            logging.warning(
-                "Retrying %s (attempt %d/%d)", func.__name__, attempt + 1, retries
-            )
+            logging.warning("Retrying %s (attempt %d/%d)", func.__name__, attempt + 1, retries)
             await asyncio.sleep(delay)
     return None
 
@@ -219,9 +220,7 @@ class ErrorView(QWidget):
         )
         self.status_label.setWordWrap(True)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.status_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.status_label)
 
         ok_layout = QHBoxLayout()
@@ -295,9 +294,7 @@ class WarningView(QWidget):
         )
         self.status_label.setWordWrap(True)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.status_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.status_label)
 
         button_layout = QHBoxLayout()
@@ -381,9 +378,7 @@ class SuccessView(QWidget):
         layout.addSpacing(30)
 
         # Status label
-        self.status_label = QLabel(
-            "You can disconnect your iFCH device and close the app."
-        )
+        self.status_label = QLabel("You can disconnect your iFCH device and close the app.")
         self.status_label.setStyleSheet(
             f"""
             QLabel {{
@@ -394,9 +389,7 @@ class SuccessView(QWidget):
         )
         self.status_label.setWordWrap(True)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self.status_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.status_label)
 
         button_layout = QHBoxLayout()
@@ -546,9 +539,7 @@ class InfoView(QWidget):
         layout.addSpacing(30)
 
         # Status label
-        self.status_label = QLabel(
-            "Make sure your Movesense device is powered on and in range"
-        )
+        self.status_label = QLabel("Make sure your Movesense device is powered on and in range")
         self.status_label.setStyleSheet(
             f"""
             QLabel {{
@@ -558,9 +549,7 @@ class InfoView(QWidget):
         """
         )
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.status_label)
 
 
@@ -594,9 +583,7 @@ class FormView(QWidget):
         layout.addWidget(header)
         layout.addSpacing(30)
 
-        status_label = QLabel(
-            "Saving record, please fill in the following information:"
-        )
+        status_label = QLabel("Saving record, please fill in the following information:")
         status_label.setStyleSheet(
             f"""
             QLabel {{
@@ -622,9 +609,7 @@ class FormView(QWidget):
         )
 
         form_layout = QFormLayout(form_widget, verticalSpacing=20)
-        form_layout.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-        )
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
         # Name
         self.name_input = QLineEdit()
@@ -745,9 +730,7 @@ class DeviceSelectionView(QWidget):
         layout.addSpacing(30)
 
         # Instructions
-        instructions = QLabel(
-            "Please select the Movesense device you want to connect to:"
-        )
+        instructions = QLabel("Please select the Movesense device you want to connect to:")
         instructions.setStyleSheet(
             f"""
             QLabel {{
@@ -1048,9 +1031,7 @@ class MonitoringView(QWidget):
             """
         )
         form_layout = QFormLayout(form_widget)
-        form_layout.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-        )
+        form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
         self.fields = {}
         for field in self.STATE_FIELDS:
@@ -1064,9 +1045,7 @@ class MonitoringView(QWidget):
                 }}
                 """
             )
-            value_label.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextSelectableByMouse
-            )
+            value_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             form_layout.addRow(f"{label}:", value_label)
             self.fields[key] = value_label
 
@@ -1159,7 +1138,8 @@ class DownloadView(QWidget):
 
         # Status label
         self.status_label = QLabel(
-            "Downloading recorded data from iFCH device...\nThis may take up to 1 hour. Please make sure that your computer does not go to sleep."
+            "Downloading recorded data from iFCH device...\nThis may take up to 1 hour."
+            " Please make sure that your computer does not go to sleep."
         )
         self.status_label.setStyleSheet(
             f"""
@@ -1170,9 +1150,7 @@ class DownloadView(QWidget):
         """
         )
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.status_label)
 
         layout.addSpacing(20)
@@ -1267,12 +1245,8 @@ class MainWindow(QWidget):
         self.logging_view.stop_button.clicked.connect(self.handle_stop_logging)
         self.monitoring_view.start_button.clicked.connect(self.handle_start_logging)
         self.monitoring_view.switch_button.clicked.connect(self.handle_device_switch)
-        self.device_selection_view.connect_button.clicked.connect(
-            self.handle_device_connect
-        )
-        self.device_selection_view.refresh_button.clicked.connect(
-            self.handle_device_refresh
-        )
+        self.device_selection_view.connect_button.clicked.connect(self.handle_device_connect)
+        self.device_selection_view.refresh_button.clicked.connect(self.handle_device_refresh)
         self.error_view.ok_button.clicked.connect(self.handle_error_ok)
         self.form_view.save_button.clicked.connect(self.handle_form_save)
         self.warning_view.cancel_button.clicked.connect(self.handle_error_ok)
@@ -1461,10 +1435,8 @@ class MainWindow(QWidget):
         # Wait for tasks to complete cancellation
         if self._tasks:
             try:
-                await asyncio.wait(
-                    self._tasks, timeout=2.0, return_when=asyncio.ALL_COMPLETED
-                )
-            except asyncio.TimeoutError:
+                await asyncio.wait(self._tasks, timeout=2.0, return_when=asyncio.ALL_COMPLETED)
+            except TimeoutError:
                 logging.warning("Some tasks did not cancel within timeout")
 
     @Slot()
@@ -1485,9 +1457,7 @@ class MainWindow(QWidget):
         if len(ecg_data) != 0:
             x_time = ecg_data[:, 0] / 1000 - t
             y_ecg = ecg_data[:, 1]
-            self.monitoring_view.series.replaceNp(
-                x_time.astype(float), y_ecg.astype(float)
-            )
+            self.monitoring_view.series.replaceNp(x_time.astype(float), y_ecg.astype(float))
 
             maxY = np.max(np.abs(y_ecg))
             self.monitoring_view.axis_y.setRange(-maxY, maxY)
@@ -1505,9 +1475,7 @@ class MainWindow(QWidget):
         self.error_view.message.setText(title)
         self.error_view.status_label.setText(message)
 
-    def update_warning_status(
-        self, title, message, ok_text="OK", ok_cb=None, show_cancel=False
-    ):
+    def update_warning_status(self, title, message, ok_text="OK", ok_cb=None, show_cancel=False):
         """Update the warning view with a title and message"""
         self._warning_ok_cb = ok_cb
         self.warning_view.message.setText(title)
@@ -1595,9 +1563,7 @@ class MainWindow(QWidget):
         if self._shutdown_attempts > self.FORCE_SHUTDOWN_ATTEMPTS:
             # If shutdown already started, accept the event to close the window
             # This will force the application to quit, preventing further cleanup
-            logging.warning(
-                "Multiple shutdown attempts detected, force closing application."
-            )
+            logging.warning("Multiple shutdown attempts detected, force closing application.")
             event.accept()
             return
 
@@ -1642,11 +1608,11 @@ class Backend:
 
         # Actor machinery
         self._cmd_q: asyncio.Queue[Any] = asyncio.Queue()
-        self._actor_task: Optional[asyncio.Task] = None
+        self._actor_task: asyncio.Task | None = None
 
         # Timers/watchers that only enqueue messages (no I/O)
         self._timers: set[asyncio.Task] = set()
-        self._disconnect_watch: Optional[asyncio.Task] = None
+        self._disconnect_watch: asyncio.Task | None = None
 
         self.record_files = None
         self.record_meta = {}
@@ -1669,7 +1635,7 @@ class Backend:
             timestamps = [t + self.time_origin for t in timestamps]
 
             if sensor in ("ECG", "ECGMV"):
-                self.ecg_data.extend(zip(timestamps, sensor_dict[sensor]))
+                self.ecg_data.extend(zip(timestamps, sensor_dict[sensor], strict=False))
 
     async def run(self):
         """Start the actor and bootstrap probing."""
@@ -1746,9 +1712,7 @@ class Backend:
                 # If USB is connected, cancel current task on disconnect
                 if self.device:
                     cmd_task = asyncio.create_task(cmd.handle(self))
-                    disconnect_task = asyncio.create_task(
-                        self.device.disconnected.wait()
-                    )
+                    disconnect_task = asyncio.create_task(self.device.disconnected.wait())
 
                     done, pending = await asyncio.wait(
                         (disconnect_task, cmd_task),
@@ -1768,7 +1732,7 @@ class Backend:
                             await asyncio.wait(
                                 pending, timeout=1.0, return_when=asyncio.ALL_COMPLETED
                             )
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
                             logging.warning(
                                 "Some tasks did not cancel within timeout after USB disconnect"
                             )
@@ -1781,9 +1745,7 @@ class Backend:
                 logging.error("Actor command error in %s: %s", cmd, e)
                 logging.exception(e)
                 # Try to keep running, but ensure replies are resolved
-                await self.show_error(
-                    "Internal error", f"Exception in {str(cmd)}: {str(e)}"
-                )
+                await self.show_error("Internal error", f"Exception in {str(cmd)}: {str(e)}")
 
     async def start_device(self, port: str):
         """Open serial, start notification processing, start disconnect watcher."""
@@ -1912,11 +1874,7 @@ class CmdProbeUSB:
                 port, dev_id = found[0]
                 logging.debug("Found iFCH-logger %s on %s", dev_id, port)
 
-                if (
-                    back.ending_record
-                    and back.previous_device
-                    and back.previous_device != dev_id
-                ):
+                if back.ending_record and back.previous_device and back.previous_device != dev_id:
                     logging.warning(
                         "Different device connected during end of record: %s != %s",
                         back.previous_device,
@@ -1924,7 +1882,9 @@ class CmdProbeUSB:
                     )
                     await back.show_error(
                         "Incorrect iFCH device connected",
-                        "The iFCH device connected is different from the one used in the current download.\nPlease reconnect the correct iFCH device to avoid data loss.\nTo proceed anyway, please restart the application.",
+                        "The iFCH device connected is different from the one used in the current"
+                        " download.\nPlease reconnect the correct iFCH device to avoid data loss.\n"
+                        "To proceed anyway, please restart the application.",
                     )
                     return
 
@@ -1938,9 +1898,7 @@ class CmdProbeUSB:
                 status = await retry(back.device.get_status)
 
                 if not status:
-                    logging.error(
-                        "Failed to get iFCH device status after USB connection"
-                    )
+                    logging.error("Failed to get iFCH device status after USB connection")
                     await back.show_error()
                     return
 
@@ -1996,7 +1954,12 @@ class CmdLogging:
 
             back.ui.update_warning_status(
                 "Movesense not found",
-                f"The associated Movesense device ({config['MovesenseID']}) could not be found.\n\nIf this is the end of a long recording, this is probably due to its battery running empty and you can safely ignore this message.\n\nIf not, please ensure it is powered on and in range. Press 'CANCEL' to retry scanning.\nYou may force the end of the recording by pressing 'IGNORE', but this may cause the loss of the last 30 minutes of recording.",
+                f"The associated Movesense device ({config['MovesenseID']}) could not be found.\n\n"
+                f"If this is the end of a long recording, this is probably due to its battery"
+                f" running empty and you can safely ignore this message.\n\nIf not, please ensure"
+                f" it is powered on and in range. Press 'CANCEL' to retry scanning.\nYou may force"
+                f" the end of the recording by pressing 'IGNORE', but this may cause the loss of"
+                f" the last 30 minutes of recording.",
                 ok_text="IGNORE",
                 ok_cb=back.force_stop_logging,
                 show_cancel=True,
@@ -2016,7 +1979,8 @@ class CmdLogging:
             logging.warning("Movesense stopped logging on its own")
             back.ui.update_warning_status(
                 "Movesense reset",
-                "The associated Movesense device stopped logging on its own. This may have happened if the battery was just replaced.",
+                "The associated Movesense device stopped logging on its own."
+                " This may have happened if the battery was just replaced.",
                 ok_cb=back.stop_logging,
                 show_cancel=False,
             )
@@ -2043,9 +2007,7 @@ class CmdOnDisconnected:
             # If not ending record, clear state
             await back.clear_state()
             back.ui.update_ui_state(GUIState.DISCONNECTED)
-            back.ui.update_disconnected_status(
-                "Disconnected, waiting for iFCH device..."
-            )
+            back.ui.update_disconnected_status("Disconnected, waiting for iFCH device...")
 
         else:
             back.ui.update_ui_state(GUIState.CONNECTION_LOST)
@@ -2100,9 +2062,7 @@ class CmdStreamDevice:
 
         parts = self.device.split(";")
 
-        if not await retry(
-            back.device.set_address, address=parts[-1], movesense_id=parts[0]
-        ):
+        if not await retry(back.device.set_address, address=parts[-1], movesense_id=parts[0]):
             logging.warning("Set address failed")
             await back.show_error()
             return
@@ -2123,7 +2083,9 @@ class CmdStreamDevice:
             # Show error pop-up when device is already logging
             await back.show_error(
                 "Movesense currently recording",
-                "The Movesense you selected is recording data. It may be paired to a different iFCH device.\nTo force-reset it, remove its battery (any ongoing recording will be lost).",
+                "The Movesense you selected is recording data. It may be paired to a different"
+                " iFCH device.\nTo force-reset it, remove its battery (any ongoing recording"
+                " will be lost).",
             )
             return
 
@@ -2181,7 +2143,8 @@ class CmdBatteryTick:
             # Lost connection
             await back.show_error(
                 "Movesense disconnected",
-                "Lost connection to the Movesense device. Please ensure it is powered on and in range and try again.",
+                "Lost connection to the Movesense device. Please ensure it is powered on"
+                " and in range and try again.",
             )
 
 
@@ -2287,9 +2250,7 @@ class CmdForceStopLogging:
             await back.show_error()
             return
 
-        back.ui.update_info_status(
-            "Force ending recording", "Resetting iFCH device state..."
-        )
+        back.ui.update_info_status("Force ending recording", "Resetting iFCH device state...")
         back.ui.update_ui_state(GUIState.INFO)
 
         back.ending_record = True
@@ -2338,9 +2299,7 @@ class CmdListLog:
             raise ValueError("Invalid log ID type: %s", type(self.log_id))
 
         if self.log_id not in record_list:
-            logging.warning(
-                "Log ID %s not found in record list: %s", self.log_id, record_list
-            )
+            logging.warning("Log ID %s not found in record list: %s", self.log_id, record_list)
             await back.show_error(
                 "Record not found",
                 "The requested record was not found on the iFCH device, no data were saved.",
@@ -2394,8 +2353,8 @@ class CmdSaveRecord:
                         break
                 else:
                     raise RuntimeError(
-                        "Failed to find unique record directory name, too many copies of %s exist"
-                        % back.record_meta["ID"]
+                        f"Failed to find unique record directory name,"
+                        f" too many copies of {back.record_meta['ID']} exist"
                     )
             back.record_dir = record_dir
 
@@ -2415,9 +2374,7 @@ class CmdSaveRecord:
 
                 # Check if file already exists
                 if filename_local in zipf.namelist():
-                    logging.debug(
-                        "File %s already exists, skipping download", filename_local
-                    )
+                    logging.debug("File %s already exists, skipping download", filename_local)
                     back.ui.download_view.progress_bar.setValue(
                         int((idx + 1) / len(back.record_files) * 100)
                     )
@@ -2434,7 +2391,8 @@ class CmdSaveRecord:
                     )
                     await back.show_error(
                         "File download error",
-                        f"Failed to download file {back.record_meta['ID']}/{filename} from the iFCH device.",
+                        f"Failed to download file {back.record_meta['ID']}/{filename}"
+                        f" from the iFCH device.",
                     )
                     return
 
@@ -2454,9 +2412,7 @@ class CmdSaveRecord:
         if error_log is None:
             logging.warning("Get error log failed")
         else:
-            with zipfile.ZipFile(
-                raw_zip, "a", compression=zipfile.ZIP_DEFLATED
-            ) as zipf:
+            with zipfile.ZipFile(raw_zip, "a", compression=zipfile.ZIP_DEFLATED) as zipf:
                 if ESP_LOG_FILENAME not in zipf.namelist():
                     zipf.writestr(ESP_LOG_FILENAME, error_log)
 
@@ -2468,7 +2424,8 @@ class CmdSaveRecord:
 
         back.ui.update_info_status(
             "Saving record",
-            "Converting to standard format...\nThis might take a few minutes. Please do not disconnect the iFCH device.",
+            "Converting to standard format...\nThis might take a few minutes."
+            " Please do not disconnect the iFCH device.",
         )
         back.ui.update_ui_state(GUIState.INFO)
 
@@ -2478,7 +2435,8 @@ class CmdSaveRecord:
 
             back.ui.update_success_status(
                 "Record saved",
-                f"The data were successfully saved to:\n{str(back.record_dir)}\n\nYou can now disconnect your iFCH device and close the app.",
+                f"The data were successfully saved to:\n{str(back.record_dir)}\n\n"
+                f"You can now disconnect your iFCH device and close the app.",
             )
             back.ui.update_ui_state(GUIState.SUCCESS)
             await back.clear_devices()
@@ -2488,7 +2446,8 @@ class CmdSaveRecord:
             logging.exception(e)
             await back.show_error(
                 "Conversion error",
-                "An error occurred while converting the record files.\nData will not be lost, but the files must be checked manually for corruption.",
+                "An error occurred while converting the record files.\nData will not be lost,"
+                " but the files must be checked manually for corruption.",
             )
 
         finally:

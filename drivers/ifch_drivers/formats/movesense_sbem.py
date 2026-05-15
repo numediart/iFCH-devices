@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """SBEM descriptor and payload decoder for Movesense log data."""
 
 import collections
@@ -16,7 +19,7 @@ class SBEMPath:
 
     def __init__(self, name: str):
         self.name = name.replace("+", ".")
-        self.type: typing.Optional[SBEMType] = None
+        self.type: SBEMType | None = None
         self.modifier: callable | None = None
         self.modifier_source: str | None = None
 
@@ -30,9 +33,7 @@ class SBEMPath:
     def decode(self, data_buffer: bytes) -> dict[str, typing.Any]:
         """Decode one value for this path from a fixed-size buffer."""
         if len(data_buffer) != self.size:
-            raise ValueError(
-                f"Expected {self.size} bytes, got {len(data_buffer)} bytes instead."
-            )
+            raise ValueError(f"Expected {self.size} bytes, got {len(data_buffer)} bytes instead.")
 
         if self.type is None:
             raise ValueError("Format not set")
@@ -44,7 +45,8 @@ class SBEMPath:
                 decoded = self.modifier(decoded)
             except Exception as e:
                 logging.warning(
-                    f"Modifier function failed for {self.name} with value {decoded}: {e}\n\t{self.modifier_source}"
+                    f"Modifier function failed for {self.name} with value {decoded}:"
+                    f" {e}\n\t{self.modifier_source}"
                 )
 
         return {self.name: decoded}
@@ -103,7 +105,10 @@ class SBEMGroup:
                     self.iscoords = True
 
     def create_children(
-        self, children: list, sbem_blocks: dict[int, typing.Self | SBEMPath], isarray
+        self,
+        children: list,
+        sbem_blocks: dict[int, typing.Self | SBEMPath],
+        isarray,
     ):
         if len(children) == 0:
             raise ValueError("Empty group")
@@ -134,9 +139,7 @@ class SBEMGroup:
     def decode(self, data_buffer: bytes) -> dict[str, typing.Any]:
         """Decode grouped child values from one SBEM payload slice."""
         if len(data_buffer) != self.size:
-            raise ValueError(
-                f"Expected {self.size} bytes, got {len(data_buffer)} bytes instead."
-            )
+            raise ValueError(f"Expected {self.size} bytes, got {len(data_buffer)} bytes instead.")
         decoded = collections.defaultdict(list)
         offset = 0
 
@@ -265,9 +268,7 @@ class SBEMDecoder:
                     self._sbem_blocks[descriptor_id].type = self.SBEM_TYPES[value]
 
                 elif tag == "<GRP>":
-                    self._sbem_blocks[descriptor_id] = SBEMGroup(
-                        value, self._sbem_blocks
-                    )
+                    self._sbem_blocks[descriptor_id] = SBEMGroup(value, self._sbem_blocks)
                 elif tag == "<MOD>":
                     decoder_str = value.split(",")[0]
                     decoder_str = f"lambda x: {decoder_str}"
@@ -297,7 +298,7 @@ class SBEMDecoder:
         self._sbem_blocks: dict[int, SBEMPath | SBEMGroup] = {}
         self._decoded: dict[str, list] = defaultdict(list)
 
-        if isinstance(sbem_data, (bytearray, bytes)):
+        if isinstance(sbem_data, bytearray | bytes):
             with io.BytesIO(sbem_data) as self._reader:
                 return self._decode(standardize=standardize)
         else:
@@ -316,9 +317,7 @@ class SBEMDecoder:
         if sbem_version != "SBEM0112":
             raise NotImplementedError(f"Unsupported SBEM version: {sbem_version}")
 
-        default_header = (
-            pathlib.Path(__file__).parent / "data" / "default_descriptors.bin"
-        )
+        default_header = pathlib.Path(__file__).parent / "data" / "default_descriptors.bin"
 
         if default_header.exists():
             try:
@@ -351,7 +350,8 @@ class SBEMDecoder:
                     parts = chunk_bytes.split(b"\x00")
                     if len(parts) != 3:
                         logging.error(
-                            f"Unexpected descriptor format, expected 3 parts separated by null bytes, got {len(parts)} parts in chunk bytes: {chunk_bytes}"
+                            f"Unexpected descriptor format, expected 3 parts separated by null"
+                            f" bytes, got {len(parts)} parts in chunk bytes: {chunk_bytes}"
                         )
                     else:
                         self.descriptors[parts[0]] = parts[1]
@@ -364,18 +364,14 @@ class SBEMDecoder:
                 try:
                     sbem_block = self._sbem_blocks[chunk_id]
 
-                    self._decoded[sbem_block.name].append(
-                        sbem_block.decode(chunk_bytes)
-                    )
+                    self._decoded[sbem_block.name].append(sbem_block.decode(chunk_bytes))
                 except KeyError as e:
                     logging.warning(f"Unknown SBEM block ID: {chunk_id}, {e}")
 
         if not standardize:
             # Return the raw decoded data as a dicts of lists
             for key, decoded in self._decoded.items():
-                self._decoded[key] = {
-                    k: [d[k] for d in decoded] for k in decoded[0].keys()
-                }
+                self._decoded[key] = {k: [d[k] for d in decoded] for k in decoded[0].keys()}
 
         else:
             # Convert the dictionary keys to a standard format for sensor names
@@ -406,43 +402,53 @@ class SBEMDecoder:
                 if len(decoded) and len(decoded[0].keys()) != 2 and not is_multisensor:
                     sensor = key
                     logging.error(
-                        "Invalid number of keys in decoded SBEM for standardization of sensor %s, set standardize=False",
+                        "Invalid number of keys in decoded SBEM for standardization of sensor %s,"
+                        " set standardize=False",
                         sensor,
                     )
                     skip_standardization = True
 
-                def time_or_sample(k):
-                    parts = k.split(".")
-                    tail = parts[-1]
-                    if tail == "Timestamp" or tail == "relativeTime":
-                        return "timestamps"
-                    elif is_multisensor:
-                        sub_sensor = parts[-2]
-                        if not sub_sensor.startswith("Array"):
-                            raise NotImplementedError(
-                                f"Could not identify sub-sensor for key {k}, set standardize=False"
-                            )
-                        return sub_sensor[5:].upper()
-
-                    # This is for non-standardized keys, in order not to lose data
-                    elif skip_standardization:
-                        return k
-                    else:
-                        return sensor
-
                 standardized[sensor] = {
-                    time_or_sample(k): [v[k] for v in decoded]
+                    self._time_or_sample(k, sensor, is_multisensor, skip_standardization): [
+                        v[k] for v in decoded
+                    ]
                     for k in decoded[0].keys()
                 }
 
                 if "timestamps" not in standardized[sensor]:
                     logging.warning(
-                        f"No timestamps found for sensor {sensor}, standardization failed. Set standardize=False to get raw keys"
+                        f"No timestamps found for sensor {sensor}, standardization failed."
+                        f"Set standardize=False to get raw keys"
                     )
 
             self._decoded = standardized
 
         return self._decoded
+
+    @staticmethod
+    def _time_or_sample(
+        k,
+        sensor,
+        is_multisensor,
+        skip_standardization,
+    ):
+        parts = k.split(".")
+        tail = parts[-1]
+        if tail == "Timestamp" or tail == "relativeTime":
+            return "timestamps"
+        elif is_multisensor:
+            sub_sensor = parts[-2]
+            if not sub_sensor.startswith("Array"):
+                raise NotImplementedError(
+                    f"Could not identify sub-sensor for key {k}, set standardize=False"
+                )
+            return sub_sensor[5:].upper()
+
+        # This is for non-standardized keys, in order not to lose data
+        elif skip_standardization:
+            return k
+        else:
+            return sensor
 
 
 if __name__ == "__main__":

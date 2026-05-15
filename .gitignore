@@ -1,3 +1,8 @@
 build*/
 __pycache__/
 uv.lock
+.venv/
+*.egg-info/
+dist/
+*.pyc
+.env

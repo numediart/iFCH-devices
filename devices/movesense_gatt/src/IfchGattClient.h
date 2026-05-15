@@ -1,3 +1,6 @@
+// Copyright (c) 2026-2026, ISIA Lab (UMONS)
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 #include <whiteboard/LaunchableModule.h>

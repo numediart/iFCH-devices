@@ -54,3 +54,7 @@ source ./env.sh
 idf.py set-target esp32s3
 idf.py build flash
 ```
+
+## Serial protocol
+
+See [SERIAL_PROTOCOL.md](SERIAL_PROTOCOL.md) for the detailed protocol specification.

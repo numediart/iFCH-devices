@@ -1,3 +1,6 @@
+# Copyright (c) 2026-2026, ISIA Lab (UMONS)
+# SPDX-License-Identifier: Apache-2.0
+
 """Desktop ECG viewer for browsing and inspecting recorded iFCH data."""
 
 import datetime
@@ -7,7 +10,6 @@ import sys
 
 import neurokit2 as nk
 import numpy as np
-import r_peaks
 from ifch_drivers.formats import movesense_record
 from PySide6.QtCharts import QChart, QChartView, QDateTimeAxis, QLineSeries, QValueAxis
 from PySide6.QtCore import QDateTime, QSettings, Qt, QTimer, QTimeZone, Slot
@@ -25,6 +27,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from scipy import signal
+
+import src.r_peaks as r_peaks
 
 __version__ = "1.0"
 
@@ -483,9 +487,7 @@ class MonitoringView(QWidget):
         )
         self.metadata_form = QFormLayout(metadata_widget)
         self.metadata_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        self.metadata_form.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-        )
+        self.metadata_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
         self.metadata_form.addRow("", QLabel("Please open a record file"))
 
@@ -504,9 +506,7 @@ class MonitoringView(QWidget):
         )
         self.info_form = QFormLayout(info_widget)
         self.info_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        self.info_form.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-        )
+        self.info_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
         self.info_form.addRow("Average BPM:", QLabel("N/A"))
         controls_layout.addWidget(info_widget)
@@ -828,17 +828,11 @@ class MonitoringView(QWidget):
             window_samples = signal.decimate(window_samples, downsample_factor, n=4)
 
         # Clear and update series
-        self.ecg_series.replaceNp(
-            window_times.astype(float), window_samples.astype(float)
-        )
+        self.ecg_series.replaceNp(window_times.astype(float), window_samples.astype(float))
 
         # Update axes
-        start_time = QDateTime.fromMSecsSinceEpoch(
-            int(window_times[0]), self.BRUSSELS_TZ
-        )
-        end_time = QDateTime.fromMSecsSinceEpoch(
-            int(window_times[-1]), self.BRUSSELS_TZ
-        )
+        start_time = QDateTime.fromMSecsSinceEpoch(int(window_times[0]), self.BRUSSELS_TZ)
+        end_time = QDateTime.fromMSecsSinceEpoch(int(window_times[-1]), self.BRUSSELS_TZ)
         self.axis_x.setRange(start_time, end_time)
 
         # Auto-scale Y axis based on visible data
@@ -851,9 +845,7 @@ class MonitoringView(QWidget):
         if self.r_peaks is None or len(self.r_peaks) == 0:
             self.r_peak_indicator_series.clear()
         else:
-            visible_start = np.searchsorted(
-                self.r_peaks, self.current_start_idx, side="left"
-            )
+            visible_start = np.searchsorted(self.r_peaks, self.current_start_idx, side="left")
             visible_end = np.searchsorted(self.r_peaks, end_idx, side="left")
             visible_peaks = self.r_peaks[visible_start:visible_end]
 
@@ -922,12 +914,8 @@ class MonitoringView(QWidget):
         # )
 
         # Update axes
-        start_time = QDateTime.fromMSecsSinceEpoch(
-            int(self.ecg_timestamps[0]), self.BRUSSELS_TZ
-        )
-        end_time = QDateTime.fromMSecsSinceEpoch(
-            int(self.ecg_timestamps[-1]), self.BRUSSELS_TZ
-        )
+        start_time = QDateTime.fromMSecsSinceEpoch(int(self.ecg_timestamps[0]), self.BRUSSELS_TZ)
+        end_time = QDateTime.fromMSecsSinceEpoch(int(self.ecg_timestamps[-1]), self.BRUSSELS_TZ)
         self.summary_axis_x.setRange(start_time, end_time)
 
     def update_summary_dragging(self):
@@ -1081,13 +1069,9 @@ class MonitoringView(QWidget):
         if self._current_window_size <= 60:
             self.zoom_value_label.setText(f"Span: {self._current_window_size:.1f}s")
         elif self._current_window_size <= 3600:  # Less than 1 hour
-            self.zoom_value_label.setText(
-                f"Span: {self._current_window_size / 60:.1f}min"
-            )
+            self.zoom_value_label.setText(f"Span: {self._current_window_size / 60:.1f}min")
         else:  # More than 1 hour
-            self.zoom_value_label.setText(
-                f"Span: {self._current_window_size / 3600:.1f}h"
-            )
+            self.zoom_value_label.setText(f"Span: {self._current_window_size / 3600:.1f}h")
 
         if autocenter and current_win is not None:
             # Adjust current start index to keep center position
