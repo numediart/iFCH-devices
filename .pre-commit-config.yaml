@@ -14,7 +14,17 @@ repos:
     rev: v1.5.6
     hooks:
     - id: insert-license
+      name: insert-license (apps, GPL-3.0-only)
       types: [ python ]
+      files: '^apps/'
+      args:
+        - --use-current-year
+        - --license-filepath
+        - .github/license-check/header_pre-commit_gpl.txt
+    - id: insert-license
+      name: insert-license (drivers/devices, Apache-2.0)
+      types: [ python ]
+      exclude: '^apps/'
       args:
         - --use-current-year
         - --license-filepath

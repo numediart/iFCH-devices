@@ -2,6 +2,7 @@
 name = "iFCH_movesense_logger"
 dynamic = ["version"]
 description = "GUI for iFCH Movesense Logger"
+license = { text = "GPL-3.0-only" }
 requires-python = ">=3.12"
 dependencies = [
     "qasync>=0.28.0",

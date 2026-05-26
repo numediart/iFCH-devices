@@ -7,7 +7,10 @@ This is a technical compliance aid, not legal advice.
 
 ## Included License Files
 
-- Project license: `LICENSE` (Apache-2.0)
+- Apps license: `apps/LICENSE` (GPL-3.0-only)
+- Drivers license: `drivers/LICENSE` (Apache-2.0)
+- Firmware license: `devices/LICENSE` (Apache-2.0)
+- Root license (canonical copy, Apache-2.0): `LICENSE`
 - Movesense SDK license copy: `licenses/Movesense_SDK_LICENSE.pdf`
 - PyInstaller license text: `licenses/PyInstaller-COPYING.txt`
 - GNU LGPL-3.0 text: `licenses/LGPL-3.0.txt`
@@ -33,10 +36,12 @@ This is a technical compliance aid, not legal advice.
 
 ## Desktop App Components (`apps/*`)
 
-- Desktop apps depend on PySide6/Qt and PyInstaller.
+- Desktop apps are licensed under GPL-3.0-only (see `apps/LICENSE`) to comply
+  with the copyleft terms of their dependencies.
 - PySide6 / PySide6_Addons / PySide6_Essentials / shiboken6 package metadata
   indicates license expression:
   `LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only`.
+  The apps are distributed under GPL-3.0-only to satisfy the GPL option.
 - PyInstaller metadata indicates GPLv2-or-later with bundling exception.
 
 ## Where Notices Are Placed

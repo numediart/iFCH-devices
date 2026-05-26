@@ -2,8 +2,10 @@ iFCH Devices - NOTICE
 
 This repository includes third-party software and related notices.
 
-Project license
-- iFCH Devices: Apache License 2.0 (see LICENSE)
+Project licenses
+- iFCH Devices apps (apps/):               GPL-3.0-only      (see apps/LICENSE)
+- iFCH Devices drivers (drivers/):         Apache License 2.0 (see drivers/LICENSE)
+- iFCH Devices firmware (devices/):        Apache License 2.0 (see devices/LICENSE)
 
 Third-party attributions
 - ESP-IDF and ESP-IDF components used by devices/esp_logger:

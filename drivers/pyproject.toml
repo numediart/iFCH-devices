@@ -2,6 +2,7 @@
 name = "ifch-drivers"
 dynamic = ["version"]
 description = "Drivers for iFCH devices"
+license = { text = "Apache-2.0" }
 authors = [{ name = "M. Francois", email = "francois.marelli@umons.ac.be" }]
 requires-python = ">=3.12"
 dependencies = ["h5py>=3.15.1", "numpy>=2.4.2"]

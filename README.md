@@ -63,3 +63,12 @@ under grant agreement 101034383.
 
 The iFCH project was started as a collaboration between Dr Jean-Marie Grégoire,
 Pr Stéphane Carlier, Pr Thierry Dutoit, Dr François Marelli, and Dr Cédric Gillon.
+
+## License
+
+This repository uses a dual-license model:
+
+- `apps/` — **GPL-3.0-only** (see `apps/LICENSE`), required by PySide6/Qt.
+- `devices/` and `drivers/` — **Apache-2.0** (see `devices/LICENSE`, `drivers/LICENSE`).
+
+See `NOTICE.txt` and `THIRD_PARTY_NOTICES.md` for full third-party attribution.

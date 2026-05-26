@@ -1,7 +1,16 @@
 [
     {
         "include": [
+            "apps/**/*.py"
+        ],
+        "license": ".github/license-check/header_CI_py_gpl.txt"
+    },
+    {
+        "include": [
             "**/*.py"
+        ],
+        "exclude": [
+            "apps/**/*.py"
         ],
         "license": ".github/license-check/header_CI_py.txt"
     },
