@@ -142,8 +142,9 @@ void streamDumpTask(void *params)
                     size_t written = fwrite(binBuffer, 1, bufferLen, f);
                     if (written != bufferLen)
                     {
-                        logError("streamDumpTask", "Failed to write data to file");
-                        blink(COLOR_RUNTIME_ERROR, 1, 1);
+                        logError("streamDumpTask", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
+                        errorReset(COLOR_SD);
+                        goto cleanup;
                     }
                     bufferLen = 0;
 
@@ -169,8 +170,9 @@ void streamDumpTask(void *params)
             size_t written = fwrite(binBuffer, 1, bufferLen, f);
             if (written != bufferLen)
             {
-                logError("streamDumpTask", "Failed to write remaining data to file");
-                blink(COLOR_RUNTIME_ERROR, 1, 1);
+                logError("streamDumpTask", "Failed to write remaining data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
+                errorReset(COLOR_SD);
+                goto cleanup;
             }
         }
     }

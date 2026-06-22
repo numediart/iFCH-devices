@@ -13,8 +13,8 @@
 #define BLE_SCAN_TIME 1000          // milliseconds
 #define BLE_SCAN_INTERVAL 500       // milliseconds
 #define BLE_SCAN_WINDOW 500         // milliseconds
-#define BLE_TIMEOUT 2000            // milliseconds
-#define BLE_CONNECT_TIMEOUT 4000    // milliseconds
+#define BLE_TIMEOUT 3000            // milliseconds
+#define BLE_CONNECT_TIMEOUT 5000    // milliseconds
 #define GATT_DELAY 200              // milliseconds
 #define BLE_RESPONSE_QUEUE_LENGTH 16
 
