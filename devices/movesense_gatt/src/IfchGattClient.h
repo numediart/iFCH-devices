@@ -102,9 +102,11 @@ private:
 
     void asyncPutIndicate(wb::ResourceId resourceId, const AsyncRequestOptions &rOptions, const uint8_t *data, size_t length);
     void putNextIndicate();
+    void putIndicate();
 
     std::queue<IndicateRequest> mIndicateQueue;
     bool mIsIndicating;
+    bool mIsIndicateRetry;
 
     void setShutdownTimer();
 
