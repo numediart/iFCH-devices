@@ -59,8 +59,8 @@ constexpr uint16_t logCharUUID16 = 0x0004;
 
 // To avoid losing Indicate messages, we need to wait a bit before sending the next one
 #define INDICATE_DELAY 50
-#define MAX_INDICATE_QUEUE_SIZE 10
-#define INDICATE_TIMEOUT 5000 // 5 seconds
+#define MAX_INDICATE_QUEUE_SIZE 16
+#define INDICATE_TIMEOUT 2000 // 2 seconds
 
 enum Commands
 {
@@ -141,6 +141,7 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mGetLoggingReference(0),
                                    mLogbookFull(true),
                                    mIsIndicating(false),
+                                   mIsIndicateRetry(false),
                                    mPowerState(POWER_NORMAL)
 {
 }
@@ -238,6 +239,7 @@ void IfchGattClient::stopModule()
     mModuleState = WB_RES::ModuleStateValues::STOPPED;
 
     mIsIndicating = false;
+    mIsIndicateRetry = false;
     mIndicateQueue = std::queue<IndicateRequest>();
 }
 
@@ -294,19 +296,15 @@ void IfchGattClient::asyncPutIndicate(wb::ResourceId resourceId, const AsyncRequ
 
     mIndicateQueue.push(pIndicateRequest);
 
+    // If not already indicating, start the queue
     if (!mIsIndicating)
     {
-        putNextIndicate();
+        putIndicate();
     }
 }
 
-void IfchGattClient::putNextIndicate()
+void IfchGattClient::putIndicate()
 {
-    if (mIndicateTimeoutTimer != wb::ID_INVALID_TIMER)
-    {
-        stopTimer(mIndicateTimeoutTimer);
-        mIndicateTimeoutTimer = wb::ID_INVALID_TIMER;
-    }
 
     if (mIndicateQueue.empty())
     {
@@ -317,16 +315,33 @@ void IfchGattClient::putNextIndicate()
 
     mIsIndicating = true;
 
-    // Start timeout timer
-    mIndicateTimeoutTimer = startTimer(INDICATE_TIMEOUT, false);
-
     IndicateRequest pIndicateRequest = mIndicateQueue.front();
-    mIndicateQueue.pop();
 
     WB_RES::Characteristic indicateCharVal;
     indicateCharVal.bytes = wb::MakeArray<uint8_t>(pIndicateRequest.data.data(), pIndicateRequest.data.size());
 
     asyncPut(pIndicateRequest.resourceId, pIndicateRequest.rOptions, indicateCharVal);
+
+    // Start timeout timer
+    if (mIndicateTimeoutTimer != wb::ID_INVALID_TIMER)
+    {
+        stopTimer(mIndicateTimeoutTimer);
+    }
+    mIndicateTimeoutTimer = startTimer(INDICATE_TIMEOUT, false);
+}
+
+void IfchGattClient::putNextIndicate()
+{
+
+    if (!mIndicateQueue.empty())
+    {
+        mIndicateQueue.pop();
+    }
+
+    // We are sending a new message, thus reset the retry flag
+    mIsIndicateRetry = false;
+
+    putIndicate();
 }
 
 IfchGattClient::DataSub *IfchGattClient::findDataSub(const wb::LocalResourceId localResourceId)
@@ -1345,6 +1360,13 @@ void IfchGattClient::handleSendingLogbookData(const uint8_t *pData, uint32_t len
 
     if (secondPartLen > 0)
     {
+        if (secondPartLen > dataSize)
+        {
+
+            DEBUGLOG("ERROR: secondPartLen > dataSize. secondPartLen: %d, dataSize: %d", secondPartLen, dataSize);
+            return;
+        }
+
         mDataMsgBuffer[0] = DATA_PART2;
 
         // Calc and write second offset
@@ -1422,6 +1444,7 @@ void IfchGattClient::enterLowPowerMode()
 
     // Clear indication queue
     mIsIndicating = false;
+    mIsIndicateRetry = false;
     mIndicateQueue = std::queue<IndicateRequest>();
 
     // Stop shutdown timer (no longer needed in low power)
@@ -1533,6 +1556,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             }
 
             mIsIndicating = false;
+            mIsIndicateRetry = false;
             mIndicateQueue = std::queue<IndicateRequest>();
 
             // Clear pending operations
@@ -1826,6 +1850,13 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
     // We just completed an INDICATE request
     if (resourceId == mResponseCharResource && mIndicateTimer == wb::ID_INVALID_TIMER)
     {
+        // Stop the indicate timeout timer as we got a response from the client
+        if (mIndicateTimeoutTimer != wb::ID_INVALID_TIMER)
+        {
+            stopTimer(mIndicateTimeoutTimer);
+            mIndicateTimeoutTimer = wb::ID_INVALID_TIMER;
+        }
+
         // Schedule next INDICATE
         mIndicateTimer = startTimer(INDICATE_DELAY, false);
     }
@@ -1933,16 +1964,23 @@ void IfchGattClient::onTimer(wb::TimerId timerId)
     else if (timerId == mIndicateTimeoutTimer)
     {
         // Timeout for INDICATE
-        DEBUGLOG("Indicate timeout - forcing next message");
         mIndicateTimeoutTimer = wb::ID_INVALID_TIMER;
 
-        if (mIndicateTimer != wb::ID_INVALID_TIMER)
+        // If this is the second try, drop and move on
+        if (mIsIndicateRetry)
         {
-            stopTimer(mIndicateTimer);
-            mIndicateTimer = wb::ID_INVALID_TIMER;
+            DEBUGLOG("Indicate timeout - dropping message");
+            mIsIndicateRetry = false;
+            putNextIndicate();
         }
 
-        putNextIndicate();
+        // If this is the first try, resend the last message
+        else
+        {
+            DEBUGLOG("Indicate timeout - retrying last message");
+            mIsIndicateRetry = true;
+            putIndicate();
+        }
     }
 }
 

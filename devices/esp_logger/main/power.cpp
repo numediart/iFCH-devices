@@ -28,7 +28,7 @@ void setupVUSB()
     if (rc != ESP_OK)
     {
         logError("setupVUSB", "Failed to initialize ADC");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return;
     }
 
@@ -41,7 +41,7 @@ void setupVUSB()
     if (rc != ESP_OK)
     {
         logError("setupVUSB", "Failed to configure ADC channel");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return;
     }
 }
@@ -76,7 +76,7 @@ void setupGauge()
     if (rc != ESP_OK)
     {
         logError("setupGauge", "Failed to add battery gauge device");
-        errorReset(COLOR_POWER);
+        errorReset();
         return;
     }
 
@@ -102,20 +102,23 @@ float getBattery()
 
 void enterHibernation(uint16_t wakeDelayMin)
 {
-    ESP_LOGI("enterHibernation", "Preparing to enter hibernation");
+    logInfo("enterHibernation", "Preparing");
 
+    blink(COLOR_POWER, 1, 1000);
     shutdownBlinkTask(SHUTDOWN_TIMEOUT_MS);
 
     esp_err_t result;
 
     if (wakeDelayMin)
     {
+        logInfo("enterHibernation", "Timer %u min", wakeDelayMin);
+
         // Optional timed wake-up used when periodic fetch should resume automatically.
         result = esp_sleep_enable_timer_wakeup((uint64_t)60000000 * (uint64_t)wakeDelayMin);
         if (result != ESP_OK)
         {
             logError("enterHibernation", "Failed to set waketimer");
-            errorReset(COLOR_POWER);
+            errorReset();
             return;
         }
     }
@@ -126,7 +129,7 @@ void enterHibernation(uint16_t wakeDelayMin)
     if (result != ESP_OK)
     {
         logError("enterHibernation", "Failed to set wakeup source");
-        errorReset(COLOR_POWER);
+        errorReset();
         return;
     }
 

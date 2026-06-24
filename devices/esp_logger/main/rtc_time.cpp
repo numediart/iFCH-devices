@@ -27,7 +27,7 @@ void setupRTC()
     if (rc != ESP_OK)
     {
         logError("setupRTC", "Failed to add RTC device");
-        errorReset(COLOR_RTC);
+        errorReset();
         return;
     }
 
@@ -74,6 +74,7 @@ bool stopRTCTimer()
 
     if (ext_val == 0xFF)
     {
+        logError("stopRTCTimer", "Failed to read RTC extension register value");
         return false;
     }
 
@@ -92,6 +93,7 @@ bool stopRTCTimer()
     uint8_t flag_val = _getRTCFlags();
     if (flag_val == 0xFF)
     {
+        logError("stopRTCTimer", "Failed to read RTC flag register value");
         return false;
     }
 
@@ -103,6 +105,7 @@ bool stopRTCTimer()
         return false;
     }
 
+    logInfo("stopRTCTimer", "RTC cleared");
     return true;
 }
 
@@ -111,7 +114,7 @@ bool startRTCTimer(uint16_t timerMin)
     // Reconfigure countdown timer from scratch to avoid stale flags/config.
     if (!stopRTCTimer())
     {
-        errorReset(COLOR_RTC);
+        errorReset();
         return false;
     }
 
@@ -124,14 +127,15 @@ bool startRTCTimer(uint16_t timerMin)
     if (rc != ESP_OK)
     {
         logError("startRTCTimer", "Failed to set RTC control registers");
-        errorReset(COLOR_RTC);
+        errorReset();
         return false;
     }
 
     uint8_t ext_val = _getRTCExt();
     if (ext_val == 0xFF)
     {
-        errorReset(COLOR_RTC);
+        logError("startRTCTimer", "Failed to read RTC extension register value");
+        errorReset();
         return false;
     }
 
@@ -140,11 +144,11 @@ bool startRTCTimer(uint16_t timerMin)
     if (rc != ESP_OK)
     {
         logError("startRTCTimer", "Failed to enable RTC countdown timer");
-        errorReset(COLOR_RTC);
+        errorReset();
         return false;
     }
 
-    ESP_LOGI("startRTCTimer", "RTC timer started");
+    logInfo("startRTCTimer", "RTC started %u min", timerMin);
 
     return true;
 }
@@ -168,7 +172,7 @@ uint32_t getUNIXTime()
     if (rc != ESP_OK)
     {
         logError("getUNIXTime", "Failed to read RTC data");
-        errorReset(COLOR_RTC);
+        errorReset();
         return 0;
     }
 
@@ -257,7 +261,7 @@ bool timerIsOver()
     uint8_t flag_val = _getRTCFlags();
     if (flag_val == 0xFF)
     {
-        errorReset(COLOR_RTC);
+        errorReset();
         return true;
     }
 
@@ -267,11 +271,24 @@ bool timerIsOver()
 
 uint16_t getFetchDelayMin()
 {
+    // If not logging, return 0 to enter hibernation indefinitely
+    if (!record.logging)
+    {
+        return 0;
+    }
+
+    // If too many consecutive connection failures, return a long delay
+    if (connectFailureCount >= MAX_CONNECT_FAILURES)
+    {
+        return LONG_FAILURE_DELAY_MIN;
+    }
+
+    // Else, calculate the remaining time since the last fetch
     uint32_t currentEpoch = getUNIXTime();
     if (currentEpoch == 0)
     {
         logError("getFetchDelayMin", "Failed to get current time");
-        errorReset(COLOR_RTC);
+        errorReset();
         return 1;
     }
     uint32_t lastFetchDelayMin = (currentEpoch - record.lastFetch) / 60;

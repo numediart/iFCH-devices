@@ -4,7 +4,7 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
-#define VERSION "iFCH-logger v1.0"
+#define VERSION "iFCH-logger v1.1"
 
 #include <vector>
 #include <map>
@@ -25,7 +25,7 @@
 #define MAX_CONNECT_FAILURES 5
 #define FAILURE_DELAY_MIN 2
 #define LONG_FAILURE_DELAY_MIN 50
-#define BOOT_RTC_DELAY_S 30
+#define INTERACTION_DELAY_S 30
 
 // Global configuration parameters
 struct Config
@@ -50,6 +50,9 @@ struct Record
 // These will be saved to the SD card
 extern struct Record record;
 extern struct Config config;
+
+// These are saved to the RTC registers and persist across deep sleep cycles
+extern RTC_NOINIT_ATTR uint8_t connectFailureCount;
 
 // Notification queues for GATT messages
 extern QueueHandle_t responseQueue;

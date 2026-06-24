@@ -12,8 +12,6 @@
 #define SERIAL_SEND_RETRIES 3
 #define SERIAL_BUF_SIZE 2048
 
-#define ERROR_BUFFER_SIZE 256
-
 const uint8_t START_BYTE = 0xFA;
 extern uint8_t rx_payload[MAX_PAYLOAD_SIZE];
 extern uint8_t tx_buffer[MAX_TX_PAYLOAD_SIZE];
@@ -31,12 +29,12 @@ enum class CmdType : uint8_t
     CMD_GET_FREE_SPACE = 0x06,
     CMD_RESET_STATE = 0x07,
     CMD_GET_RECORD_ID = 0x08,
+    CMD_GET_MIN_VERSION = 0x09,
     // BLE
     CMD_SCAN = 0x11,
     CMD_CONNECT = 0x12,
     CMD_DISCONNECT = 0x13,
     CMD_BLE_NOTIFY = 0x14,
-    CMD_BLE_HELLO = 0x15,
     // File transfer
     CMD_FILE_CHUNK = 0x20,
     CMD_GET_FILE = 0x21,
@@ -52,6 +50,7 @@ enum class CmdType : uint8_t
     CMD_TIME_PUT = 0x32,
     CMD_BATTERY_GET = 0x33,
     // Movesense
+    CMD_MOV_VALIDATE = 0x40,
     CMD_MOV_BATTERY_GET = 0x41,
     CMD_MOV_STREAM = 0x42,
     CMD_MOV_UNSTREAM = 0x43,
@@ -59,6 +58,7 @@ enum class CmdType : uint8_t
     CMD_MOV_LOG_END = 0x45,
     CMD_MOV_GET_LOGGING_STATE = 0x46,
     CMD_MOV_FULL_RESET = 0x47,
+    CMD_MOV_HELLO = 0x48,
     // Errors
     CMD_TIMEOUT = 0xFE,
     CMD_INVALID = 0xFF,
