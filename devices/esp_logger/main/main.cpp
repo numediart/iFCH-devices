@@ -617,7 +617,7 @@ void handleSerialCommand(CmdType cmd)
         else
         {
             ledWrite(COLOR_BLE);
-            if (retry(connectMovesense, 2, 500))
+            if (connectMovesense())
             {
                 sendFrame(CmdType::CMD_CONNECT, (uint8_t *)config.address.c_str(), config.address.length());
             }

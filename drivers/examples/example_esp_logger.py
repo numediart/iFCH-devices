@@ -39,7 +39,6 @@ async def main():
         logging.info("Connected to device: %s", device.device_info)
 
         battery = await device.get_battery()
-
         if battery is not None:
             logging.info("Battery level: %d%%", battery)
         else:
@@ -79,7 +78,6 @@ async def main():
         if error_log is not None:
             lines = error_log.splitlines()
             logging.info("Error log (tail): \n%s", "\n".join(lines[-50:]))
-
         else:
             logging.warning("Failed to retrieve error log.")
 
