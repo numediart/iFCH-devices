@@ -12,8 +12,6 @@
 #define SERIAL_SEND_RETRIES 3
 #define SERIAL_BUF_SIZE 2048
 
-#define ERROR_BUFFER_SIZE 256
-
 const uint8_t START_BYTE = 0xFA;
 extern uint8_t rx_payload[MAX_PAYLOAD_SIZE];
 extern uint8_t tx_buffer[MAX_TX_PAYLOAD_SIZE];

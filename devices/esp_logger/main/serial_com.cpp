@@ -43,7 +43,7 @@ bool writeBytes(uint8_t *buf, uint32_t length)
     esp_err_t err = usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(SERIAL_TIMEOUT));
     if (err != ESP_OK)
     {
-        logError("serialWrite", "wait_tx_done failed");
+        logError("serialWrite", "wait_tx_done failed: %s", esp_err_to_name(err));
         return false;
     }
 
@@ -153,7 +153,7 @@ CmdType readSerial(bool wait)
 
     if (startByte != START_BYTE)
     {
-        ESP_LOGW("readSerial", "Invalid start byte: 0x%02X", startByte);
+        logWarning("readSerial", "Invalid start byte: 0x%02X", startByte);
         return CmdType::NONE;
     }
 

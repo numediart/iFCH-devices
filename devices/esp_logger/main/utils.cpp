@@ -26,8 +26,9 @@ typedef struct
 // Log entry structure for SD card logging
 typedef struct
 {
-    char tag[32];
-    char message[ERROR_BUFFER_SIZE];
+    char type[16];
+    char tag[64];
+    char message[LOG_BUFFER_SIZE];
     bool is_shutdown_cmd;
 } log_entry_t;
 
@@ -181,6 +182,7 @@ void shutdownLogTask(uint32_t timeout_ms)
 
     // Send shutdown command to queue
     log_entry_t shutdown_cmd = {
+        .type = "",
         .tag = "",
         .message = "",
         .is_shutdown_cmd = true};
@@ -338,11 +340,11 @@ void blink(uint8_t r_val, uint8_t g_val, uint8_t b_val, uint8_t times, uint32_t 
     }
 }
 
-void errorReset(uint8_t r_val, uint8_t g_val, uint8_t b_val)
+void errorReset()
 {
     // Short quick blink
-    ESP_LOGI("errorReset", "Error detected, resetting board");
-    blink(r_val, g_val, b_val, 10, 50);
+    logInfo("errorReset", "Error detected, resetting board");
+    blink(COLOR_ERROR, 10, 50);
 
     shutdownBlinkTask(RESET_TIMEOUT_MS);
     shutdownLogTask(RESET_TIMEOUT_MS);
@@ -371,9 +373,7 @@ static led_strip_handle_t setupLED(void)
     rmt_config.clk_src = RMT_CLK_SRC_DEFAULT;        // different clock source can lead to different power consumption
     rmt_config.resolution_hz = LED_STRIP_RMT_RES_HZ; // RMT counter clock frequency
     rmt_config.mem_block_symbols = 0;                // the memory block size used by the RMT channel, 0 for auto
-#ifdef CONFIG_IDF_TARGET_ESP32S3
-    rmt_config.flags.with_dma = true; // Using DMA can improve performance when driving more LEDs
-#endif
+    rmt_config.flags.with_dma = true;                // Using DMA can improve performance when driving more LEDs
 
     // LED Strip object handle
     led_strip_handle_t led_strip;
@@ -403,7 +403,7 @@ static i2c_master_bus_handle_t setupI2C()
     if (rc != ESP_OK)
     {
         ESP_LOGE("setupI2C", "Failed to create I2C bus: %s", esp_err_to_name(rc));
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return nullptr; // Return null if the I2C bus creation failed
     }
 
@@ -420,7 +420,7 @@ static void initLogTask(void)
     if (log_queue == nullptr)
     {
         ESP_LOGE("initLogTask", "Failed to create log queue");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return;
     }
 
@@ -441,7 +441,7 @@ static void initLogTask(void)
         log_queue = nullptr;
         log_task_handle = nullptr;
 
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
     }
     else
     {
@@ -457,7 +457,7 @@ static void initBlinkTask(void)
     if (blink_queue == nullptr)
     {
         ESP_LOGE("initBlinkQueue", "Failed to create blink queue");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return;
     }
 
@@ -478,7 +478,7 @@ static void initBlinkTask(void)
         blink_queue = nullptr;
         blink_task_handle = nullptr;
 
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
     }
     else
     {
@@ -499,66 +499,22 @@ void setupBoard()
     i2c_handle = setupI2C();
 }
 
-void logError(const char *tag, const char *fmt, ...)
+void logMessage(const char *type, const char *tag, const char *message)
 {
-    // Format the error message
-    char buf[ERROR_BUFFER_SIZE];
-    va_list args;
-    va_start(args, fmt);
-    int len = vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-
-    // Check for formatting errors or truncation
-    if (len < 0)
-    {
-        ESP_LOGE("logError", "vsnprintf failed");
-        return;
-    }
-
-    if (len >= sizeof(buf))
-    {
-        ESP_LOGW("logError", "Error message truncated (needed %d bytes)", len);
-        len = sizeof(buf) - 1; // Use actual buffer content length
-    }
-
-    // Log to console
-    ESP_LOGE(tag, "%s", buf);
-
     if (log_queue != nullptr)
     {
+
+        uint32_t logTime = getUNIXTime();
+        std::string stag = std::string(type) + ":" + std::to_string(logTime) + ":" + std::string(tag);
+
         log_entry_t log_entry = {};
         log_entry.is_shutdown_cmd = false;
 
-        // Copy tag and message safely
-        strncpy(log_entry.tag, tag, sizeof(log_entry.tag) - 1);
-        log_entry.tag[sizeof(log_entry.tag) - 1] = '\0';
+        // Copy type, tag and message safely
+        strncpy(log_entry.type, type, sizeof(log_entry.type) - 1);
+        log_entry.type[sizeof(log_entry.type) - 1] = '\0';
 
-        strncpy(log_entry.message, buf, sizeof(log_entry.message) - 1);
-        log_entry.message[sizeof(log_entry.message) - 1] = '\0';
-
-        // Try to queue the log entry (don't block)
-        BaseType_t result = xQueueSend(log_queue, &log_entry, 0);
-        if (result != pdPASS)
-        {
-            ESP_LOGW("logError", "Log queue is full, entry discarded");
-        }
-    }
-}
-
-void logMessage(const char *message)
-{
-    char tag[] = "INFO";
-
-    // Log to console
-    ESP_LOGI(tag, "%s", message);
-
-    if (log_queue != nullptr)
-    {
-        log_entry_t log_entry = {};
-        log_entry.is_shutdown_cmd = false;
-
-        // Copy tag and message safely
-        strncpy(log_entry.tag, tag, sizeof(log_entry.tag) - 1);
+        strncpy(log_entry.tag, stag.c_str(), sizeof(log_entry.tag) - 1);
         log_entry.tag[sizeof(log_entry.tag) - 1] = '\0';
 
         strncpy(log_entry.message, message, sizeof(log_entry.message) - 1);
@@ -571,6 +527,64 @@ void logMessage(const char *message)
             ESP_LOGW("logMessage", "Log queue is full, entry discarded");
         }
     }
+}
+
+char *formatMessage(const char *fmt, va_list args)
+{
+    static char buf[LOG_BUFFER_SIZE];
+    int len = vsnprintf(buf, sizeof(buf), fmt, args);
+
+    // Check for formatting errors or truncation
+    if (len < 0)
+    {
+        ESP_LOGE("formatMessage", "vsnprintf failed");
+        return nullptr;
+    }
+
+    if (len >= sizeof(buf))
+    {
+        ESP_LOGW("formatMessage", "Message truncated (needed %d bytes)", len);
+        buf[sizeof(buf) - 1] = '\0'; // Ensure null-termination
+    }
+
+    return buf;
+}
+
+void logError(const char *tag, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    char *buf = formatMessage(fmt, args);
+    va_end(args);
+
+    // Log to console
+    ESP_LOGE(tag, "%s", buf);
+
+    logMessage("E", tag, buf);
+}
+
+void logInfo(const char *tag, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    char *buf = formatMessage(fmt, args);
+    va_end(args);
+
+    // Log to console
+    ESP_LOGI(tag, "%s", buf);
+    logMessage("I", tag, buf);
+}
+
+void logWarning(const char *tag, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    char *buf = formatMessage(fmt, args);
+    va_end(args);
+
+    // Log to console
+    ESP_LOGW(tag, "%s", buf);
+    logMessage("W", tag, buf);
 }
 
 bool deleteLog()
@@ -615,7 +629,7 @@ bool retry(std::function<bool()> func, int retries, int delay_ms)
         {
             return true; // Success
         }
-        ESP_LOGW("retry", "Attempt %d failed", i + 1);
+        logWarning("retry", "Attempt %d failed", i + 1);
         vTaskDelay(pdMS_TO_TICKS(delay_ms)); // Wait before retrying
     }
     return false; // All retries failed

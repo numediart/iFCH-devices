@@ -20,6 +20,7 @@
 
 Config config;
 Record record;
+uint8_t connectFailureCount;
 
 QueueHandle_t dataQueue;
 QueueHandle_t responseQueue;
@@ -29,8 +30,6 @@ StaticQueue_t dataQueueStorage;
 StaticQueue_t responseQueueStorage;
 StaticQueue_t logQueueStorage;
 
-RTC_NOINIT_ATTR static uint8_t connectFailureCount;
-
 // Allocate in PSRAM for ESP32-S3
 // This allows to have larger queues without using too much internal RAM
 uint8_t *logQueueBuffer = (uint8_t *)heap_caps_malloc(NOTIF_LEN * BLE_LOG_QUEUE_LENGTH, MALLOC_CAP_SPIRAM);
@@ -38,7 +37,7 @@ uint8_t *logQueueBuffer = (uint8_t *)heap_caps_malloc(NOTIF_LEN * BLE_LOG_QUEUE_
 uint8_t dataQueueBuffer[NOTIF_LEN * BLE_DATA_QUEUE_LENGTH];
 uint8_t responseQueueBuffer[NOTIF_LEN * BLE_RESPONSE_QUEUE_LENGTH];
 
-uint32_t bootTime = 0;
+uint32_t lastInteraction = 0;
 
 bool isStreaming;
 
@@ -54,16 +53,16 @@ bool resetState()
     if (!success)
     {
         logError("resetState", "Failed to save record state");
-        errorReset(COLOR_SD);
+        errorReset();
         return success;
     }
 
     success |= stopRTCTimer();
 
-    ESP_LOGW("resetState", "State reset to default values");
+    logWarning("resetState", "State reset to default values");
     if (!success)
     {
-        ESP_LOGW("resetState", "Failed to stop RTC timer");
+        logError("resetState", "Failed to stop RTC timer");
     }
 
     return success;
@@ -77,45 +76,33 @@ bool resetMovesense()
         return false;
     }
 
-    bool success = true;
-
     // Stop logging if currently logging, also stop streaming then reset
     if (!movStopLog())
     {
         logError("MOV_FULL_RESET", "Failed to stop Movesense logging");
+        return false;
     }
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
     if (!movUnsubscribe())
     {
         logError("MOV_FULL_RESET", "Failed to unsubscribe from Movesense sensors");
+        return false;
     }
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
     if (!movReset())
     {
         logError("MOV_FULL_RESET", "Failed to reset Movesense");
+        return false;
     }
 
-    if (success)
-    {
-        ESP_LOGI("resetMovesense", "Movesense reset successfully");
-    }
-    else
-    {
-        ESP_LOGW("resetMovesense", "Movesense reset failed, some commands may not have been executed");
-    }
-
-    return success;
+    return true;
 }
 
 void fetchLogic()
 {
+
     if (record.logging)
     {
-        if (connectFailureCount >= MAX_CONNECT_FAILURES)
-        {
-            logError("fetchStep", "Maximum connection failures reached, skipping fetch");
-            return;
-        }
 
         if (isMovesenseConnected)
         {
@@ -123,11 +110,13 @@ void fetchLogic()
             return;
         }
 
+        ledWrite(COLOR_BLE);
+
         // Connect to the Movesense
         if (!retry(connectMovesense, 3, 5000))
         {
-            logError("fetchStep", "Failed to connect to Movesense");
-            // blink(COLOR_BLE, 5, 50);
+            logWarning("fetchStep", "Failed to connect to Movesense");
+            blink(COLOR_WARN, 5, 50);
 
             // If we fail to connect too many times in a row, we consider that
             // the Movesense is not reachable and stop attempting to connect
@@ -152,12 +141,14 @@ void fetchLogic()
 
         vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
+        ledWrite(COLOR_LOGGING);
+
         // Check the Movesense state
         uint8_t loggingStatus;
         if (!movGetLoggingStatus(loggingStatus))
         {
             logError("fetchStep", "Failed to get Movesense logging status");
-            errorReset(COLOR_BLE);
+            errorReset();
             return;
         }
 
@@ -183,7 +174,7 @@ void fetchLogic()
             {
                 logError("fetchStep", "Failed to reset Movesense");
                 record.part--;
-                errorReset(COLOR_BLE);
+                errorReset();
                 return;
             }
             // Save the record state to the JSON file
@@ -191,21 +182,21 @@ void fetchLogic()
             {
                 logError("fetchStep", "Failed to save record state");
                 record.part--;
-                errorReset(COLOR_BLE);
+                errorReset();
                 return;
             }
             vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
             if (!movSubLogs())
             {
                 logError("fetchStep", "Failed to subscribe to Movesense logs");
-                errorReset(COLOR_BLE);
+                errorReset();
                 return;
             }
             vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
             if (!retry(movStartLog, 3, GATT_DELAY))
             {
                 logError("fetchStep", "Failed to start Movesense logging");
-                errorReset(COLOR_BLE);
+                errorReset();
                 return;
             }
             vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
@@ -221,9 +212,11 @@ void fetchLogic()
         else if (!fetchMovesenseData())
         {
             logError("fetchStep", "Failed to fetch Movesense data");
-            errorReset(COLOR_RUNTIME_ERROR);
+            errorReset();
             return;
         }
+
+        ledWrite(false);
 
         vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
@@ -249,6 +242,7 @@ void handleSerialCommand(CmdType cmd)
 {
     // Visual indicator that a command was received
     blink(COLOR_SERIAL, 1, 1);
+    lastInteraction = getUNIXTime();
 
     switch (cmd)
     {
@@ -298,6 +292,7 @@ void handleSerialCommand(CmdType cmd)
     // Send the config file
     case CmdType::CMD_GET_FILE:
     {
+
         // Receive the file name
         if (rx_payload_len < 1)
         {
@@ -318,6 +313,7 @@ void handleSerialCommand(CmdType cmd)
     // Put a new config file
     case CmdType::CMD_CONFIG_PUT:
     {
+
         if (isMovesenseConnected)
         {
             logError("CMD_CONFIG_PUT", "Movesense connected, cannot update config");
@@ -881,13 +877,13 @@ void handleSerialCommand(CmdType cmd)
 void loop()
 {
     // Cooperative main scheduler: process periodic fetch, async queues, and host commands.
+    // This will run for as long as the USB is connected
 
     // The clock interrupt is active, fetch data
     // Give some time after boot to let serial commands be processed first
-    // Do not fetch if we reached the maximum number of connection failures
-    if (!isMovesenseConnected && timerIsOver() && (getUNIXTime() - bootTime > BOOT_RTC_DELAY_S) && connectFailureCount < MAX_CONNECT_FAILURES)
+    if (!isMovesenseConnected && timerIsOver() && (getUNIXTime() - lastInteraction > INTERACTION_DELAY_S))
     {
-        ESP_LOGI("loop", "Clock interrupt active, fetching");
+        logInfo("loop", "RTC interrupt, fetching");
         fetchLogic();
     }
 
@@ -906,7 +902,7 @@ void loop()
         {
             // We should not be here, commands should have been processed
             logError("loop", "Unhandled data notification");
-            blink(COLOR_RUNTIME_ERROR, 1, 1);
+            blink(COLOR_ERROR, 1, 1);
         }
     }
 
@@ -915,7 +911,7 @@ void loop()
     {
         // We should not be here, commands should have been processed
         logError("loop", "Unhandled log notification");
-        blink(COLOR_RUNTIME_ERROR, 1, 1);
+        blink(COLOR_ERROR, 1, 1);
     }
 
     while (xQueueReceive(responseQueue, queueNotif, 0) == pdTRUE)
@@ -932,7 +928,7 @@ void loop()
             logError("loop", "Unhandled invalid response notification");
         }
 
-        blink(COLOR_RUNTIME_ERROR, 1, 1);
+        blink(COLOR_ERROR, 1, 1);
     }
 
     // Handle incoming Serial commands without waiting
@@ -940,24 +936,8 @@ void loop()
     if (cmd != CmdType::NONE)
     {
         // If the command is valid, handle it
-        ESP_LOGI("loop", "Serial command received");
+        logInfo("loop", "Serial command received: 0x%02X", (uint8_t)cmd);
         handleSerialCommand(cmd);
-    }
-
-    // If the USB is disconnected, enter hibernation
-    if (isVUSBConnected() == false)
-    {
-        disconnectMovesense();
-
-        // If we are not logging, enter hibernation indefinitely
-        uint16_t fetchDelayMin = 0;
-        // If we are logging but failed to connect too many times, do not fetch
-        if (record.logging && connectFailureCount < MAX_CONNECT_FAILURES)
-        {
-            fetchDelayMin = getFetchDelayMin();
-        }
-
-        enterHibernation(fetchDelayMin);
     }
 }
 
@@ -973,7 +953,7 @@ extern "C" void app_main()
     if (dataQueue == NULL || responseQueue == NULL || logQueue == NULL)
     {
         logError("app_main", "Failed to create notification queues");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return;
     }
 
@@ -985,8 +965,11 @@ extern "C" void app_main()
     setupFlash();
     setupRTC();
 
-    bootTime = getUNIXTime();
-    logMessage(("Boot time: " + std::to_string(bootTime)).c_str());
+    logInfo("app_main", "booting " VERSION);
+    lastInteraction = getUNIXTime();
+
+    // Blink signal to indicate the board is starting
+    blink(COLOR_POWER, 2, 150);
 
     setupVUSB();
     setupGauge();
@@ -999,7 +982,7 @@ extern "C" void app_main()
         if (!saveRecordState())
         {
             logError("app_main", "Failed to save default record state");
-            errorReset(COLOR_SD);
+            errorReset();
         }
         else
         {
@@ -1012,11 +995,11 @@ extern "C" void app_main()
         if (record.logging)
         {
             logError("app_main", "Failed to load config file, cannot start logging");
-            errorReset(COLOR_SD);
+            errorReset();
         }
         else
         {
-            ESP_LOGI("app_main", "Failed to load config file, using default values");
+            logWarning("app_main", "Failed to load config file");
         }
     }
 
@@ -1028,43 +1011,45 @@ extern "C" void app_main()
 
     // If the clock interrupt is active, fetch data
     uint32_t causes = esp_sleep_get_wakeup_causes();
-    if (causes & BIT(ESP_SLEEP_WAKEUP_TIMER) && connectFailureCount < MAX_CONNECT_FAILURES)
+    if (causes & BIT(ESP_SLEEP_WAKEUP_TIMER))
     {
-        ESP_LOGI("app_main", "Woke up from timer, fetching");
+        logInfo("app_main", "ESP interrupt, fetching");
+        fetchLogic();
+    }
+    // Else, if the external interrupt is active, fetch data immediately if the USB is not connected
+    else if (timerIsOver() && !isVUSBConnected())
+    {
+        logInfo("app_main", "RTC interrupt, fetching");
         fetchLogic();
     }
 
     // If USB is connected, start the Serial interface
     if (isVUSBConnected())
     {
-        // Blink signal to indicate the board is starting
-        blink(RGB_MAX, RGB_MAX, RGB_MAX, 2, 150);
+        // Blink signal to indicate the board is now listening for commands
+        if (record.logging)
+        {
+            blink(COLOR_LOGGING, 3, 100);
+        }
+        else
+        {
+            blink(COLOR_SERIAL, 3, 100);
+        }
 
         setupSerial();
     }
-    // If the USB is not connected, enter hibernation
-    else
-    {
-        disconnectMovesense();
 
-        // If we are not logging, enter hibernation indefinitely
-        uint16_t fetchDelayMin = 0;
-        // If we are logging but failed to connect too many times, do not fetch
-        if (record.logging && connectFailureCount < MAX_CONNECT_FAILURES)
-        {
-            fetchDelayMin = getFetchDelayMin();
-        }
-
-        enterHibernation(fetchDelayMin);
-    }
-
-    // Prevent watchdog timeout
-    while (true)
+    // While the USB is connected, run the main loop to handle commands and fetch data periodically
+    while (isVUSBConnected())
     {
         loop();
+
+        // Prevent watchdog timeout
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
-    logError("app_main", "Reached end of app_main, resetting");
-    errorReset(COLOR_RUNTIME_ERROR);
+    // If the USB is disconnected, enter hibernation and disconnect device
+    disconnectMovesense();
+    uint16_t fetchDelayMin = getFetchDelayMin();
+    enterHibernation(fetchDelayMin);
 }

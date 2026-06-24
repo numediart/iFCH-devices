@@ -22,17 +22,20 @@
 
 #define LED_STRIP_RMT_RES_HZ (10 * 1000 * 1000) // 10 MHz
 
+#define COLOR_POWER RGB_MAX, RGB_MAX, RGB_MAX
+#define COLOR_ERROR RGB_MAX, 0, 0
+#define COLOR_LOGGING 0, RGB_MAX, 0
+#define COLOR_SERIAL 0, 0, RGB_MAX
+
 #define COLOR_SD RGB_MAX, 0, RGB_MAX
 #define COLOR_BLE 0, RGB_MAX, RGB_MAX
-#define COLOR_RTC RGB_MAX, RGB_MAX, 0
-#define COLOR_POWER 0, 0, RGB_MAX
-#define COLOR_SERIAL 0, RGB_MAX, 0
-#define COLOR_RUNTIME_ERROR RGB_MAX, 0, 0
+#define COLOR_WARN RGB_MAX, RGB_MAX, 0
 
 #define RESET_TIMEOUT_MS 2000
 
 #define BLINK_QUEUE_SIZE 10
 #define LOG_QUEUE_SIZE 10
+#define LOG_BUFFER_SIZE 256
 
 // Write RGB values to the LED
 void ledWrite(uint8_t r_val, uint8_t g_val, uint8_t b_val);
@@ -43,8 +46,8 @@ void ledWrite(bool enable);
 // Blink the LED a specified number of times with given RGB values and duration
 void blink(uint8_t r_val, uint8_t g_val, uint8_t b_val, uint8_t times, uint32_t duration);
 
-// Reset the board after an error, blinking the LED with specified RGB values
-void errorReset(uint8_t r_val, uint8_t g_val, uint8_t b_val);
+// Reset the board after an error, blinking the LED with red
+void errorReset();
 
 // Setup the LED and I2C bus
 void setupBoard();
@@ -59,7 +62,10 @@ void shutdownLogTask(uint32_t timeout_ms);
 void logError(const char *tag, const char *fmt, ...);
 
 // Log a message to the logfile and console
-void logMessage(const char *message);
+void logInfo(const char *tag, const char *fmt, ...);
+
+// Log a warning to the logfile and console
+void logWarning(const char *tag, const char *fmt, ...);
 
 // Send the error log file over the serial port
 bool sendLog();
