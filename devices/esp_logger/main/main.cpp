@@ -616,6 +616,7 @@ void handleSerialCommand(CmdType cmd)
         }
         else
         {
+            ledWrite(COLOR_BLE);
             if (retry(connectMovesense, 2, 500))
             {
                 sendFrame(CmdType::CMD_CONNECT, (uint8_t *)config.address.c_str(), config.address.length());
@@ -625,6 +626,7 @@ void handleSerialCommand(CmdType cmd)
                 logError("CMD_CONNECT", "Failed to connect to Movesense");
                 sendERR(CmdType::CMD_CONNECT);
             }
+            ledWrite(false);
         }
         break;
     }

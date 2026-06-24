@@ -104,7 +104,7 @@ void enterHibernation(uint16_t wakeDelayMin)
 {
     logInfo("enterHibernation", "Preparing");
 
-    blink(COLOR_POWER, 1, 500);
+    blink(COLOR_POWER, 1, 1000);
     shutdownBlinkTask(SHUTDOWN_TIMEOUT_MS);
 
     esp_err_t result;
