@@ -59,6 +59,23 @@ idf.py build flash
 
 See [SERIAL_PROTOCOL.md](SERIAL_PROTOCOL.md) for the detailed protocol specification.
 
+## LED Indications
+
+During operation, the device will indicate its status using the RGB LED:
+
+- 2 white flashes: device is booting
+- 1 long white flash: device is shutting down
+- 3 blue flashes: device is ready (when connected to USB)
+- 3 green flashes: device is ready, and currently logging (when connected to USB)
+- steady light blue: the device is connecting to a Movesense device over BLE
+- steady green: the device is fetching data from a Movesense device over BLE
+- steady purple: the device is sending a file from the SD card to the host over USB
+- 10 quick red flashes: the device is resetting due to a fatal error
+- 1 quick red flash: a small error occured
+- 1 quick blue flash: a serial command was received
+- 2 quick purple flashes: a default record state was set
+- 5 quick yellow flashes: a warning occured (usually a failed BLE connection attempt)
+
 ## Licensing Notes
 
 This firmware uses ESP-IDF and ESP-IDF components.

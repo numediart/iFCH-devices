@@ -376,7 +376,6 @@ class ESPRecordConverter:
                     logging.warning("Invalid hello file")
                     hello = ""
                 else:
-                    hello = hello.replace(b"\x00", b";")[1:-1]
                     hello = hello.decode("utf-8")
 
                 self.metadata["movesense_info"] = hello

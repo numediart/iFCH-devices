@@ -46,6 +46,8 @@ bool backupIfExists(std::string &filename)
             logError("backupIfExists", "Too many backups for file: %s, overwriting last", filename.c_str());
         }
 
+        logInfo("backupIfExists", "Backing up %s to %s", filename.c_str(), backupFilename.c_str());
+
         return move(filename, backupFilename);
     }
 
@@ -59,10 +61,11 @@ void streamDumpTask(void *params)
 
     // Prepare the file for saving the stream
     std::string streamFile = std::format(MOUNT_POINT "/{:03}/{:03}.bin", record.id, record.part);
+
     if (!backupIfExists(streamFile))
     {
         logError("streamDumpTask", "Failed to backup bin file %s", streamFile.c_str());
-        errorReset(COLOR_SD);
+        errorReset();
         return;
     }
 
@@ -71,7 +74,7 @@ void streamDumpTask(void *params)
     if (f == NULL)
     {
         logError("streamDumpTask", "Failed to open file for writing: %s", streamFile.c_str());
-        errorReset(COLOR_SD);
+        errorReset();
         goto cleanup;
     }
 
@@ -82,7 +85,7 @@ void streamDumpTask(void *params)
     if (stream_dump_control == nullptr)
     {
         logError("streamDumpTask", "Stream dump control task not set, cannot notify");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
 
         movUnsubscribe();
         goto cleanup;
@@ -100,7 +103,7 @@ void streamDumpTask(void *params)
         if (xTaskNotify(stream_dump_control, code, eSetValueWithoutOverwrite) != pdPASS)
         {
             logError("streamDumpTask", "Failed to notify stream dump control task");
-            errorReset(COLOR_RUNTIME_ERROR);
+            errorReset();
 
             movUnsubscribe();
             goto cleanup;
@@ -142,8 +145,9 @@ void streamDumpTask(void *params)
                     size_t written = fwrite(binBuffer, 1, bufferLen, f);
                     if (written != bufferLen)
                     {
-                        logError("streamDumpTask", "Failed to write data to file");
-                        blink(COLOR_RUNTIME_ERROR, 1, 1);
+                        logError("streamDumpTask", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
+                        errorReset();
+                        goto cleanup;
                     }
                     bufferLen = 0;
 
@@ -169,8 +173,9 @@ void streamDumpTask(void *params)
             size_t written = fwrite(binBuffer, 1, bufferLen, f);
             if (written != bufferLen)
             {
-                logError("streamDumpTask", "Failed to write remaining data to file");
-                blink(COLOR_RUNTIME_ERROR, 1, 1);
+                logError("streamDumpTask", "Failed to write remaining data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
+                errorReset();
+                goto cleanup;
             }
         }
     }
@@ -182,7 +187,7 @@ void streamDumpTask(void *params)
     if (stream_dump_control == nullptr)
     {
         logError("streamDumpTask", "Stream dump control task not set, cannot notify");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         goto cleanup;
     }
     else
@@ -198,7 +203,7 @@ void streamDumpTask(void *params)
         if (xTaskNotify(stream_dump_control, code, eSetValueWithoutOverwrite) != pdPASS)
         {
             logError("streamDumpTask", "Failed to notify stream dump control task for unsubscribe");
-            errorReset(COLOR_RUNTIME_ERROR);
+            errorReset();
             goto cleanup;
         }
     }
@@ -223,7 +228,7 @@ cleanup:
 
 bool startStreamDumpTask()
 {
-    ESP_LOGI("startStreamDumpTask", "Starting stream dump task");
+    logInfo("startStreamDumpTask", "Starting");
     stream_dump_control = xTaskGetCurrentTaskHandle();
 
     BaseType_t result;
@@ -239,10 +244,10 @@ bool startStreamDumpTask()
 
     if (result != pdPASS)
     {
-        ESP_LOGE("startStreamDumpTask", "Failed to create task");
+        logError("startStreamDumpTask", "Failed to create task");
         stream_dump_task = nullptr;
 
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return false;
     }
 
@@ -266,7 +271,7 @@ bool startStreamDumpTask()
             stream_dump_task = nullptr;
         }
 
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return false;
     }
 
@@ -287,11 +292,11 @@ bool stopStreamDumpTask()
 {
     if (stream_dump_task == nullptr)
     {
-        ESP_LOGW("stopStreamDumpTask", "Stream dump task not running");
+        logWarning("stopStreamDumpTask", "Stream dump task not running");
         return true; // Nothing to stop
     }
 
-    ESP_LOGI("stopStreamDumpTask", "Stopping stream dump task");
+    logInfo("stopStreamDumpTask", "Stopping");
     stream_dump_control = xTaskGetCurrentTaskHandle();
 
     xTaskNotifyGive(stream_dump_task); // Notify the task to stop
@@ -316,7 +321,7 @@ bool stopStreamDumpTask()
             stream_dump_task = nullptr;
         }
 
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return false;
     }
 
@@ -421,7 +426,7 @@ bool saveCheckpoint(uint32_t &currentEpoch)
     if (f == NULL)
     {
         logError("saveCheckpoint", "Failed to open checkpoint file");
-        errorReset(COLOR_SD);
+        errorReset();
         return false;
     }
 
@@ -432,7 +437,7 @@ bool saveCheckpoint(uint32_t &currentEpoch)
     if (ret > 0)
     {
         logError("saveCheckpoint", "Failed to write checkpoint file");
-        errorReset(COLOR_SD);
+        errorReset();
 
         fclose(f);
         cJSON_free(json_str);
@@ -445,18 +450,39 @@ bool saveCheckpoint(uint32_t &currentEpoch)
     cJSON_free(json_str);
     cJSON_Delete(json);
 
-    ESP_LOGI("saveCheckpoint", "Checkpoint saved to %s", checkpoint.c_str());
+    logInfo("saveCheckpoint", "Saved to %s", checkpoint.c_str());
 
     return true;
 }
 
 bool startMovesenseLogging()
 {
+    logInfo("startMovesenseLogging", "Starting logging");
+
     if (record.logging)
     {
         logError("startMovesenseLogging", "device is already logging!");
         return false;
     }
+
+    // Start by validating the Movesense firmware
+    uint8_t helloBuffer[NOTIF_LEN];
+    uint8_t helloLength = sizeof(helloBuffer);
+
+    if (!movHello(helloBuffer, helloLength))
+    {
+        logError("startMovesenseLogging", "Failed to send Movesense hello");
+        return false;
+    }
+
+    bool valid = validateMovesenseHello(helloBuffer, helloLength);
+    if (!valid)
+    {
+        logError("startMovesenseLogging", "Movesense version requirements check failed");
+        return false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Increment the record ID until a free one is found
     std::string recordDir;
@@ -489,7 +515,7 @@ bool startMovesenseLogging()
     if (!mkdir(recordDir))
     {
         logError("startMovesenseLogging", "Failed to create record directory: %s", recordDir.c_str());
-        errorReset(COLOR_SD);
+        errorReset();
         record.logging = false;
         return false;
     }
@@ -499,20 +525,7 @@ bool startMovesenseLogging()
     {
         logError("startMovesenseLogging", "Failed to copy config file to record directory");
         rremove(recordDir);
-        errorReset(COLOR_SD);
-        record.logging = false;
-        return false;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-
-    uint8_t helloBuffer[NOTIF_LEN];
-    uint8_t helloLength = sizeof(helloBuffer);
-
-    if (!movHello(helloBuffer, helloLength))
-    {
-        logError("startMovesenseLogging", "Failed to send Movesense hello");
-        rremove(recordDir);
+        errorReset();
         record.logging = false;
         return false;
     }
@@ -622,6 +635,8 @@ bool startMovesenseLogging()
 
 bool endMovesenseLogging()
 {
+    logInfo("endMovesenseLogging", "Ending logging");
+
     if (!record.logging)
     {
         logError("endMovesenseLogging", "device is not currently logging!");
@@ -737,7 +752,7 @@ uint32_t readRecordTime(std::string path)
         if (f == NULL)
         {
             logError("readRecordTime", "Failed to open checkpoint file");
-            errorReset(COLOR_SD);
+            errorReset();
             return UINT32_MAX;
         }
 
@@ -777,6 +792,8 @@ uint32_t readRecordTime(std::string path)
 
 bool fetchMovesenseData()
 {
+    logInfo("fetchMovesenseData", "Fetching data");
+
     if (!record.logging)
     {
         logError("fetchMovesenseData", "device is not currently logging!");
@@ -915,6 +932,7 @@ bool fetchMovesenseData()
 
 bool rescueMovesenseData()
 {
+    logInfo("rescueMovesenseData", "Rescuing data");
     if (!record.logging)
     {
         logError("rescueMovesenseData", "device is not currently logging!");
@@ -1007,7 +1025,7 @@ std::map<uint32_t, std::string> listArchivedLogs()
     if (root == NULL)
     {
         logError("listArchivedLogs", "Failed to open root directory: %s", MOUNT_POINT);
-        errorReset(COLOR_SD);
+        errorReset();
         return archives;
     }
 
@@ -1040,6 +1058,8 @@ bool pruneArchives()
         return true; // No need to prune
     }
 
+    logInfo("pruneArchives", "Available space low: %lu kiB", availableSpace);
+
     std::map<uint32_t, std::string> archives = listArchivedLogs();
     while (!archives.empty() && availableSpace < MIN_FREE_SPACE)
     {
@@ -1057,7 +1077,7 @@ bool pruneArchives()
             return false;
         }
 
-        ESP_LOGI("pruneArchives", "Removed archive: %s", archivePath.c_str());
+        logInfo("pruneArchives", "Removed: %s", archivePath.c_str());
 
         // Update available space
         availableSpace = getFreeSpace();

@@ -16,10 +16,7 @@
 #include <esp_vfs_fat.h>
 #include <sdmmc_cmd.h>
 #include <nvs_flash.h>
-
-#ifdef CONFIG_IDF_TARGET_ESP32S3
 #include <driver/sdmmc_host.h>
-#endif // CONFIG_IDF_TARGET_ESP32S3
 
 static nvs_handle_t nvs_record;
 
@@ -65,7 +62,7 @@ bool sendFile(std::string filename)
         {
             logError("sendFile", "Failed to open file for reading");
             sendERR(CmdType::CMD_FILE_CHUNK);
-            errorReset(COLOR_SD);
+            errorReset();
             return false;
         }
 
@@ -142,7 +139,7 @@ bool sendDir(std::string folderName)
     {
         logError("sendDir", "Failed to open directory: %s", folderName.c_str());
         sendERR(CmdType::CMD_DIR_CHUNK);
-        errorReset(COLOR_SD);
+        errorReset();
         return false;
     }
 
@@ -174,7 +171,7 @@ bool sendDir(std::string folderName)
         }
         else
         {
-            ESP_LOGW("sendDir", "Skipping non-regular file: %s/%s", folderName.c_str(), entry->d_name);
+            logWarning("sendDir", "Skipping non-regular file: %s/%s", folderName.c_str(), entry->d_name);
         }
     }
 
@@ -239,7 +236,7 @@ std::string receiveFile(std::string filename)
                     if (written != rx_payload_len - 1)
                     {
                         logError("receiveFile", "Failed to write file");
-                        errorReset(COLOR_SD);
+                        errorReset();
                         receivedName = "";
                         break;
                     }
@@ -288,7 +285,7 @@ std::string receiveFile(std::string filename)
 
     if (receivedName.empty())
     {
-        ESP_LOGI("receiveFile", "Failed to receive file, deleting file: %s", filename.c_str());
+        logError("receiveFile", "Failed to receive file, deleting file: %s", filename.c_str());
         rremove(filename);
     }
 
@@ -329,7 +326,7 @@ void setupSDCard()
     if (ret != ESP_OK)
     {
         logError("setupSDCard", "Failed to mount filesystem");
-        errorReset(COLOR_SD);
+        errorReset();
         return;
     }
     ESP_LOGI("setupSDCard", "Filesystem mounted");
@@ -341,7 +338,7 @@ void setupSDCard()
         if (f == nullptr)
         {
             ESP_LOGE("setupSDCard", "Failed to create log file");
-            errorReset(COLOR_SD);
+            errorReset();
             return;
         }
         fclose(f);
@@ -362,7 +359,7 @@ void setupFlash()
     if (err != ESP_OK)
     {
         logError("setupFlash", "Failed to initialize NVS flash");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return;
     }
 
@@ -370,7 +367,7 @@ void setupFlash()
     if (err != ESP_OK)
     {
         logError("setupFlash", "Failed to open NVS handle");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return;
     }
 }
@@ -382,14 +379,14 @@ bool loadJsonConfig()
     // If the config file does not exist, return false
     if (!exists(CONFIG_FILE))
     {
-        ESP_LOGW("loadJsonConfig", "Config file not found");
+        logWarning("loadJsonConfig", "Config file not found");
         return false;
     }
     FILE *f = fopen(CONFIG_FILE, "r");
     if (f == NULL)
     {
         logError("loadJsonConfig", "Failed to open config file");
-        errorReset(COLOR_SD);
+        errorReset();
         return false;
     }
 
@@ -470,28 +467,28 @@ bool loadRecordState()
     ret = nvs_get_u32(nvs_record, "lastFetch", &lastFetch);
     if (ret != ESP_OK)
     {
-        ESP_LOGW("loadRecordState", "Failed to get lastFetch from NVS");
+        logWarning("loadRecordState", "Failed to get lastFetch from NVS");
         return false;
     }
 
     ret = nvs_get_u16(nvs_record, "id", &id);
     if (ret != ESP_OK)
     {
-        ESP_LOGW("loadRecordState", "Failed to get id from NVS");
+        logWarning("loadRecordState", "Failed to get id from NVS");
         return false;
     }
 
     ret = nvs_get_u16(nvs_record, "part", &part);
     if (ret != ESP_OK)
     {
-        ESP_LOGW("loadRecordState", "Failed to get part from NVS");
+        logWarning("loadRecordState", "Failed to get part from NVS");
         return false;
     }
 
     ret = nvs_get_u8(nvs_record, "logging", &logging);
     if (ret != ESP_OK)
     {
-        ESP_LOGW("loadRecordState", "Failed to get logging from NVS");
+        logWarning("loadRecordState", "Failed to get logging from NVS");
         return false;
     }
 
@@ -513,28 +510,28 @@ bool saveRecordState()
     if (ret != ESP_OK)
     {
         logError("saveRecordState", "Failed to save lastFetch to NVS");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return false;
     }
     ret = nvs_set_u16(nvs_record, "id", record.id);
     if (ret != ESP_OK)
     {
         logError("saveRecordState", "Failed to save id to NVS");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return false;
     }
     ret = nvs_set_u16(nvs_record, "part", record.part);
     if (ret != ESP_OK)
     {
         logError("saveRecordState", "Failed to save part to NVS");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return false;
     }
     ret = nvs_set_u8(nvs_record, "logging", record.logging ? 1 : 0);
     if (ret != ESP_OK)
     {
         logError("saveRecordState", "Failed to save logging to NVS");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return false;
     }
 
@@ -542,7 +539,7 @@ bool saveRecordState()
     if (ret != ESP_OK)
     {
         logError("saveRecordState", "Failed to commit NVS changes");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return false;
     }
 
@@ -719,7 +716,7 @@ bool wipeSD()
     if (root == NULL)
     {
         logError("wipeSD", "Failed to open root directory: %s", MOUNT_POINT);
-        errorReset(COLOR_SD);
+        errorReset();
         return false;
     }
 
@@ -771,7 +768,7 @@ bool listLogs()
     if (dir == NULL)
     {
         logError("listLogs", "Failed to open mount point directory");
-        errorReset(COLOR_SD);
+        errorReset();
         return false;
     }
 
@@ -799,7 +796,7 @@ void writeToLogFile(const char *tag, const char *message)
     }
 
     // Write the message to the log file
-    if (fprintf(log_file, " %s: %s\n", tag, message) < 0)
+    if (fprintf(log_file, "%s:%s\n", tag, message) < 0)
     {
         ESP_LOGE("writeToLogFile", "Failed to write to log file");
         return;

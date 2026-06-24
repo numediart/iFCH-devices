@@ -341,6 +341,8 @@ bool writeMovesenseCommandNowait(uint8_t command, uint8_t reference, uint8_t *da
         }
     }
 
+    logInfo("writeMovesenseCommandNowait", "Sent 0x%02x [0x%02x]", command, reference);
+
     return true;
 }
 
@@ -479,8 +481,8 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
     {
         if (event->conn_update.status != 0)
         {
-            ESP_LOGW("BLE_GAP_EVENT_CONN_UPDATE", "Connection lost: %d",
-                     event->conn_update.status);
+            logWarning("BLE_GAP_EVENT_CONN_UPDATE", "Connection lost: %d",
+                       event->conn_update.status);
 
             isMovesenseConnected = false;
         }
@@ -546,7 +548,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             if (result == pdFALSE)
             {
                 logError("BLE_GAP_EVENT_NOTIFY_RX", "Queue send failed for responseQueue, data lost (queue full?)");
-                blink(COLOR_RUNTIME_ERROR, 1, 1);
+                blink(COLOR_ERROR, 1, 1);
             }
         }
         else if (event->notify_rx.attr_handle == data_char_handle)
@@ -556,7 +558,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             if (result == pdFALSE)
             {
                 logError("BLE_GAP_EVENT_NOTIFY_RX", "Queue send failed for dataQueue, data lost (queue full?)");
-                blink(COLOR_RUNTIME_ERROR, 1, 1);
+                blink(COLOR_ERROR, 1, 1);
             }
         }
         else if (event->notify_rx.attr_handle == log_char_handle)
@@ -566,7 +568,7 @@ static int gap_event_callback(struct ble_gap_event *event, void *arg)
             if (result == pdFALSE)
             {
                 logError("BLE_GAP_EVENT_NOTIFY_RX", "Queue send failed for logQueue, data lost (queue full?)");
-                blink(COLOR_RUNTIME_ERROR, 1, 1);
+                blink(COLOR_ERROR, 1, 1);
             }
         }
         else
@@ -738,7 +740,7 @@ static void nimble_sync_callback(void)
     if (rc != 0)
     {
         logError("nimble_sync", "Failed to set address");
-        errorReset(COLOR_BLE);
+        errorReset();
         return;
     }
 }
@@ -764,7 +766,7 @@ void setupBLE()
         if (rc != ESP_OK)
         {
             logError("setupBLE", "Failed to erase NVS: %d", rc);
-            errorReset(COLOR_BLE);
+            errorReset();
             return;
         }
 
@@ -774,7 +776,7 @@ void setupBLE()
     if (rc != ESP_OK)
     {
         logError("setupBLE", "Failed to init NVS: %d", rc);
-        errorReset(COLOR_BLE);
+        errorReset();
         return;
     }
 
@@ -782,7 +784,7 @@ void setupBLE()
     if (rc != ESP_OK)
     {
         logError("setupBLE", "Failed to init nimble");
-        errorReset(COLOR_BLE);
+        errorReset();
         return;
     }
 
@@ -795,7 +797,7 @@ void setupBLE()
     if (rc != 0)
     {
         logError("setupBLE", "Failed to set device name");
-        errorReset(COLOR_BLE);
+        errorReset();
         return;
     }
 
@@ -811,7 +813,7 @@ void setupBLE()
     if (bleConnectSemaphore == NULL || bleScanSemaphore == NULL || bleGattSemaphore == NULL)
     {
         logError("setupBLE", "Failed to create BLE semaphores");
-        errorReset(COLOR_RUNTIME_ERROR);
+        errorReset();
         return;
     }
 }
@@ -868,6 +870,8 @@ bool scanBLEDevices()
 
 bool connectMovesense()
 {
+    logInfo("connectMovesense", "Connecting");
+
     uint8_t own_addr_type;
     int rc;
 
@@ -981,7 +985,7 @@ bool disconnectMovesense()
     }
     else if (rc == 2)
     {
-        ESP_LOGW("disconnectMovesense", "Warning: Disconnect already in progress (rc=0x02)");
+        logWarning("disconnectMovesense", "Disconnect already in progress");
         isMovesenseConnected = false;
         return true;
     }
@@ -992,7 +996,7 @@ bool disconnectMovesense()
     }
     else
     {
-        ESP_LOGI("disconnectMovesense", "Disconnected from Movesense");
+        logInfo("disconnectMovesense", "Disconnected");
         isMovesenseConnected = false;
         return true;
     }
@@ -1032,6 +1036,8 @@ bool movHello(uint8_t *responseBuffer, uint8_t &responseLength)
         logError("movHello", "Failed to send hello command");
         return false;
     }
+
+    ESP_LOGI("movHello", "Hello command sent successfully, response length: %d", responseLength);
 
     return true;
 }
@@ -1073,6 +1079,7 @@ bool movGetTime(uint32_t &time, int64_t &utcTimeUs)
 bool movSetUTCTime(int64_t utcTimeUs)
 {
     bool success = writeMovesenseCommand(Commands::SET_UTCTIME, Commands::SET_UTCTIME + REF_OFFSET_COMMAND, (uint8_t *)&utcTimeUs, sizeof(utcTimeUs));
+    ESP_LOGI("movSetUTCTime", "Set UTC time to: %" PRId64, utcTimeUs);
     return success;
 }
 
@@ -1096,13 +1103,14 @@ bool movGetLoggingStatus(uint8_t &loggingStatus)
     }
 
     loggingStatus = responseBuffer[0];
-    ESP_LOGI("movGetLoggingStatus", "Logging status: %d", loggingStatus);
+    ESP_LOGI("movGetLoggingStatus", "Movesense status: %d", loggingStatus);
 
     return true;
 }
 
 bool movReset()
 {
+    logInfo("movReset", "Sending reset command to Movesense");
     return writeMovesenseCommand(Commands::RESET, Commands::RESET + REF_OFFSET_COMMAND, nullptr, 0);
 }
 
@@ -1130,6 +1138,8 @@ bool movSubscribe()
         return false;
     }
 
+    ESP_LOGI("movSubscribe", "Subscribed to Movesense streams successfully");
+
     return true;
 }
 
@@ -1143,11 +1153,14 @@ bool movUnsubscribe()
         return false;
     }
 
+    ESP_LOGI("movUnsubscribe", "Sending unsubscribe all command to Movesense");
+
     return writeMovesenseCommand(Commands::UNSUBSCRIBE_ALL, Commands::UNSUBSCRIBE_ALL + REF_OFFSET_COMMAND, nullptr, 0);
 }
 
 bool movClearLogs()
 {
+    logInfo("movClearLogs", "Sending clear logs command to Movesense");
     return writeMovesenseCommand(Commands::CLEAR_LOGS, Commands::CLEAR_LOGS + REF_OFFSET_COMMAND, nullptr, 0);
 }
 
@@ -1168,16 +1181,20 @@ bool movSubLogs()
         vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
     }
 
+    ESP_LOGI("movSubLogs", "Subscribed to Movesense logs successfully");
+
     return true;
 }
 
 bool movStartLog()
 {
+    logInfo("movStartLog", "Sending start log command to Movesense");
     return writeMovesenseCommand(Commands::START_LOG, Commands::START_LOG + REF_OFFSET_COMMAND, nullptr, 0);
 }
 
 bool movStopLog()
 {
+    logInfo("movStopLog", "Sending stop log command to Movesense");
     return writeMovesenseCommand(Commands::STOP_LOG, Commands::STOP_LOG + REF_OFFSET_COMMAND, nullptr, 0);
 }
 
@@ -1331,7 +1348,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
                         if (written != bufferLen)
                         {
                             logError("_movFetchLog", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
-                            errorReset(COLOR_SD);
+                            errorReset();
                             return false;
                         }
                     }
@@ -1353,7 +1370,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
                     if (written != bufferLen)
                     {
                         logError("_movFetchLog", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
-                        errorReset(COLOR_SD);
+                        errorReset();
                         return false;
                     }
 
@@ -1364,7 +1381,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
                     if (ret != 0)
                     {
                         logError("_movFetchLog", "Failed to seek to offset %lu in file: %d", offset, ret);
-                        errorReset(COLOR_SD);
+                        errorReset();
                         return false;
                     }
 
@@ -1388,7 +1405,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
                     if (written != bufferLen)
                     {
                         logError("_movFetchLog", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
-                        errorReset(COLOR_SD);
+                        errorReset();
                         return false;
                     }
 
@@ -1460,10 +1477,11 @@ bool movFetchLog(std::string filename, uint32_t logId)
     if (f == NULL)
     {
         logError("movFetchLog", "Failed to open file for writing: %s", filename.c_str());
-        errorReset(COLOR_SD);
+        errorReset();
         return false;
     }
 
+    logInfo("movFetchLog", "Fetching log: %" PRId32, logId);
     bool success = _movFetchLog(f, logId);
 
     // Close the file
@@ -1477,6 +1495,11 @@ bool movFetchLog(std::string filename, uint32_t logId)
     if (!success)
     {
         rremove(filename);
+        logWarning("movFetchLog", "Removed incomplete log file: %s", filename.c_str());
+    }
+    else
+    {
+        logInfo("movFetchLog", "Wrote log: %s", filename.c_str());
     }
 
     return success;

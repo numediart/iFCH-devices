@@ -1749,13 +1749,12 @@ class Backend:
 
     async def start_device(self, port: str):
         """Open serial, start notification processing, start disconnect watcher."""
-        try:
-            self.device = ESPLogger(port, stream_callback=self.stream_callback)
-            self.ecg_data = collections.deque(maxlen=self.PLOT_SAMPLES)
-            await self.device.start()
+        self.device = ESPLogger(port, stream_callback=self.stream_callback)
+        self.ecg_data = collections.deque(maxlen=self.PLOT_SAMPLES)
+        connected = await self.device.start()
 
-        except Exception as e:
-            logging.warning("Failed to start device on %s: %s", port, e)
+        if not connected:
+            logging.warning("Failed to start device on %s", port)
             self.device = None
             # Retry probing later
             self.schedule_after(0, CmdProbeUSB())
@@ -2069,7 +2068,41 @@ class CmdStreamDevice:
 
         if not await retry(back.device.connect, retries=2):
             logging.warning("BLE connect failed")
+            await back.show_error(
+                "Movesense connection failed",
+                "Please make sure the Movesense is running the iFCH firmware.",
+            )
+            return
+
+        is_valid = await retry(back.device.validate_mov_version)
+
+        if is_valid is None:
+            logging.warning("Failed to validate Movesense version")
             await back.show_error()
+            return
+
+        elif not is_valid:
+            hello = await retry(back.device.hello_movesense)
+            if hello is None:
+                logging.warning("Failed to get Movesense hello")
+                await back.show_error()
+                return
+
+            parts = hello.split(";")
+            app_version = parts[-1]
+
+            min_version = await retry(back.device.get_min_version)
+            if min_version is None:
+                logging.warning("Failed to get Movesense min version")
+                await back.show_error()
+                return
+
+            min_version = min_version[-1]
+
+            await back.show_error(
+                "Movesense firmware too old",
+                f"Movesense firmware version {app_version} on your device is too old.\nMinimum required version is {min_version}. Please update the Movesense firmware.",
+            )
             return
 
         is_logging = await retry(back.device.get_mov_islogging)
