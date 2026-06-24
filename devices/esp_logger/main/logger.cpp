@@ -465,6 +465,25 @@ bool startMovesenseLogging()
         return false;
     }
 
+    // Start by validating the Movesense firmware
+    uint8_t helloBuffer[NOTIF_LEN];
+    uint8_t helloLength = sizeof(helloBuffer);
+
+    if (!movHello(helloBuffer, helloLength))
+    {
+        logError("startMovesenseLogging", "Failed to send Movesense hello");
+        return false;
+    }
+
+    bool valid = validateMovesenseHello(helloBuffer, helloLength);
+    if (!valid)
+    {
+        logError("startMovesenseLogging", "Movesense version requirements check failed");
+        return false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
     // Increment the record ID until a free one is found
     std::string recordDir;
     for (uint8_t i = 1; i < 255; i++)
@@ -507,19 +526,6 @@ bool startMovesenseLogging()
         logError("startMovesenseLogging", "Failed to copy config file to record directory");
         rremove(recordDir);
         errorReset();
-        record.logging = false;
-        return false;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-
-    uint8_t helloBuffer[NOTIF_LEN];
-    uint8_t helloLength = sizeof(helloBuffer);
-
-    if (!movHello(helloBuffer, helloLength))
-    {
-        logError("startMovesenseLogging", "Failed to send Movesense hello");
-        rremove(recordDir);
         record.logging = false;
         return false;
     }

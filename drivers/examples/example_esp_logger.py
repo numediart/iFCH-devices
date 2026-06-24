@@ -74,6 +74,12 @@ async def main():
         else:
             logging.warning("Failed to retrieve current log ID.")
 
+        min_version = await device.get_min_version()
+        if min_version is not None:
+            logging.info("Minimum firmware version: %s", min_version)
+        else:
+            logging.warning("Failed to retrieve minimum firmware version.")
+
         error_log = await device.get_error_log()
         if error_log is not None:
             lines = error_log.splitlines()

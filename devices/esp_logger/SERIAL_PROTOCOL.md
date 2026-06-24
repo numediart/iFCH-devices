@@ -73,11 +73,11 @@ Groups:
 | `CMD_GET_FREE_SPACE`        | `0x06` | Return free space available for logs/data on storage.                        |
 | `CMD_RESET_STATE`           | `0x07` | Reset the logger state without a full device reset.                          |
 | `CMD_GET_RECORD_ID`         | `0x08` | Return the current record id used for logging.                               |
+| `CMD_GET_MIN_VERSION`       | `0x09` | Return the minimum required Movesense firmware version.                      |
 | `CMD_SCAN`                  | `0x11` | Start or report a BLE scan for nearby Movesense devices.                     |
 | `CMD_CONNECT`               | `0x12` | Connect to the configured Movesense device.                                  |
 | `CMD_DISCONNECT`            | `0x13` | Disconnect from the active Movesense device.                                 |
 | `CMD_BLE_NOTIFY`            | `0x14` | Forward a BLE notification payload from the Movesense link.                  |
-| `CMD_BLE_HELLO`             | `0x15` | Request the Movesense hello/info payload.                                    |
 | `CMD_FILE_CHUNK`            | `0x20` | Send or receive a chunk of file data using the protected sequence protocol.  |
 | `CMD_GET_FILE`              | `0x21` | Retrieve a stored file from the SD card.                                     |
 | `CMD_CONFIG_PUT`            | `0x22` | Upload a configuration file to the logger.                                   |
@@ -90,6 +90,7 @@ Groups:
 | `CMD_TIME_GET`              | `0x31` | Return the current RTC time.                                                 |
 | `CMD_TIME_PUT`              | `0x32` | Set the RTC time.                                                            |
 | `CMD_BATTERY_GET`           | `0x33` | Return the logger battery level.                                             |
+| `CMD_MOV_VALIDATE`          | `0x40` | Validate the connected Movesense firmware version.                           |
 | `CMD_MOV_BATTERY_GET`       | `0x41` | Return the connected Movesense battery level.                                |
 | `CMD_MOV_STREAM`            | `0x42` | Subscribe the logger to one or more Movesense streams.                       |
 | `CMD_MOV_UNSTREAM`          | `0x43` | Unsubscribe from active Movesense streams.                                   |
@@ -97,6 +98,7 @@ Groups:
 | `CMD_MOV_LOG_END`           | `0x45` | Stop Movesense logging and fetch the resulting record id.                    |
 | `CMD_MOV_GET_LOGGING_STATE` | `0x46` | Return whether the connected Movesense is currently logging.                 |
 | `CMD_MOV_FULL_RESET`        | `0x47` | Trigger a full reset of the connected Movesense device.                      |
+| `CMD_MOV_HELLO`             | `0x48` | Request the Movesense hello/info payload.                                    |
 | `CMD_TIMEOUT`               | `0xFE` | Firmware-generated timeout response for blocking operations.                 |
 | `CMD_INVALID`               | `0xFF` | Firmware-generated invalid-frame response.                                   |
 

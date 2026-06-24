@@ -647,26 +647,68 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    // Check that the version requirements are met
+    case CmdType::CMD_MOV_VALIDATE:
+    {
+        if (!isMovesenseConnected)
+        {
+            logError("CMD_MOV_VALIDATE", "Movesense not connected");
+            sendERR(CmdType::CMD_MOV_VALIDATE);
+            break;
+        }
+
+        uint8_t helloBuffer[NOTIF_LEN];
+        uint8_t helloLength = sizeof(helloBuffer);
+
+        if (!movHello(helloBuffer, helloLength))
+        {
+            logError("CMD_MOV_VALIDATE", "Failed to send hello to Movesense");
+            sendERR(CmdType::CMD_MOV_VALIDATE);
+            break;
+        }
+
+        if (validateMovesenseHello(helloBuffer, helloLength))
+        {
+            uint8_t valid = 1;
+            sendFrame(CmdType::CMD_MOV_VALIDATE, &valid, sizeof(valid));
+        }
+        else
+        {
+            uint8_t valid = 0;
+            sendFrame(CmdType::CMD_MOV_VALIDATE, &valid, sizeof(valid));
+        }
+        break;
+    }
+
+    // Get the minimum version requirements and app name
+    case CmdType::CMD_GET_MIN_VERSION:
+    {
+        char minVersionBuffer[NOTIF_LEN];
+        sprintf(minVersionBuffer, "%s;%d.%d", MOV_REQ_FIRMWARE, MOV_MIN_VER_MAJOR, MOV_MIN_VER_MINOR);
+        sendFrame(CmdType::CMD_GET_MIN_VERSION, (uint8_t *)minVersionBuffer, strlen(minVersionBuffer));
+        break;
+    }
+
     // Send a hello message to the Movesense
-    case CmdType::CMD_BLE_HELLO:
+    case CmdType::CMD_MOV_HELLO:
     {
         uint8_t helloBuffer[NOTIF_LEN];
         uint8_t helloLength = sizeof(helloBuffer);
 
         if (!isMovesenseConnected)
         {
-            logError("CMD_BLE_HELLO", "Movesense not connected");
-            sendERR(CmdType::CMD_BLE_HELLO);
+            logError("CMD_MOV_HELLO", "Movesense not connected");
+            sendERR(CmdType::CMD_MOV_HELLO);
             break;
         }
         else if (movHello(helloBuffer, helloLength))
         {
-            sendFrame(CmdType::CMD_BLE_HELLO, helloBuffer, helloLength);
+            sendFrame(CmdType::CMD_MOV_HELLO, helloBuffer, helloLength);
         }
         else
         {
-            logError("CMD_BLE_HELLO", "Failed to send hello to Movesense");
-            sendERR(CmdType::CMD_BLE_HELLO);
+            logError("CMD_MOV_HELLO", "Failed to send hello to Movesense");
+            sendERR(CmdType::CMD_MOV_HELLO);
         }
         break;
     }

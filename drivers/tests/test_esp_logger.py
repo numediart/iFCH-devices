@@ -108,7 +108,9 @@ async def test_get_logs(device: ESPLogger):
         assert await device.archive_log(log_id)
 
     else:
-        warnings.warn("No logs found to test archiving.", stacklevel=1)
+        warnings.warn(
+            "No logs found to test archiving. Please run this test again now.", stacklevel=1
+        )
         logs = await device.list_logs(show_archived=True)
         if logs is None or len(logs) == 0:
             pytest.skip("No logs found to test directory listing.")
@@ -130,6 +132,14 @@ async def test_config(device: ESPLogger):
     assert config["MovesenseID"] == movesense_id
 
 
+async def test_min_version(device: ESPLogger):
+    """Verify minimum required Movesense firmware version can be queried."""
+    min_version = await device.get_min_version()
+    assert min_version is not None
+    assert isinstance(min_version, tuple)
+    assert len(min_version) == 2
+
+
 async def test_movesense(device: ESPLogger):
     """Verify end-to-end Movesense BLE control flow via logger."""
     devices = await device.scan()
@@ -143,6 +153,22 @@ async def test_movesense(device: ESPLogger):
 
     assert await device.connect()
 
+    result = await device.hello_movesense()
+    assert result is not None
+
+    parts = result[:].split(";")
+    assert len(parts) == 5  # Movesense ID, HW version, BLE address, FW name, FW version
+
+    assert len(parts[0]) == 12  # Movesense ID
+    assert len(parts[2]) == 17 and parts[2].count(":") == 5  # BLE address
+
+    valid = await device.validate_mov_version()
+    assert valid is not None
+
+    if not valid:
+        assert await device.disconnect()
+        pytest.skip("Movesense firmware version is not compatible with iFCH logger.")
+
     status = await device.get_status()
     assert status is not None
     assert status["connected"]
@@ -151,17 +177,6 @@ async def test_movesense(device: ESPLogger):
     assert is_mov_logging is not None
     if is_mov_logging:
         pytest.skip("Movesense is currently logging. Please stop logging before testing.")
-
-    result = await device.hello_movesense()
-    assert result is not None
-
-    assert result[0] == 1
-    parts = result[1:].split(b"\x00")[:-1]
-    parts = [part.decode("utf-8") for part in parts]
-    assert len(parts) == 5  # Movesense ID, HW version, BLE address, FW name, FW version
-
-    assert len(parts[0]) == 12  # Movesense ID
-    assert len(parts[2]) == 17 and parts[2].count(":") == 5  # BLE address
 
     assert await device.get_mov_battery()
 

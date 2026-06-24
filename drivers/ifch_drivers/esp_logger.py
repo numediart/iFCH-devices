@@ -30,12 +30,12 @@ class Commands(enum.IntEnum):
     CMD_GET_FREE_SPACE = 0x06
     CMD_RESET_STATE = 0x07
     CMD_GET_RECORD_ID = 0x08
+    CMD_GET_MIN_VERSION = 0x09
     # BLE
     CMD_SCAN = 0x11
     CMD_CONNECT = 0x12
     CMD_DISCONNECT = 0x13
     CMD_BLE_NOTIFY = 0x14
-    CMD_BLE_HELLO = 0x15
     # File transfer
     CMD_FILE_CHUNK = 0x20
     CMD_GET_FILE = 0x21
@@ -51,6 +51,7 @@ class Commands(enum.IntEnum):
     CMD_TIME_PUT = 0x32
     CMD_BATTERY_GET = 0x33
     # Movesense
+    CMD_MOV_VALIDATE = 0x40
     CMD_MOV_BATTERY_GET = 0x41
     CMD_MOV_STREAM = 0x42
     CMD_MOV_UNSTREAM = 0x43
@@ -58,6 +59,7 @@ class Commands(enum.IntEnum):
     CMD_MOV_LOG_END = 0x45
     CMD_MOV_GET_LOGGING_STATE = 0x46
     CMD_MOV_FULL_RESET = 0x47
+    CMD_MOV_HELLO = 0x48
     # Errors
     CMD_TIMEOUT = 0xFE
     CMD_INVALID = 0xFF
@@ -1012,7 +1014,7 @@ class ESPLogger:
                 # Process each line and convert epoch timestamps to human-readable format
                 lines = raw_log.splitlines()
 
-                pattern = "^.*:(\d+):.*$"
+                pattern = r"^.*:(\d+):.*$"
 
                 for index, line in enumerate(lines):
                     match = re.match(pattern, line)
@@ -1050,13 +1052,8 @@ class ESPLogger:
 
     # --------------------------------------------------------------------------
     # Movesense related methods
-    async def connect(self, require_hello: bool = True) -> bool | None:
-        """Connect the logger to the configured Movesense over BLE.
-
-        Args:
-            require_hello: Whether to require a successful hello_movesense()
-                after connecting, or just rely on the CMD_CONNECT response.
-        """
+    async def connect(self) -> bool | None:
+        """Connect the logger to the configured Movesense over BLE."""
         self._proto.send_frame(Commands.CMD_CONNECT)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_CONNECT, timeout=self.BLE_CONNECT_TIMEOUT_S
@@ -1067,12 +1064,6 @@ class ESPLogger:
             return None
 
         elif result:
-            if require_hello:
-                hello = await self.hello_movesense()
-                if hello is None:
-                    logging.warning("Failed to greet Movesense")
-                    return False
-
             logging.debug("Connected to device %s", result)
             return True
 
@@ -1096,15 +1087,67 @@ class ESPLogger:
             logging.warning("Failed to connect from Movesense")
             return False
 
-    async def hello_movesense(self) -> bytes | None:
+    async def hello_movesense(self) -> str | None:
         """Send hello command to the connected Movesense and return payload."""
-        self._proto.send_frame(Commands.CMD_BLE_HELLO)
-        result = await self._proto.wait_for_cmd(Commands.CMD_BLE_HELLO, timeout=self.BLE_TIMEOUT_S)
+        self._proto.send_frame(Commands.CMD_MOV_HELLO)
+        result = await self._proto.wait_for_cmd(Commands.CMD_MOV_HELLO, timeout=self.BLE_TIMEOUT_S)
+
         if result is not None:
             logging.debug("Received hello from Movesense, response: %s", result)
-            return result
+            if len(result) > 2:
+                result = result[1:-1].decode("utf-8")
+                result = result.replace("\0", ";")
+
+                return result
+            else:
+                logging.error("Invalid hello response from Movesense: %s", result)
+                return None
         else:
             logging.warning("Hello Movesense failed")
+            return None
+
+    async def get_min_version(self) -> tuple[str, str] | None:
+        """Get the minimum required Movesense firmware version."""
+        self._proto.send_frame(Commands.CMD_GET_MIN_VERSION)
+        result = await self._proto.wait_for_cmd(
+            Commands.CMD_GET_MIN_VERSION, timeout=self.BLE_TIMEOUT_S
+        )
+
+        if result is not None:
+            try:
+                min_version_ = result.decode("utf-8")
+                min_version = tuple(min_version_.split(";"))
+                if len(min_version) != 2:
+                    logging.error("Invalid minimum version format: %s", min_version_)
+                    return None
+
+                logging.debug("Received minimum version: %s", min_version)
+                return min_version
+
+            except (UnicodeDecodeError, ValueError) as e:
+                logging.error("Failed to decode minimum version: %s", e)
+                return None
+
+        else:
+            logging.warning("Failed to get minimum version")
+            return None
+
+    async def validate_mov_version(self) -> bool | None:
+        """Validate the Movesense firmware version against the required version.""" ""
+        self._proto.send_frame(Commands.CMD_MOV_VALIDATE)
+        result = await self._proto.wait_for_cmd(
+            Commands.CMD_MOV_VALIDATE, timeout=self.BLE_TIMEOUT_S
+        )
+        if result is not None:
+            if len(result) == 1:
+                is_valid = result[0] == 1
+                logging.debug("Movesense version validation result: %s", is_valid)
+                return is_valid
+            else:
+                logging.warning("Invalid Movesense version validation response: %s", result)
+                return None
+        else:
+            logging.warning("Movesense version validation failed")
             return None
 
     async def get_mov_battery(self) -> int | None:

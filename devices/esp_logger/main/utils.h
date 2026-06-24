@@ -10,6 +10,10 @@
 
 #include <functional>
 
+#define MOV_REQ_FIRMWARE "iFCH GATT"
+#define MOV_MIN_VER_MAJOR 1
+#define MOV_MIN_VER_MINOR 6
+
 #define RGB_MAX 64
 
 #define I2C_MASTER_SCL_IO (gpio_num_t)9
@@ -75,6 +79,10 @@ bool deleteLog();
 
 // Retry a function call with a specified number of retries and delay
 bool retry(std::function<bool()> func, int retries, int delay_ms);
+
+// Validate Movesense HELLO payload and enforce expected app/version constraints.
+// Also format the HELLO buffer
+bool validateMovesenseHello(uint8_t *helloBuffer, uint8_t &helloLength);
 
 // Global I2C master bus handle
 extern i2c_master_bus_handle_t i2c_handle;

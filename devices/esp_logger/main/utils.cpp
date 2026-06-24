@@ -9,6 +9,138 @@
 #include "rtc_time.h"
 #include "ble_com.h"
 
+#include <cstdlib>
+
+static bool readNullTerminatedField(const uint8_t *buffer, uint8_t len, uint8_t *offset, const char **field)
+{
+    if (buffer == nullptr || offset == nullptr || field == nullptr || *offset >= len)
+    {
+        return false;
+    }
+
+    uint8_t start = *offset;
+    while (*offset < len && buffer[*offset] != '\0')
+    {
+        (*offset)++;
+    }
+
+    if (*offset >= len)
+    {
+        return false;
+    }
+
+    *field = (const char *)(buffer + start);
+    (*offset)++; // Skip null terminator.
+    return true;
+}
+
+static bool checkMinVersion(const char *version, int minMajor, int minMinor)
+{
+    if (version == nullptr)
+    {
+        return false;
+    }
+
+    char *end = nullptr;
+    long major = strtol(version, &end, 10);
+    if (end == version || major < 0 || *end != '.')
+    {
+        return false;
+    }
+
+    const char *minorStart = end + 1;
+    long minor = strtol(minorStart, &end, 10);
+    if (end == minorStart || minor < 0)
+    {
+        return false;
+    }
+
+    if (major > minMajor)
+    {
+        return true;
+    }
+    if (major < minMajor)
+    {
+        return false;
+    }
+
+    return minor >= minMinor;
+}
+
+bool validateMovesenseHello(uint8_t *helloBuffer, uint8_t &helloLength)
+{
+    static const char *expectedAppName = MOV_REQ_FIRMWARE;
+
+    if (helloBuffer == nullptr || helloLength == 0 || helloBuffer[0] != 1)
+    {
+        logError("validateMovesenseHello", "Invalid HELLO payload buffer");
+        return false;
+    }
+
+    uint8_t offset = 1;
+    const char *serial = nullptr;
+    const char *device = nullptr;
+    const char *address = nullptr;
+    const char *appAndLib = nullptr;
+    const char *appVersion = nullptr;
+
+    if (!readNullTerminatedField(helloBuffer, helloLength, &offset, &serial) ||
+        !readNullTerminatedField(helloBuffer, helloLength, &offset, &device) ||
+        !readNullTerminatedField(helloBuffer, helloLength, &offset, &address) ||
+        !readNullTerminatedField(helloBuffer, helloLength, &offset, &appAndLib) ||
+        !readNullTerminatedField(helloBuffer, helloLength, &offset, &appVersion))
+    {
+        logError("validateMovesenseHello", "Malformed HELLO payload");
+        return false;
+    }
+
+    // Check if the app name matches the expected app name
+    uint8_t compareLen = strlen(appAndLib) < strlen(expectedAppName) ? strlen(appAndLib) : strlen(expectedAppName);
+
+    if (strncmp(appAndLib, expectedAppName, compareLen) != 0)
+    {
+        char appName[32] = {0};
+        uint8_t copyLen = (strlen(appAndLib) < sizeof(appName) - 1) ? strlen(appAndLib) : sizeof(appName) - 1;
+        memcpy(appName, appAndLib, copyLen);
+        logWarning("validateMovesenseHello", "Unexpected app name: %s, required: %s", appName, expectedAppName);
+        return false;
+    }
+
+    // Check if the app version meets the minimum required version
+    if (!checkMinVersion(appVersion, MOV_MIN_VER_MAJOR, MOV_MIN_VER_MINOR))
+    {
+        logError("validateMovesenseHello", "Unsupported app version: %s (requires >= %d.%d)", appVersion, MOV_MIN_VER_MAJOR, MOV_MIN_VER_MINOR);
+        return false;
+    }
+
+    // Format the HELLO buffer to contain all the fields separated by ;
+    uint8_t formattedOffset = 0;
+
+    memcpy(helloBuffer + formattedOffset, serial, strlen(serial));
+    formattedOffset += strlen(serial) + 1;
+    helloBuffer[formattedOffset - 1] = ';'; // Replace null terminator with ;
+
+    memcpy(helloBuffer + formattedOffset, device, strlen(device));
+    formattedOffset += strlen(device) + 1;
+    helloBuffer[formattedOffset - 1] = ';'; // Replace null terminator with ;
+
+    memcpy(helloBuffer + formattedOffset, address, strlen(address));
+    formattedOffset += strlen(address) + 1;
+    helloBuffer[formattedOffset - 1] = ';'; // Replace null terminator with ;
+
+    memcpy(helloBuffer + formattedOffset, appAndLib, strlen(appAndLib));
+    formattedOffset += strlen(appAndLib) + 1;
+    helloBuffer[formattedOffset - 1] = ';'; // Replace null terminator with ;
+
+    memcpy(helloBuffer + formattedOffset, appVersion, strlen(appVersion));
+    formattedOffset += strlen(appVersion);
+    helloBuffer[formattedOffset] = '\0'; // Replace null terminator with \0
+
+    helloLength = formattedOffset;
+
+    return true;
+}
+
 static led_strip_handle_t rgb_led = nullptr;
 i2c_master_bus_handle_t i2c_handle = nullptr;
 
