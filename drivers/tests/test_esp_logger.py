@@ -23,7 +23,9 @@ async def device():
     port = selected_device[0]
     device = ESPLogger(port)
 
-    await device.start()
+    connected = await device.start()
+
+    assert connected, f"Failed to connect to ESP Logger on port {port}"
 
     status = await device.get_status()
     if status is None:

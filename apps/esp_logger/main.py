@@ -1749,13 +1749,12 @@ class Backend:
 
     async def start_device(self, port: str):
         """Open serial, start notification processing, start disconnect watcher."""
-        try:
-            self.device = ESPLogger(port, stream_callback=self.stream_callback)
-            self.ecg_data = collections.deque(maxlen=self.PLOT_SAMPLES)
-            await self.device.start()
+        self.device = ESPLogger(port, stream_callback=self.stream_callback)
+        self.ecg_data = collections.deque(maxlen=self.PLOT_SAMPLES)
+        connected = await self.device.start()
 
-        except Exception as e:
-            logging.warning("Failed to start device on %s: %s", port, e)
+        if not connected:
+            logging.warning("Failed to start device on %s", port)
             self.device = None
             # Retry probing later
             self.schedule_after(0, CmdProbeUSB())

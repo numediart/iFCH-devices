@@ -8,6 +8,7 @@ import datetime
 import enum
 import json
 import logging
+import re
 import struct
 import typing
 import zlib
@@ -515,7 +516,7 @@ class FrameProtocol(asyncio.Protocol):
 class ESPLogger:
     """High-level async API for configuring and controlling an ESP logger."""
 
-    BLE_TIMEOUT_S = 2.5
+    BLE_TIMEOUT_S = 3.5
     BLE_CONNECT_TIMEOUT_S = 10
     BLE_BATTERY_TIMEOUT_S = 5
     ERROR_LOG_DELETE_TIMEOUT_S = 5
@@ -588,28 +589,32 @@ class ESPLogger:
 
         return await self._put_config()
 
-    async def start(self) -> None:
+    async def start(self) -> bool:
         """Open serial link and validate communication with the logger.
 
         Before exiting, remember to call ``stop()`` to cleanly close the serial
         transport.
 
-        Raises:
-            RuntimeError: If serial port open or initial version query fails.
+        Returns:
+            bool: True if the logger is successfully started, False otherwise.
         """
         self._proto = await FrameProtocol.open_connection(
             self._port, stream_callback=self._stream_callback
         )
         if self._proto is None:
-            raise RuntimeError(f"Failed to open serial port {self._port}")
+            logging.error(f"Failed to open serial port {self._port}")
+            return False
 
         else:
             device_info = await self.get_version()
             if device_info is None:
-                raise RuntimeError("Failed to get device version on port %s", self._port)
+                logging.error("Failed to get device version on port %s", self._port)
+                return False
             else:
                 logging.debug("Connected to device: %s", device_info)
                 self._device_info = device_info
+
+        return True
 
     async def stop(self) -> None:
         """Stop active logging session and close serial transport."""
@@ -976,7 +981,7 @@ class ESPLogger:
             logging.debug("Archived log: %s", log_id)
             return True
 
-    async def get_error_log(self) -> str | bytes | None:
+    async def get_error_log(self, process_time: bool = True) -> str | bytes | None:
         """Fetch current error log file content from the device.
 
         Returns:
@@ -998,7 +1003,29 @@ class ESPLogger:
             return None
 
         try:
-            return data.decode("utf-8")
+            raw_log = data.decode("utf-8")
+
+            if not process_time:
+                return raw_log
+
+            else:
+                # Process each line and convert epoch timestamps to human-readable format
+                lines = raw_log.splitlines()
+
+                pattern = "^.*:(\d+):.*$"
+
+                for index, line in enumerate(lines):
+                    match = re.match(pattern, line)
+                    if match:
+                        epoch = match.group(1)
+                        timestamp = datetime.datetime.fromtimestamp(int(epoch)).strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                        line = line.replace(epoch, f"{epoch} ({timestamp})")
+                        lines[index] = line
+
+                return "\n".join(lines)
+
         except UnicodeDecodeError as e:
             logging.error("Failed to decode error log file: %s", e)
             return data
