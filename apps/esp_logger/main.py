@@ -2074,22 +2074,21 @@ class CmdStreamDevice:
             )
             return
 
-        is_valid = await retry(back.device.validate_mov_version)
+        hello = await retry(back.device.hello_movesense)
+        if hello is None:
+            logging.warning("Failed to get Movesense hello")
+            await back.show_error()
+            return
+        hello = hello.split(";")
 
+        is_valid = await retry(back.device.validate_mov_version)
         if is_valid is None:
             logging.warning("Failed to validate Movesense version")
             await back.show_error()
             return
 
         elif not is_valid:
-            hello = await retry(back.device.hello_movesense)
-            if hello is None:
-                logging.warning("Failed to get Movesense hello")
-                await back.show_error()
-                return
-
-            parts = hello.split(";")
-            app_version = parts[-1]
+            app_version = hello[-1]
 
             min_version = await retry(back.device.get_min_version)
             if min_version is None:
@@ -2102,7 +2101,17 @@ class CmdStreamDevice:
             await back.show_error(
                 "Movesense firmware too old",
                 f"Movesense firmware version {app_version} on your device is too old.\n"
-                "Minimum required version is {min_version}. Please update the Movesense firmware.",
+                f"Minimum required version is {min_version}. Please update the Movesense firmware.",
+            )
+            return
+
+        device_version = hello[1]
+        if not device_version.upper().endswith("FLASH"):
+            await back.show_error(
+                "Incompatible Movesense device",
+                f"Device {parts[0]} is a {device_version}.\n"
+                f"This software only supports the Movesense Flash. "
+                f"Please switch to a compatible device.",
             )
             return
 
