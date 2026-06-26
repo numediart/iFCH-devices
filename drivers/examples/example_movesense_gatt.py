@@ -77,6 +77,7 @@ async def main():
 
         success = await device.set_utc_time()
         if success:
+            utc_time = datetime.datetime.now(tz=datetime.UTC)
             logging.info(f"Set device UTC time to {utc_time.isoformat()}")
         else:
             logging.error("Failed to set device UTC time")

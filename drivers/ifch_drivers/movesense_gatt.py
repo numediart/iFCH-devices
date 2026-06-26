@@ -322,9 +322,8 @@ class MovesenseGatt:
 
             if not self._log_queue.empty():
                 logging.warning("Disabling log listening, but log queue not empty, discarding data")
-                print("Remaining log queue data:")
                 while not self._log_queue.empty():
-                    print(self._log_queue.get_nowait())
+                    logging.warning("Discarded log data: %s", self._log_queue.get_nowait())
                 self._log_queue.clear()
 
     def _response_notification_handler(self, _, data: bytes):
