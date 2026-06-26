@@ -868,7 +868,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         if (resultCode >= 400)
         {
-            DEBUGLOG("Error fetching time: %d", resultCode);
+            DEBUGLOG("Error fetching info: %d", resultCode);
 
             uint8_t errorCode[2];
             errorCode[0] = resultCode & 0xFF;
