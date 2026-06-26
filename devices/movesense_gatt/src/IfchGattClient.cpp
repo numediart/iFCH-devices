@@ -139,7 +139,6 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mGetInfoReference(0),
                                    mGetBatteryReference(0),
                                    mGetLoggingReference(0),
-                                   mLogbookFull(true),
                                    mIsIndicating(false),
                                    mIsIndicateRetry(false),
                                    mPowerState(POWER_NORMAL)
@@ -189,12 +188,6 @@ bool IfchGattClient::startModule()
     asyncPut(WB_RES::LOCAL::UI_IND_VISUAL(), AsyncRequestOptions::Empty,
              WB_RES::VisualIndTypeValues::SHORT_VISUAL_INDICATION);
 
-    // Check Logbook status
-    asyncGet(WB_RES::LOCAL::MEM_LOGBOOK_ISFULL());
-
-    // Subscribe to mem full notification
-    asyncSubscribe(WB_RES::LOCAL::MEM_LOGBOOK_ISFULL(), AsyncRequestOptions::ForceAsync);
-
     return true;
 }
 
@@ -215,9 +208,6 @@ void IfchGattClient::stopModule()
     asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(),
              AsyncRequestOptions::Empty,
              WB_RES::DataLoggerStateValues::DATALOGGER_READY);
-
-    // Unsubscribe mem full notification
-    asyncUnsubscribe(WB_RES::LOCAL::MEM_LOGBOOK_ISFULL());
 
     // Unsubscribe sensor data
     unsubscribeAllStreams();
@@ -474,8 +464,10 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         wb::Result result = getResource(pathBuffer, dataSub.resourceId);
         if (result >= 400)
         {
-            // 404: not found
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::NOT_FOUND, Status::ERROR};
+            uint8_t errorCode[2];
+            errorCode[0] = result & 0xFF;
+            errorCode[1] = (result >> 8) & 0xFF;
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             dataSub.clean();
@@ -515,8 +507,9 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     case Commands::FETCH_LOG:
     {
         DEBUGLOG("Commands::FETCH_LOG. reference: %d", reference);
+
         // Use the "old" API for fetching the log (GET)
-        if (pData == nullptr || dataLen != sizeof(uint32_t))
+        if (pData == nullptr || (dataLen != sizeof(uint32_t) && dataLen != sizeof(uint32_t) + sizeof(uint32_t)))
         {
             // 400: Bad request
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::BAD_REQUEST, Status::ERROR};
@@ -524,13 +517,22 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             return;
         }
 
-        memcpy(&mLogIdToFetch, pData, dataLen);
+        memcpy(&mLogIdToFetch, pData, sizeof(uint32_t));
+
+        // If the commands contains an offset, start from there
+        uint32_t startOffset = 0;
+        if (dataLen == sizeof(uint32_t) + sizeof(uint32_t))
+        {
+            memcpy(&startOffset, pData + sizeof(uint32_t), sizeof(uint32_t));
+        }
+
         mLogFetchReference = reference;
         mLogFetchDataSent = 0;
 
-        asyncGet(WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA(), AsyncRequestOptions::ForceAsync, mLogIdToFetch);
+        asyncGet(WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA(), AsyncRequestOptions::ForceAsync, mLogIdToFetch, startOffset);
         return;
     }
+
     case Commands::CLEAR_LOGS:
     {
         DEBUGLOG("Commands::CLEAR_LOGS. reference: %d", reference);
@@ -549,8 +551,10 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
         if (result >= 400)
         {
-            // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::INTERNAL_ERROR, Status::ERROR};
+            uint8_t errorCode[2];
+            errorCode[0] = result & 0xFF;
+            errorCode[1] = (result >> 8) & 0xFF;
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
@@ -607,8 +611,10 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         wb::Result result = getResource(logSub.path, resourceId);
         if (result >= 400)
         {
-            // 404: not found
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::NOT_FOUND, Status::ERROR};
+            uint8_t errorCode[2];
+            errorCode[0] = result & 0xFF;
+            errorCode[1] = (result >> 8) & 0xFF;
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             logSub.clean();
@@ -645,15 +651,6 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     case Commands::START_LOG:
     {
         DEBUGLOG("Commands::START_LOG. reference: %d", reference);
-
-        if (mLogbookFull)
-        {
-            DEBUGLOG("Logbook is full");
-            // 507: HTTP_CODE_INSUFFICIENT_STORAGE
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::INSUFFICIENT_STORAGE, Status::ERROR};
-            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
-            return;
-        }
 
         WB_RES::DataLoggerConfig ldConfig;
         WB_RES::DataEntry entries[MAX_LOGSUB_COUNT];
@@ -770,8 +767,10 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         wb::Result result = asyncDelete(WB_RES::LOCAL::MEM_LOGBOOK_ENTRIES());
         if (result >= 400)
         {
-            // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::INTERNAL_ERROR, Status::ERROR};
+            uint8_t errorCode[2];
+            errorCode[0] = result & 0xFF;
+            errorCode[1] = (result >> 8) & 0xFF;
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
@@ -871,8 +870,10 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         {
             DEBUGLOG("Error fetching time: %d", resultCode);
 
-            // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetInfoReference, Codes::INTERNAL_ERROR, Status::ERROR};
+            uint8_t errorCode[2];
+            errorCode[0] = resultCode & 0xFF;
+            errorCode[1] = (resultCode >> 8) & 0xFF;
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetInfoReference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mGetInfoReference = 0;
@@ -994,8 +995,10 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         if (resultCode >= 400)
         {
-            // 404: Not found
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogFetchReference, Codes::NOT_FOUND, Status::ERROR};
+            uint8_t errorCode[2];
+            errorCode[0] = resultCode & 0xFF;
+            errorCode[1] = (resultCode >> 8) & 0xFF;
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogFetchReference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mLogFetchReference = 0;
@@ -1054,8 +1057,10 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         {
             DEBUGLOG("Error fetching datalogger state: %d", resultCode);
 
-            // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetLoggingReference, Codes::INTERNAL_ERROR, Status::ERROR};
+            uint8_t errorCode[2];
+            errorCode[0] = resultCode & 0xFF;
+            errorCode[1] = (resultCode >> 8) & 0xFF;
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetLoggingReference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mGetLoggingReference = 0;
@@ -1074,13 +1079,6 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         break;
     }
-    case WB_RES::LOCAL::MEM_LOGBOOK_ISFULL::LID:
-    {
-        bool isFull = rResultData.convertTo<bool>();
-        mLogbookFull = isFull;
-
-        break;
-    }
     case WB_RES::LOCAL::MEM_LOGBOOK_ENTRIES::LID:
     {
         if (mLogListReference == 0)
@@ -1092,8 +1090,10 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         {
             DEBUGLOG("Error fetching log entries: %d", resultCode);
 
-            // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogListReference, Codes::INTERNAL_ERROR, Status::ERROR};
+            uint8_t errorCode[2];
+            errorCode[0] = resultCode & 0xFF;
+            errorCode[1] = (resultCode >> 8) & 0xFF;
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogListReference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mLogListReference = 0;
@@ -1177,8 +1177,10 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         {
             DEBUGLOG("Error fetching time: %d", resultCode);
 
-            // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetTimeReference, Codes::INTERNAL_ERROR, Status::ERROR};
+            uint8_t errorCode[2];
+            errorCode[0] = resultCode & 0xFF;
+            errorCode[1] = (resultCode >> 8) & 0xFF;
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetTimeReference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mGetTimeReference = 0;
@@ -1216,8 +1218,10 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         {
             DEBUGLOG("Error fetching battery: %d", resultCode);
 
-            // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetBatteryReference, Codes::INTERNAL_ERROR, Status::ERROR};
+            uint8_t errorCode[2];
+            errorCode[0] = resultCode & 0xFF;
+            errorCode[1] = (resultCode >> 8) & 0xFF;
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetBatteryReference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             mGetBatteryReference = 0;
@@ -1304,8 +1308,10 @@ void IfchGattClient::onSubscribeResult(wb::RequestId requestId,
         {
             DEBUGLOG("Error subscribing to resource: %u", resourceId);
 
-            // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, Codes::INTERNAL_ERROR, Status::ERROR};
+            uint8_t errorCode[2];
+            errorCode[0] = resultCode & 0xFF;
+            errorCode[1] = (resultCode >> 8) & 0xFF;
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, ds->clientReference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
             ds->clean();
@@ -1420,9 +1426,6 @@ void IfchGattClient::enterLowPowerMode()
     // Unsubscribe from BLE peers (not needed while in low power)
     asyncUnsubscribe(WB_RES::LOCAL::COMM_BLE_PEERS());
 
-    // Unsubscribe from logbook full notification
-    asyncUnsubscribe(WB_RES::LOCAL::MEM_LOGBOOK_ISFULL());
-
     // Unsubscribe all data streams
     unsubscribeAllStreams();
 
@@ -1484,9 +1487,6 @@ void IfchGattClient::exitLowPowerMode()
 
     // Re-subscribe to BLE peers monitoring
     asyncSubscribe(WB_RES::LOCAL::COMM_BLE_PEERS());
-
-    // Re-subscribe to logbook full notification
-    asyncSubscribe(WB_RES::LOCAL::MEM_LOGBOOK_ISFULL(), AsyncRequestOptions::ForceAsync);
 
     // Re-subscribe to GATT characteristics (service already exists from startModule)
     asyncSubscribe(mCommandCharResource, AsyncRequestOptions(NULL, 0, true));
@@ -1657,22 +1657,6 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         break;
     }
 
-    case WB_RES::LOCAL::MEM_LOGBOOK_ISFULL::LID:
-    {
-        bool isFull = value.convertTo<bool>();
-
-        DEBUGLOG("onNotify MEM_LOGBOOK_ISFULL: %d", isFull);
-        mLogbookFull = isFull;
-
-        if (isFull)
-        {
-            asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(), AsyncRequestOptions::Empty, WB_RES::DataLoggerStateValues::DATALOGGER_READY);
-
-            mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_READY;
-        }
-        break;
-    }
-
     default:
     {
         // All other notifications. These must be the client subscribed data streams
@@ -1810,8 +1794,10 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
 
             if (mDataloggerStateReference != 0)
             {
-                // 500: Internal server error
-                uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mDataloggerStateReference, Codes::INTERNAL_ERROR, Status::ERROR};
+                uint8_t errorCode[2];
+                errorCode[0] = resultCode & 0xFF;
+                errorCode[1] = (resultCode >> 8) & 0xFF;
+                uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mDataloggerStateReference, errorCode[0], errorCode[1]};
                 asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
 
                 mDataloggerStateReference = 0;
@@ -1837,8 +1823,10 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
         {
             DEBUGLOG("Error setting time: %d", resultCode);
 
-            // 500: Internal server error
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mSetUTCTimeReference, Codes::INTERNAL_ERROR, Status::ERROR};
+            uint8_t errorCode[2];
+            errorCode[0] = resultCode & 0xFF;
+            errorCode[1] = (resultCode >> 8) & 0xFF;
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mSetUTCTimeReference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
         }
 

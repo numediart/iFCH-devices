@@ -41,7 +41,7 @@ async def run_test_command(
     command: Commands,
     expected: StatusCodes,
     client_ref=None,
-    data=None,
+    data: bytes | None = None,
 ):
     """Send one command and assert returned status code."""
     if client_ref is None:
@@ -92,6 +92,7 @@ async def test_battery(client):
 
 async def test_reset(client):
     """Verify RESET returns success in idle state."""
+    await run_test_command(client, Commands.STOP_LOG, StatusCodes.OK_200)
     await run_test_command(client, Commands.RESET, StatusCodes.OK_200)
 
 
@@ -146,7 +147,7 @@ async def test_subscribe(client):
     await run_test_command(
         client,
         Commands.SUBSCRIBE,
-        StatusCodes.ERROR_500,
+        StatusCodes.ERROR_501,
         client_ref=3,
         data=ECG_200,
     )
@@ -232,6 +233,13 @@ async def test_datalogger(client):
 
     await run_test_command(
         client,
+        Commands.FETCH_LOG,
+        StatusCodes.ERROR_404,
+        data=(1).to_bytes(4, byteorder="little"),
+    )
+
+    await run_test_command(
+        client,
         Commands.LIST_LOGS,
         StatusCodes.OK_200,
     )
@@ -277,6 +285,13 @@ async def test_datalogger(client):
 
     await run_test_command(
         client,
+        Commands.FETCH_LOG,
+        StatusCodes.ERROR_409,
+        data=(1).to_bytes(4, byteorder="little"),
+    )
+
+    await run_test_command(
+        client,
         Commands.STOP_LOG,
         StatusCodes.OK_200,
     )
@@ -299,4 +314,24 @@ async def test_datalogger(client):
         Commands.FETCH_LOG,
         StatusCodes.OK_200,
         data=(1).to_bytes(4, byteorder="little"),
+    )
+
+    log_id = (1).to_bytes(4, byteorder="little")
+    offset = (0).to_bytes(4, byteorder="little")
+    payload = b"".join([log_id, offset])
+    await run_test_command(
+        client,
+        Commands.FETCH_LOG,
+        StatusCodes.OK_200,
+        data=payload,
+    )
+
+    log_id = (5).to_bytes(4, byteorder="little")
+    offset = (0).to_bytes(4, byteorder="little")
+    payload = b"".join([log_id, offset])
+    await run_test_command(
+        client,
+        Commands.FETCH_LOG,
+        StatusCodes.ERROR_404,
+        data=payload,
     )

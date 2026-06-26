@@ -117,7 +117,6 @@ private:
     uint32_t mCounter;
     bool mLeadsConnected;
     uint8_t mDataLoggerState;
-    bool mLogbookFull;
     PowerState mPowerState;
 
     wb::ResourceId mCommandCharResource;
