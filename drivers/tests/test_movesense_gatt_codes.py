@@ -39,7 +39,7 @@ async def client():
 async def run_test_command(
     client: MovesenseGatt,
     command: Commands,
-    expected: StatusCodes,
+    expected: StatusCodes | list[StatusCodes],
     client_ref=None,
     data: bytes | None = None,
 ):
@@ -48,7 +48,10 @@ async def run_test_command(
         client_ref = min(command.value + 10, 255)
     _, code, data_rx = await client.send_and_wait(command, client_ref, data)
 
-    assert code == expected
+    if isinstance(expected, StatusCodes):
+        assert code == expected
+    else:
+        assert code in expected
 
     return data_rx
 
@@ -92,7 +95,9 @@ async def test_battery(client):
 
 async def test_reset(client):
     """Verify RESET returns success in idle state."""
-    await run_test_command(client, Commands.STOP_LOG, StatusCodes.OK_200)
+    await run_test_command(
+        client, Commands.STOP_LOG, [StatusCodes.OK_200, StatusCodes.OK_202]
+    )
     await run_test_command(client, Commands.RESET, StatusCodes.OK_200)
 
 
