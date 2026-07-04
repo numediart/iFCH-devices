@@ -521,15 +521,29 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
         // If the commands contains an offset, start from there
         uint32_t startOffset = 0;
+        // bool hasOffset = false;
         if (dataLen == sizeof(uint32_t) + sizeof(uint32_t))
         {
+            // FIXME offset does not seem to work?
             memcpy(&startOffset, pData + sizeof(uint32_t), sizeof(uint32_t));
+            // hasOffset = true;
         }
 
         mLogFetchReference = reference;
-        mLogFetchDataSent = 0;
 
+        // // If fetching with offset, use the GET method
+        // if (hasOffset)
+        // {
+
+        mLogFetchDataSent = 0;
         asyncGet(WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA(), AsyncRequestOptions::ForceAsync, mLogIdToFetch, startOffset);
+
+        // }
+        // else
+        // {
+        //     // If fetching without offset, use the SUBSCRIBE method
+        //     asyncSubscribe(WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA(), AsyncRequestOptions::ForceAsync, mLogIdToFetch);
+        // }
         return;
     }
 
@@ -990,6 +1004,12 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         if (mLogFetchReference == 0)
         {
+            // FIXME this leaves the logbook in an invalid state
+            // Current library requires to follow up on HTTP_CODE_CONTINUE
+            // until the log is fully read
+            // This breaks the chain prematurely if the client disconnects while
+            // fetching a log. If a request is then made to list the logs, the
+            // device will crash
             return;
         }
 
@@ -1519,7 +1539,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
                 exitLowPowerMode();
             }
         }
-        break;
+        return;
     }
 
     case WB_RES::LOCAL::COMM_BLE_PEERS::LID:
@@ -1575,9 +1595,8 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         {
             stopTimer(mShutdownTimer);
             mShutdownTimer = wb::ID_INVALID_TIMER;
-            return;
         }
-        break;
+        return;
     }
 
     case WB_RES::LOCAL::COMM_BLE_GATTSVC_SVCHANDLE_CHARHANDLE::LID:
@@ -1591,17 +1610,25 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             DEBUGLOG("onNotify: mCommandCharHandle: len: %d", charValue.bytes.size());
 
             handleIncomingCommand(charValue.bytes);
-            return;
         }
-        break;
+        return;
     }
 
     case WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA::LID:
     {
-        IfchGattClient::DataSub *ds = findDataSub(resourceId.localResourceId);
-        if (ds == nullptr)
+        if (mLogFetchReference == 0)
         {
-            DEBUGLOG("DataSub not found for resource: %u", resourceId);
+            // The client lost connection while fetching a log.
+            // Unsubscribe from the logbook
+
+            // FIXME this leaves the logbook in an invalid state
+            // Current library requires to read the log till the end
+            // This stops prematurely if the client disconnects while
+            // fetching a log. If a request is then made to list the logs, the
+            // device will crash
+
+            asyncUnsubscribe(WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA(), AsyncRequestOptions::Empty, mLogIdToFetch);
+            mLogIdToFetch = 0;
             return;
         }
 
@@ -1614,7 +1641,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         // If length > MAX_DATA_SIZE, split in two notifications
         memset(mDataMsgBuffer, 0, sizeof(mDataMsgBuffer));
         mDataMsgBuffer[0] = Responses::DATA;
-        mDataMsgBuffer[1] = ds->clientReference;
+        mDataMsgBuffer[1] = mLogFetchReference;
 
         // Copy offset
         size_t writePos = 2;
@@ -1640,6 +1667,13 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
 
         if (secondPartLen > 0)
         {
+            if (secondPartLen > dataSize)
+            {
+
+                DEBUGLOG("ERROR: secondPartLen > dataSize. secondPartLen: %d, dataSize: %d", secondPartLen, dataSize);
+                return;
+            }
+
             mDataMsgBuffer[0] = DATA_PART2;
 
             // Calc and write second offset
@@ -1654,7 +1688,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             logCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
             asyncPut(mLogCharResource, AsyncRequestOptions::Empty, logCharValue);
         }
-        break;
+        return;
     }
 
     default:
@@ -1718,8 +1752,6 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             asyncPut(mDataCharResource, AsyncRequestOptions::Empty, dataCharValue);
         }
         return;
-
-        break;
     }
     }
 }
