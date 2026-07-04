@@ -104,7 +104,9 @@ class MovesenseGatt:
     def __init__(
         self,
         address: str,
-        stream_callback: Callable[["MovesenseGatt", tuple[str, dict]], None] | None = None,
+        stream_callback: (
+            Callable[["MovesenseGatt", tuple[str, dict]], None] | None
+        ) = None,
     ):
         """Create a client bound to one Movesense BLE address.
 
@@ -252,13 +254,17 @@ class MovesenseGatt:
                         command.reference,
                     )
 
-                    command_bytes = bytearray([command.command.value, command.reference])
+                    command_bytes = bytearray(
+                        [command.command.value, command.reference]
+                    )
 
                     if command.data:
                         command_bytes += command.data
 
                     try:
-                        await self._client.write_gatt_char(self.COMMAND_CHAR_UUID, command_bytes)
+                        await self._client.write_gatt_char(
+                            self.COMMAND_CHAR_UUID, command_bytes
+                        )
                     except Exception as e:
                         logging.exception(e)
 
@@ -290,7 +296,9 @@ class MovesenseGatt:
                 data[0] = Responses.COMMAND_RESULT.value
 
             if data[0] == Responses.COMMAND_RESULT.value:
-                logging.debug("Response/data notification from %s: %s", self.address, data)
+                logging.debug(
+                    "Response/data notification from %s: %s", self.address, data
+                )
                 self._decode_response(data)
                 return
 
@@ -311,7 +319,9 @@ class MovesenseGatt:
     def log_listener(self):
         """Temporarily enable buffering of log-notification packets."""
         if not self._log_queue.empty():
-            logging.warning("Enabling log listening, but log queue not empty, discarding old data")
+            logging.warning(
+                "Enabling log listening, but log queue not empty, discarding old data"
+            )
             self._log_queue.clear()
 
         try:
@@ -321,9 +331,13 @@ class MovesenseGatt:
             self._log_listening = False
 
             if not self._log_queue.empty():
-                logging.warning("Disabling log listening, but log queue not empty, discarding data")
+                logging.warning(
+                    "Disabling log listening, but log queue not empty, discarding data"
+                )
                 while not self._log_queue.empty():
-                    logging.warning("Discarded log data: %s", self._log_queue.get_nowait())
+                    logging.warning(
+                        "Discarded log data: %s", self._log_queue.get_nowait()
+                    )
                 self._log_queue.clear()
 
     def _response_notification_handler(self, _, data: bytes):
@@ -401,7 +415,9 @@ class MovesenseGatt:
         # Enforce a single active waiter. Cancel the previous one if present.
         this_task = asyncio.current_task()
         if this_task is None:
-            raise RuntimeError("_wait_for_response must be called from within an asyncio Task")
+            raise RuntimeError(
+                "_wait_for_response must be called from within an asyncio Task"
+            )
 
         prev = self._current_waiter
         if prev is not None and prev is not this_task and not prev.done():
@@ -424,7 +440,9 @@ class MovesenseGatt:
                 if remaining <= 0:
                     raise TimeoutError
 
-                rx_reference, code, payload = await asyncio.wait_for(queue.get(), timeout=remaining)
+                rx_reference, code, payload = await asyncio.wait_for(
+                    queue.get(), timeout=remaining
+                )
 
                 if rx_reference == reference:
                     if log_queue:
@@ -621,7 +639,9 @@ class MovesenseGatt:
 
         for path in self._log_subscriptions.values():
             config_data.extend(path.encode("utf-8") + b"\x00")
-            result = await self.send_and_wait(GSPCommands.PUT_DATALOGGER_CONFIG, data=config_data)
+            result = await self.send_and_wait(
+                GSPCommands.PUT_DATALOGGER_CONFIG, data=config_data
+            )
 
             success, _, _ = result
             if not success:
@@ -713,7 +733,9 @@ class MovesenseGatt:
             recording), or ``None`` on communication error.
         """
         if not self._is_ifch_firmware:
-            result = await self.send_and_wait(GSPCommands.PUT_DATALOGGER_STATE, data=b"\x03")
+            result = await self.send_and_wait(
+                GSPCommands.PUT_DATALOGGER_STATE, data=b"\x03"
+            )
 
         else:
             result = await self.send_and_wait(Commands.START_LOG)
@@ -730,7 +752,9 @@ class MovesenseGatt:
             recording), or ``None`` on communication error.
         """
         if not self._is_ifch_firmware:
-            result = await self.send_and_wait(GSPCommands.PUT_DATALOGGER_STATE, data=b"\x02")
+            result = await self.send_and_wait(
+                GSPCommands.PUT_DATALOGGER_STATE, data=b"\x02"
+            )
 
         else:
             result = await self.send_and_wait(Commands.STOP_LOG)
@@ -749,7 +773,9 @@ class MovesenseGatt:
         if not self._is_ifch_firmware:
             log_list = []
 
-            result = await self.send_and_wait(GSPCommands.GET, data=b"/Mem/Logbook/entries\x00")
+            result = await self.send_and_wait(
+                GSPCommands.GET, data=b"/Mem/Logbook/entries\x00"
+            )
 
             while True:
                 success, code, payload = result
@@ -765,7 +791,9 @@ class MovesenseGatt:
 
                 for i in range(1, len(payload), 16):
                     log_id = int.from_bytes(payload[i : i + 4], byteorder="little")
-                    log_len = int.from_bytes(payload[i + 8 : i + 16], byteorder="little")
+                    log_len = int.from_bytes(
+                        payload[i + 8 : i + 16], byteorder="little"
+                    )
                     log_list.append((log_id, log_len))
 
                 if code != StatusCodes.CONTINUE_100:
@@ -776,7 +804,9 @@ class MovesenseGatt:
         else:
             with self.log_listener():
                 reference = Commands.LIST_LOGS.value + 10
-                success, _, payload = await self.send_and_wait(Commands.LIST_LOGS, reference)
+                success, _, payload = await self.send_and_wait(
+                    Commands.LIST_LOGS, reference
+                )
 
                 if not success:
                     return None
@@ -789,19 +819,25 @@ class MovesenseGatt:
 
                 log_list = []
                 for _ in range(num_logs_packets):
-                    success, _, payload = await self._wait_for_message(reference, log_queue=True)
+                    success, _, payload = await self._wait_for_message(
+                        reference, log_queue=True
+                    )
 
                     if not success:
                         logging.warning("Incomplete log list received")
                         return None
 
                     if len(payload) % 12 != 0:
-                        logging.warning("Unexpected payload for LIST_LOGS data: %s", payload)
+                        logging.warning(
+                            "Unexpected payload for LIST_LOGS data: %s", payload
+                        )
                         return None
 
                     for i in range(0, len(payload), 12):
                         log_id = int.from_bytes(payload[i : i + 4], byteorder="little")
-                        log_len = int.from_bytes(payload[i + 4 : i + 12], byteorder="little")
+                        log_len = int.from_bytes(
+                            payload[i + 4 : i + 12], byteorder="little"
+                        )
                         log_list.append((log_id, log_len))
 
             return log_list
@@ -835,7 +871,9 @@ class MovesenseGatt:
             chunk_count = 0
             with io.BytesIO() as sbem_buffer:
                 while True:
-                    success, _, payload = await self._wait_for_message(reference, log_queue=True)
+                    success, _, payload = await self._wait_for_message(
+                        reference, log_queue=True
+                    )
 
                     if not success:
                         logging.warning("Incomplete log fetch received")
@@ -896,7 +934,9 @@ class MovesenseGatt:
 
                 while True:
                     # The standard firmware sends a bunch of copies of the last message
-                    success, _, _ = await self._wait_for_message(reference, log_queue=True)
+                    success, _, _ = await self._wait_for_message(
+                        reference, log_queue=True
+                    )
                     if not success:
                         break
 
@@ -910,7 +950,9 @@ class MovesenseGatt:
             or ``None`` on failure.
         """
         if not self._is_ifch_firmware:
-            result = await self.send_and_wait(GSPCommands.GET, data=b"/Time/Detailed" + b"\x00")
+            result = await self.send_and_wait(
+                GSPCommands.GET, data=b"/Time/Detailed" + b"\x00"
+            )
             success, _, payload = result
 
             if not success:
@@ -962,10 +1004,14 @@ class MovesenseGatt:
         timestamp_bytes = timestamp_us.to_bytes(8, byteorder="little")
 
         if not self._is_ifch_firmware:
-            result = await self.send_and_wait(GSPCommands.PUT_UTCTIME, data=timestamp_bytes)
+            result = await self.send_and_wait(
+                GSPCommands.PUT_UTCTIME, data=timestamp_bytes
+            )
 
         else:
-            result = await self.send_and_wait(Commands.SET_UTCTIME, data=timestamp_bytes)
+            result = await self.send_and_wait(
+                Commands.SET_UTCTIME, data=timestamp_bytes
+            )
 
         success, _, _ = result
 
