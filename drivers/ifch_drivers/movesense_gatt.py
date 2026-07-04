@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 import bleak
+from bleak.exc import BleakCharacteristicNotFoundError
 
 from .formats.movesense_stream import MovesenseStreamDecoder
 from .utils import BoundedQueue
@@ -105,7 +106,7 @@ class MovesenseGatt:
         self,
         address: str,
         stream_callback: (
-            Callable[["MovesenseGatt", tuple[str, dict]], None] | None
+            Callable[["MovesenseGatt", tuple[str, dict] | None], None] | None
         ) = None,
     ):
         """Create a client bound to one Movesense BLE address.
@@ -235,7 +236,7 @@ class MovesenseGatt:
                         self._response_notification_handler,
                     )
 
-                except bleak.exc.BleakCharacteristicNotFoundError:
+                except BleakCharacteristicNotFoundError:
                     logging.warning(
                         "iFCH characteristics not found,"
                         " using standard Movesense firmware limited features"
@@ -274,7 +275,8 @@ class MovesenseGatt:
 
         finally:
             try:
-                await self._client.disconnect()
+                if self._client is not None:
+                    await self._client.disconnect()
             except Exception:
                 pass
             self._client = None
@@ -420,11 +422,17 @@ class MovesenseGatt:
             )
 
         prev = self._current_waiter
-        if prev is not None and prev is not this_task and not prev.done():
-            prev.cancel()
-            logging.debug("Cancelled previous wait in favor of reference %s", reference)
+        if prev is not None and prev is not this_task:
+            if not prev.done():
+                prev.cancel()
+                logging.debug(
+                    "Cancelled previous wait in favor of reference %s", reference
+                )
+
+            self._tasks.remove(prev)
 
         self._current_waiter = this_task
+        self._tasks.append(self._current_waiter)
 
         try:
             loop = asyncio.get_running_loop()
@@ -440,23 +448,27 @@ class MovesenseGatt:
                 if remaining <= 0:
                     raise TimeoutError
 
-                rx_reference, code, payload = await asyncio.wait_for(
-                    queue.get(), timeout=remaining
-                )
-
-                if rx_reference == reference:
-                    if log_queue:
-                        success = True
-                    else:
-                        success = code.value[1] == 0
-                    return success, code, payload
-                else:
-                    logging.warning(
-                        "Unexpected reference: %s while waiting for %s (code: %s)",
-                        rx_reference,
-                        reference,
-                        code,
+                try:
+                    rx_reference, code, payload = await asyncio.wait_for(
+                        queue.get(), timeout=remaining
                     )
+
+                    if rx_reference == reference:
+                        if log_queue:
+                            success = True
+                        else:
+                            success = code.value[1] == 0
+                        return success, code, payload
+                    else:
+                        logging.warning(
+                            "Unexpected reference: %s while waiting for %s (code: %s)",
+                            rx_reference,
+                            reference,
+                            code,
+                        )
+                except asyncio.CancelledError:
+                    logging.debug("wait_for cancelled")
+                    return None, None, None
 
         except TimeoutError:
             logging.warning("Timeout waiting for reference: %s", reference)
@@ -469,6 +481,7 @@ class MovesenseGatt:
         finally:
             # Only clear if we are still the registered waiter
             if self._current_waiter is this_task:
+                self._tasks.remove(self._current_waiter)
                 self._current_waiter = None
 
     async def send_and_wait(
@@ -780,8 +793,9 @@ class MovesenseGatt:
             while True:
                 success, code, payload = result
 
-                if not success:
+                if not success or not payload:
                     return None
+
                 if len(payload) % 16 != 1:
                     logging.warning(
                         "Unexpected payload length for log list: %d",
@@ -808,7 +822,7 @@ class MovesenseGatt:
                     Commands.LIST_LOGS, reference
                 )
 
-                if not success:
+                if not success or not payload:
                     return None
 
                 if len(payload) != 4:
@@ -823,7 +837,7 @@ class MovesenseGatt:
                         reference, log_queue=True
                     )
 
-                    if not success:
+                    if not success or not payload:
                         logging.warning("Incomplete log list received")
                         return None
 
@@ -845,12 +859,14 @@ class MovesenseGatt:
     async def fetch_log(
         self,
         log_id: int | tuple[int, int],
+        log_offset: int | None = None,
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> bytes | None:
         """Fetch one SBEM log payload from device storage.
 
         Args:
             log_id: Numeric log id, or ``(log_id, length)`` tuple.
+            log_offset: Optional byte offset to start reading from.
             progress_callback: Optional callback with ``(received, total)`` bytes.
 
         Returns:
@@ -863,10 +879,14 @@ class MovesenseGatt:
         if isinstance(log_id, tuple):
             log_id, log_len = log_id
 
-        log_id = log_id.to_bytes(4, byteorder="little")
+        log_id_b = log_id.to_bytes(4, byteorder="little")
+
+        if log_offset is not None:
+            log_offset_b = log_offset.to_bytes(4, byteorder="little")
+            log_id_b += log_offset_b
 
         with self.log_listener():
-            await self._send_command(Commands.FETCH_LOG, reference, log_id)
+            await self._send_command(Commands.FETCH_LOG, reference, log_id_b)
 
             chunk_count = 0
             with io.BytesIO() as sbem_buffer:
@@ -875,7 +895,7 @@ class MovesenseGatt:
                         reference, log_queue=True
                     )
 
-                    if not success:
+                    if not success or not payload:
                         logging.warning("Incomplete log fetch received")
                         return None
 
@@ -902,7 +922,7 @@ class MovesenseGatt:
                 sbem_data = sbem_buffer.getvalue()
 
             success, _, payload = await self._wait_for_message(reference)
-            if not success:
+            if not success or not payload:
                 logging.warning("No completion message after log fetch")
                 return None
 
@@ -955,7 +975,7 @@ class MovesenseGatt:
             )
             success, _, payload = result
 
-            if not success:
+            if not success or not payload:
                 return None
 
             if len(payload) == 20:
@@ -971,7 +991,7 @@ class MovesenseGatt:
             result = await self.send_and_wait(Commands.GET_TIME)
             success, _, payload = result
 
-        if success:
+        if success and payload is not None:
             if len(payload) == 12:
                 rel_time = int.from_bytes(payload[:4], byteorder="little")
                 utc_time = int.from_bytes(payload[4:12], byteorder="little")
@@ -1074,7 +1094,7 @@ class MovesenseGatt:
 
         success, _, payload = result
 
-        if success:
+        if success and payload is not None:
             if len(payload) == 1:
                 return payload[0] == 3
             else:
@@ -1104,7 +1124,7 @@ class MovesenseGatt:
 
         success, _, payload = result
 
-        if success:
+        if success and payload is not None:
             if len(payload) == 1:
                 return payload[0]
             else:
