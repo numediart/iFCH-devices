@@ -47,7 +47,8 @@ async def test_hello(client):
     assert result[0] == 1
     parts = result[1:].split(b"\x00")[:-1]
     parts = [part.decode("utf-8") for part in parts]
-    assert len(parts) == 5  # Movesense ID, HW version, BLE address, FW name, FW version
+    assert len(parts) == 5
+    # Movesense ID, HW version, BLE address, FW name, FW version
 
     assert len(parts[0]) == 12  # Movesense ID
     assert len(parts[2]) == 17 and parts[2].count(":") == 5  # BLE address
@@ -59,21 +60,17 @@ async def test_subscribe(client):
 
     assert await client.subscribe(PATH_ECG_125)
 
-    assert not await client.subscribe(
-        PATH_ECG_125
-    ), "Should not be able to subscribe twice"
+    assert not await client.subscribe(PATH_ECG_125), "Should not be able to subscribe twice"
 
-    assert not await client.subscribe(
-        "/Invalid/Path"
-    ), "Should not be able to subscribe to invalid path"
+    assert not await client.subscribe("/Invalid/Path"), (
+        "Should not be able to subscribe to invalid path"
+    )
 
     await asyncio.sleep(0.5)
 
     assert await client.unsubscribe(PATH_ECG_125)
 
-    assert not await client.unsubscribe(
-        PATH_ECG_125
-    ), "Should not be able to unsubscribe twice"
+    assert not await client.unsubscribe(PATH_ECG_125), "Should not be able to unsubscribe twice"
 
     assert len(data_notifications) > 0, "No data received during subscription"
 
@@ -120,9 +117,9 @@ async def test_time(client: MovesenseGatt):
     dev_time = await client.get_time()
     assert dev_time is not None, "Failed to get time"
 
-    assert (
-        0 < dev_time[1] - TEST_TIME < 10_000_000
-    ), f"Device time {dev_time[1]} is not close to set time {TEST_TIME}"
+    assert 0 < dev_time[1] - TEST_TIME < 10_000_000, (
+        f"Device time {dev_time[1]} is not close to set time {TEST_TIME}"
+    )
 
     now = datetime.datetime.now(tz=datetime.UTC)
     success = await client.set_utc_time()
@@ -132,9 +129,9 @@ async def test_time(client: MovesenseGatt):
     assert dev_time is not None, "Failed to get time"
 
     now_timestamp_us = int(now.timestamp() * 1e6)
-    assert (
-        0 < dev_time[1] - now_timestamp_us < 10_000_000
-    ), f"Device time {dev_time[1]} is not close to current time {now_timestamp_us}"
+    assert 0 < dev_time[1] - now_timestamp_us < 10_000_000, (
+        f"Device time {dev_time[1]} is not close to current time {now_timestamp_us}"
+    )
 
 
 async def test_log(client: MovesenseGatt):
@@ -146,13 +143,11 @@ async def test_log(client: MovesenseGatt):
 
     assert await client.sub_log(PATH_ECG_125)
 
-    assert not await client.sub_log(
-        PATH_ECG_125
-    ), "Should not be able to subscribe twice"
+    assert not await client.sub_log(PATH_ECG_125), "Should not be able to subscribe twice"
 
-    assert not await client.sub_log(
-        "/Invalid/Path"
-    ), "Should not be able to subscribe to invalid path"
+    assert not await client.sub_log("/Invalid/Path"), (
+        "Should not be able to subscribe to invalid path"
+    )
 
     assert await client.start_log()
 
@@ -165,9 +160,7 @@ async def test_log(client: MovesenseGatt):
 
     assert await client.unsub_log(PATH_ECG_125)
 
-    assert not await client.unsub_log(
-        PATH_ECG_125
-    ), "Should not be able to unsubscribe twice"
+    assert not await client.unsub_log(PATH_ECG_125), "Should not be able to unsubscribe twice"
 
     is_logging = await client.get_logging_state()
     assert is_logging is False
@@ -207,13 +200,13 @@ async def test_reset(client: MovesenseGatt):
 
     assert await client.reset()
 
-    assert not await client.unsubscribe(
-        PATH_ECG_125
-    ), "Should not be able to unsubscribe after reset"
+    assert not await client.unsubscribe(PATH_ECG_125), (
+        "Should not be able to unsubscribe after reset"
+    )
 
-    assert not await client.unsub_log(
-        PATH_ECG_125
-    ), "Should not be able to unsubscribe log after reset"
+    assert not await client.unsub_log(PATH_ECG_125), (
+        "Should not be able to unsubscribe log after reset"
+    )
 
     log_list = await client.list_logs()
     assert log_list is not None

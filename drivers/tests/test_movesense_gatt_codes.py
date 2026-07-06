@@ -95,9 +95,7 @@ async def test_battery(client):
 
 async def test_reset(client):
     """Verify RESET returns success in idle state."""
-    await run_test_command(
-        client, Commands.STOP_LOG, [StatusCodes.OK_200, StatusCodes.OK_202]
-    )
+    await run_test_command(client, Commands.STOP_LOG, [StatusCodes.OK_200, StatusCodes.OK_202])
     await run_test_command(client, Commands.RESET, StatusCodes.OK_200)
 
 
