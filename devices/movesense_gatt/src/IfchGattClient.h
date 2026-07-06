@@ -99,6 +99,7 @@ private:
     void clearLogSubs();
     void enterLowPowerMode();
     void exitLowPowerMode();
+    void resetInnerState();
 
     void asyncPutIndicate(wb::ResourceId resourceId, const AsyncRequestOptions &rOptions, const uint8_t *data, size_t length);
     void putNextIndicate();
@@ -114,17 +115,20 @@ private:
     wb::TimerId mIndicateTimer;
     wb::TimerId mIndicateTimeoutTimer;
     wb::TimerId mLowPowerOffTimer;
+    wb::TimerId mLogRotationTimer;
+
     uint32_t mCounter;
     bool mLeadsConnected;
     uint8_t mDataLoggerState;
+    uint8_t mDataloggerTargetState;
+    bool mDataloggerTransitionPending;
+    uint32_t mLogRotationInterval; // in milliseconds
     PowerState mPowerState;
 
     wb::ResourceId mCommandCharResource;
     wb::ResourceId mDataCharResource;
     wb::ResourceId mResponseCharResource;
     wb::ResourceId mLogCharResource;
-
-    wb::TimerId mMeasurementTimer;
 
     int32_t mSensorSvcHandle;
     int32_t mCommandCharHandle;
@@ -134,9 +138,7 @@ private:
 
     uint32_t mLogIdToFetch;
     uint32_t mLogFetchOffset;
-
     uint32_t mLogListLastId;
-
     uint32_t mLogFetchDataSent;
     uint32_t mLogListDataSent;
 

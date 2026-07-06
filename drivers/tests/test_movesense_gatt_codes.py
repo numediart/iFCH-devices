@@ -95,7 +95,9 @@ async def test_battery(client):
 
 async def test_reset(client):
     """Verify RESET returns success in idle state."""
-    await run_test_command(client, Commands.STOP_LOG, [StatusCodes.OK_200, StatusCodes.OK_202])
+    await run_test_command(
+        client, Commands.STOP_LOG, [StatusCodes.OK_200, StatusCodes.OK_202]
+    )
     await run_test_command(client, Commands.RESET, StatusCodes.OK_200)
 
 
@@ -258,6 +260,13 @@ async def test_datalogger(client):
     await run_test_command(
         client,
         Commands.START_LOG,
+        StatusCodes.ERROR_400,
+        data=(1).to_bytes(4, byteorder="little"),
+    )
+
+    await run_test_command(
+        client,
+        Commands.START_LOG,
         StatusCodes.OK_200,
     )
 
@@ -301,6 +310,19 @@ async def test_datalogger(client):
 
     await run_test_command(
         client,
+        Commands.START_LOG,
+        StatusCodes.OK_200,
+        data=(1).to_bytes(2, byteorder="little"),
+    )
+
+    await run_test_command(
+        client,
+        Commands.STOP_LOG,
+        StatusCodes.OK_200,
+    )
+
+    await run_test_command(
+        client,
         Commands.UNSUB_LOG,
         StatusCodes.OK_200,
         client_ref=1,
@@ -325,16 +347,6 @@ async def test_datalogger(client):
     await run_test_command(
         client,
         Commands.FETCH_LOG,
-        StatusCodes.OK_200,
-        data=payload,
-    )
-
-    log_id = (5).to_bytes(4, byteorder="little")
-    offset = (0).to_bytes(4, byteorder="little")
-    payload = b"".join([log_id, offset])
-    await run_test_command(
-        client,
-        Commands.FETCH_LOG,
-        StatusCodes.ERROR_404,
+        StatusCodes.ERROR_403,
         data=payload,
     )

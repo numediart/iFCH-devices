@@ -105,7 +105,9 @@ class MovesenseGatt:
     def __init__(
         self,
         address: str,
-        stream_callback: (Callable[["MovesenseGatt", tuple[str, dict] | None], None] | None) = None,
+        stream_callback: (
+            Callable[["MovesenseGatt", tuple[str, dict] | None], None] | None
+        ) = None,
     ):
         """Create a client bound to one Movesense BLE address.
 
@@ -253,13 +255,17 @@ class MovesenseGatt:
                         command.reference,
                     )
 
-                    command_bytes = bytearray([command.command.value, command.reference])
+                    command_bytes = bytearray(
+                        [command.command.value, command.reference]
+                    )
 
                     if command.data:
                         command_bytes += command.data
 
                     try:
-                        await self._client.write_gatt_char(self.COMMAND_CHAR_UUID, command_bytes)
+                        await self._client.write_gatt_char(
+                            self.COMMAND_CHAR_UUID, command_bytes
+                        )
                     except Exception as e:
                         logging.exception(e)
 
@@ -292,7 +298,9 @@ class MovesenseGatt:
                 data[0] = Responses.COMMAND_RESULT.value
 
             if data[0] == Responses.COMMAND_RESULT.value:
-                logging.debug("Response/data notification from %s: %s", self.address, data)
+                logging.debug(
+                    "Response/data notification from %s: %s", self.address, data
+                )
                 self._decode_response(data)
                 return
 
@@ -313,7 +321,9 @@ class MovesenseGatt:
     def log_listener(self):
         """Temporarily enable buffering of log-notification packets."""
         if not self._log_queue.empty():
-            logging.warning("Enabling log listening but log queue not empty, discarding")
+            logging.warning(
+                "Enabling log listening but log queue not empty, discarding"
+            )
             self._log_queue.clear()
 
         try:
@@ -323,9 +333,13 @@ class MovesenseGatt:
             self._log_listening = False
 
             if not self._log_queue.empty():
-                logging.warning("Disabling log listening but log queue not empty, discarding")
+                logging.warning(
+                    "Disabling log listening but log queue not empty, discarding"
+                )
                 while not self._log_queue.empty():
-                    logging.warning("Discarded log data: %s", self._log_queue.get_nowait())
+                    logging.warning(
+                        "Discarded log data: %s", self._log_queue.get_nowait()
+                    )
                 self._log_queue.clear()
 
     def _response_notification_handler(self, _, data: bytes):
@@ -403,13 +417,17 @@ class MovesenseGatt:
         # Enforce a single active waiter. Cancel the previous one if present.
         this_task = asyncio.current_task()
         if this_task is None:
-            raise RuntimeError("_wait_for_response must be called from within an asyncio Task")
+            raise RuntimeError(
+                "_wait_for_response must be called from within an asyncio Task"
+            )
 
         prev = self._current_waiter
         if prev is not None and prev is not this_task:
             if not prev.done():
                 prev.cancel()
-                logging.debug("Cancelled previous wait in favor of reference %s", reference)
+                logging.debug(
+                    "Cancelled previous wait in favor of reference %s", reference
+                )
 
             self._tasks.remove(prev)
 
@@ -573,7 +591,9 @@ class MovesenseGatt:
 
         elif not self._is_ifch_firmware:
             # TODO remove this when patched in the standard firmware
-            logging.warning("Unsubscribe command failed, assuming success on Movesense firmware")
+            logging.warning(
+                "Unsubscribe command failed, assuming success on Movesense firmware"
+            )
             del self._stream_subscribtions[reference]
             self._stream_decoder.subscriptions = self._stream_subscribtions
             return True
@@ -632,7 +652,9 @@ class MovesenseGatt:
 
         for path in self._log_subscriptions.values():
             config_data.extend(path.encode("utf-8") + b"\x00")
-            result = await self.send_and_wait(GSPCommands.PUT_DATALOGGER_CONFIG, data=config_data)
+            result = await self.send_and_wait(
+                GSPCommands.PUT_DATALOGGER_CONFIG, data=config_data
+            )
 
             success, _, _ = result
             if not success:
@@ -716,18 +738,36 @@ class MovesenseGatt:
         else:
             return True
 
-    async def start_log(self) -> bool | None:
+    async def start_log(self, rotation_timer: int | None = None) -> bool | None:
         """Start datalogger recording on the connected device.
+
+        Args:
+            rotation_timer (int | None): Optional rotation timer in minutes. If
+                provided, a new log will be created automatically every
+                `rotation_timer` minutes. Only supported on iFCH firmware.
 
         Returns:
             bool | None: ``True`` on success, ``False`` if rejected (e.g. already
             recording), or ``None`` on communication error.
         """
+
         if not self._is_ifch_firmware:
-            result = await self.send_and_wait(GSPCommands.PUT_DATALOGGER_STATE, data=b"\x03")
+            if rotation_timer is not None:
+                logging.error(
+                    "Rotation timer is not supported on standard Movesense firmware"
+                )
+                return None
+
+            result = await self.send_and_wait(
+                GSPCommands.PUT_DATALOGGER_STATE, data=b"\x03"
+            )
 
         else:
-            result = await self.send_and_wait(Commands.START_LOG)
+            if rotation_timer is not None:
+                timer_bytes = rotation_timer.to_bytes(2, byteorder="little")
+                result = await self.send_and_wait(Commands.START_LOG, data=timer_bytes)
+            else:
+                result = await self.send_and_wait(Commands.START_LOG)
 
         success, _, _ = result
 
@@ -741,7 +781,9 @@ class MovesenseGatt:
             recording), or ``None`` on communication error.
         """
         if not self._is_ifch_firmware:
-            result = await self.send_and_wait(GSPCommands.PUT_DATALOGGER_STATE, data=b"\x02")
+            result = await self.send_and_wait(
+                GSPCommands.PUT_DATALOGGER_STATE, data=b"\x02"
+            )
 
         else:
             result = await self.send_and_wait(Commands.STOP_LOG)
@@ -760,7 +802,9 @@ class MovesenseGatt:
         if not self._is_ifch_firmware:
             log_list = []
 
-            result = await self.send_and_wait(GSPCommands.GET, data=b"/Mem/Logbook/entries\x00")
+            result = await self.send_and_wait(
+                GSPCommands.GET, data=b"/Mem/Logbook/entries\x00"
+            )
 
             while True:
                 success, code, payload = result
@@ -777,7 +821,9 @@ class MovesenseGatt:
 
                 for i in range(1, len(payload), 16):
                     log_id = int.from_bytes(payload[i : i + 4], byteorder="little")
-                    log_len = int.from_bytes(payload[i + 8 : i + 16], byteorder="little")
+                    log_len = int.from_bytes(
+                        payload[i + 8 : i + 16], byteorder="little"
+                    )
                     log_list.append((log_id, log_len))
 
                 if code != StatusCodes.CONTINUE_100:
@@ -788,7 +834,9 @@ class MovesenseGatt:
         else:
             with self.log_listener():
                 reference = Commands.LIST_LOGS.value + 10
-                success, _, payload = await self.send_and_wait(Commands.LIST_LOGS, reference)
+                success, _, payload = await self.send_and_wait(
+                    Commands.LIST_LOGS, reference
+                )
 
                 if not success or not payload:
                     return None
@@ -801,19 +849,25 @@ class MovesenseGatt:
 
                 log_list = []
                 for _ in range(num_logs_packets):
-                    success, _, payload = await self._wait_for_message(reference, log_queue=True)
+                    success, _, payload = await self._wait_for_message(
+                        reference, log_queue=True
+                    )
 
                     if not success or not payload:
                         logging.warning("Incomplete log list received")
                         return None
 
                     if len(payload) % 12 != 0:
-                        logging.warning("Unexpected payload for LIST_LOGS data: %s", payload)
+                        logging.warning(
+                            "Unexpected payload for LIST_LOGS data: %s", payload
+                        )
                         return None
 
                     for i in range(0, len(payload), 12):
                         log_id = int.from_bytes(payload[i : i + 4], byteorder="little")
-                        log_len = int.from_bytes(payload[i + 4 : i + 12], byteorder="little")
+                        log_len = int.from_bytes(
+                            payload[i + 4 : i + 12], byteorder="little"
+                        )
                         log_list.append((log_id, log_len))
 
             return log_list
@@ -828,12 +882,18 @@ class MovesenseGatt:
 
         Args:
             log_id: Numeric log id, or ``(log_id, length)`` tuple.
-            log_offset: Optional byte offset to start reading from.
+            log_offset: Optional byte offset to start reading from. Only
+                supported on iFCH firmware.
             progress_callback: Optional callback with ``(received, total)`` bytes.
 
         Returns:
             bytes | None: Raw SBEM bytes when successful, else ``None``.
         """
+
+        if not self._is_ifch_firmware and log_offset is not None:
+            logging.error("Log offset is not supported on standard Movesense firmware")
+            return None
+
         reference = Commands.FETCH_LOG.value + 10
         log_len = 0
         received_len = 0
@@ -847,13 +907,19 @@ class MovesenseGatt:
             log_offset_b = log_offset.to_bytes(4, byteorder="little")
             log_id_b += log_offset_b
 
+            raise NotImplementedError(
+                "Fetching with log offset is not supported by Movesense yet"
+            )
+
         with self.log_listener():
             await self._send_command(Commands.FETCH_LOG, reference, log_id_b)
 
             chunk_count = 0
             with io.BytesIO() as sbem_buffer:
                 while True:
-                    success, _, payload = await self._wait_for_message(reference, log_queue=True)
+                    success, _, payload = await self._wait_for_message(
+                        reference, log_queue=True
+                    )
 
                     if not success or not payload:
                         logging.warning("Incomplete log fetch received")
@@ -914,7 +980,9 @@ class MovesenseGatt:
 
                 while True:
                     # The standard firmware sends a bunch of copies of the last message
-                    success, _, _ = await self._wait_for_message(reference, log_queue=True)
+                    success, _, _ = await self._wait_for_message(
+                        reference, log_queue=True
+                    )
                     if not success:
                         break
 
@@ -928,7 +996,9 @@ class MovesenseGatt:
             or ``None`` on failure.
         """
         if not self._is_ifch_firmware:
-            result = await self.send_and_wait(GSPCommands.GET, data=b"/Time/Detailed" + b"\x00")
+            result = await self.send_and_wait(
+                GSPCommands.GET, data=b"/Time/Detailed" + b"\x00"
+            )
             success, _, payload = result
 
             if not success or not payload:
@@ -980,10 +1050,14 @@ class MovesenseGatt:
         timestamp_bytes = timestamp_us.to_bytes(8, byteorder="little")
 
         if not self._is_ifch_firmware:
-            result = await self.send_and_wait(GSPCommands.PUT_UTCTIME, data=timestamp_bytes)
+            result = await self.send_and_wait(
+                GSPCommands.PUT_UTCTIME, data=timestamp_bytes
+            )
 
         else:
-            result = await self.send_and_wait(Commands.SET_UTCTIME, data=timestamp_bytes)
+            result = await self.send_and_wait(
+                Commands.SET_UTCTIME, data=timestamp_bytes
+            )
 
         success, _, _ = result
 
