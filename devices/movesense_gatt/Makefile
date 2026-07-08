@@ -6,11 +6,11 @@ BUILD_DIR:=${ROOT_DIR}/build_${device}_${build}
 .DEFAULT_GOAL := help
 
 dist: compile
-	docker run --rm -w /movesense/build_${device}_${build}/ -v ${ROOT_DIR}:/movesense:delegated movesense/sensor-build-env:2.2 ninja dfupkg
+	docker run --rm -w /movesense/build_${device}_${build}/ -v ${ROOT_DIR}:/movesense:Z movesense/sensor-build-env:2.2 ninja dfupkg
 
 
 compile: config
-	docker run --rm -w /movesense/build_${device}_${build}/ -v ${ROOT_DIR}:/movesense:delegated movesense/sensor-build-env:2.2 ninja
+	docker run --rm -w /movesense/build_${device}_${build}/ -v ${ROOT_DIR}:/movesense:Z movesense/sensor-build-env:2.2 ninja
 
 # In order to run this target, you need to have nrfjprog and jlink installed
 # https://www.nordicsemi.com/Products/Development-tools/nRF-Command-Line-Tools/Download?lang=en#infotabs
@@ -23,17 +23,17 @@ compile: config
 #  RTT Control Block: auto
 # If working, you will nog get any errors when connecting
 flash: compile
-	-docker run --rm -w /movesense/build_${device}_${build}/ -v ${ROOT_DIR}:/movesense:delegated movesense/sensor-build-env:2.2 ninja Movesense_combined.hex
+	-docker run --rm -w /movesense/build_${device}_${build}/ -v ${ROOT_DIR}:/movesense:Z movesense/sensor-build-env:2.2 ninja Movesense_combined.hex
 	nrfjprog -f nrf52 --sectoranduicrerase --program build_${device}_${build}/Movesense_combined.hex --verify --reset
 	
 config:
 	mkdir -p ${BUILD_DIR}/
 
-	docker run --rm -w /movesense/build_${device}_${build}/ -v ${ROOT_DIR}:/movesense:delegated movesense/sensor-build-env:2.2 cmake -G "Ninja" -DCMAKE_TOOLCHAIN_FILE=../movesense-device-lib/MovesenseCoreLib/toolchain/gcc-nrf52.cmake -DMOVESENSE_CORE_LIBRARY=../movesense-device-lib/MovesenseCoreLib ../ -DCMAKE_BUILD_TYPE=${build} -DHWCONFIG=${device} ../src
+	docker run --rm -w /movesense/build_${device}_${build}/ -v ${ROOT_DIR}:/movesense:Z movesense/sensor-build-env:2.2 cmake -G "Ninja" -DCMAKE_TOOLCHAIN_FILE=../movesense-device-lib/MovesenseCoreLib/toolchain/gcc-nrf52.cmake -DMOVESENSE_CORE_LIBRARY=../movesense-device-lib/MovesenseCoreLib ../ -DCMAKE_BUILD_TYPE=${build} -DHWCONFIG=${device} ../src
 
 
 clean:
-	docker run --rm -w /movesense -v ${ROOT_DIR}:/movesense:delegated movesense/sensor-build-env:2.2 rm -rf build_*/
+	docker run --rm -w /movesense -v ${ROOT_DIR}:/movesense:Z movesense/sensor-build-env:2.2 rm -rf build_*/
 
 
 help:
