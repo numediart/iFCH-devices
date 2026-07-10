@@ -97,7 +97,7 @@ async def main():
         else:
             await asyncio.sleep(0.2)
 
-            if not await device.unsubscribe_all():
+            if not await device.unsubscribe_streams():
                 logging.error("Failed to unsubscribe from all")
 
         if not await device.reset():

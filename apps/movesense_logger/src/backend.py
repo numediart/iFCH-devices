@@ -504,7 +504,7 @@ class CmdStartLogging:
         if not back.device:
             raise RuntimeError("CmdStartLogging: No device connected")
 
-        success = await back.device.unsubscribe_all()
+        success = await back.device.unsubscribe_streams()
         if not success:
             await back.show_error(
                 "Error",
@@ -584,7 +584,7 @@ class CmdDownloadLog:
         if not back.device:
             raise RuntimeError("CmdDownloadLog: No device connected")
 
-        success = await back.device.unsubscribe_all()
+        success = await back.device.unsubscribe_streams()
         if not success:
             await back.show_error(
                 "Error",

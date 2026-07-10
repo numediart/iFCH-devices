@@ -80,6 +80,7 @@ enum Commands
     GET_LOGGING_STATE = 13,
     GET_BATTERY = 14,
     SET_UTCTIME = 15,
+    UNSUB_ALL_LOGS = 16,
 };
 
 enum Responses
@@ -250,9 +251,7 @@ void IfchGattClient::stopModule()
              AsyncRequestOptions::Empty,
              WB_RES::DataLoggerStateValues::DATALOGGER_READY);
 
-    // Unsubscribe sensor data
-    unsubscribeAllStreams();
-    clearLogSubs();
+    resetInnerState();
 
     // Clean up GATT stuff
     asyncUnsubscribe(mCommandCharResource);
@@ -275,8 +274,6 @@ void IfchGattClient::stopModule()
     mLogCharHandle = 0;
 
     mModuleState = WB_RES::ModuleStateValues::STOPPED;
-
-    resetInnerState();
 }
 
 void IfchGattClient::configGattSvc()
@@ -886,6 +883,19 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
         // Clear all subscriptions
         unsubscribeAllStreams();
+
+        // Send OK response
+        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Codes::OK, Status::SUCCESS};
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
+
+        return;
+    }
+    case Commands::UNSUB_ALL_LOGS:
+    {
+        DEBUGLOG("Commands::UNSUB_ALL_LOGS. reference: %d", reference);
+
+        // Clear all log subscriptions
+        clearLogSubs();
 
         // Send OK response
         uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Codes::OK, Status::SUCCESS};
@@ -1657,7 +1667,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
 
             // If not logging, forget the log subs
             // asyncGet(WB_RES::LOCAL::MEM_DATALOGGER_STATE());
-            if (mDataLoggerState != WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+            if (mDataLoggerState != WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING && !mDataloggerTransitionPending)
             {
                 clearLogSubs();
             }

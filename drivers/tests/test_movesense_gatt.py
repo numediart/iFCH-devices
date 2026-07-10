@@ -86,7 +86,7 @@ async def test_unsubscribe_all(client: MovesenseGatt):
 
     assert len(data_notifications) > 0, "No data received during subscription"
 
-    assert await client.unsubscribe_all()
+    assert await client.unsubscribe_streams()
 
     data_notifications.clear()
 
@@ -159,6 +159,12 @@ async def test_log(client: MovesenseGatt):
     assert await client.stop_log()
 
     assert await client.unsub_log(PATH_ECG_125)
+
+    assert not await client.unsub_log(PATH_ECG_125), "Should not be able to unsubscribe twice"
+
+    assert await client.sub_log(PATH_ECG_125)
+
+    assert await client.unsubsribe_logs()
 
     assert not await client.unsub_log(PATH_ECG_125), "Should not be able to unsubscribe twice"
 

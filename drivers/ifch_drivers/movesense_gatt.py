@@ -45,6 +45,7 @@ class Commands(enum.Enum):
     GET_LOGGING_STATE = 13
     GET_BATTERY = 14
     SET_UTCTIME = 15
+    UNSUB_ALL_LOGS = 16
     INVALID = 0xFF
 
 
@@ -580,8 +581,8 @@ class MovesenseGatt:
 
         return None
 
-    async def unsubscribe_all(self) -> bool | None:
-        """Clear all stream and log subscriptions on iFCH firmware.
+    async def unsubscribe_streams(self) -> bool | None:
+        """Clear all stream subscriptions on iFCH firmware.
 
         Returns:
             bool | None: ``True`` on success, ``False`` if rejected, or ``None``
@@ -603,6 +604,30 @@ class MovesenseGatt:
             if success:
                 self._stream_subscribtions.clear()
                 self._stream_decoder.subscriptions = self._stream_subscribtions
+
+        return success
+
+    async def unsubsribe_logs(self) -> bool | None:
+        """Clear all log subscriptions on iFCH firmware.
+
+        Returns:
+            bool | None: ``True`` on success, ``False`` if rejected, or ``None``
+            on communication error.
+        """
+
+        # If standard Movesense, unsubscribe one by one
+        if not self._is_ifch_firmware:
+            for ref in list(self._log_subscriptions.keys()):
+                result = await self.unsub_log(self._log_subscriptions[ref])
+                if not result:
+                    return result
+            success = True
+
+        else:
+            result = await self.send_and_wait(Commands.UNSUB_ALL_LOGS)
+            success, _, _ = result
+
+            if success:
                 self._log_subscriptions.clear()
 
         return success
@@ -817,7 +842,7 @@ class MovesenseGatt:
                 for _ in range(num_logs_packets):
                     success, _, payload = await self._wait_for_message(reference, log_queue=True)
 
-                    if not success or not payload:
+                    if not success or payload is None:
                         logging.warning("Incomplete log list received")
                         return None
 
@@ -1030,7 +1055,7 @@ class MovesenseGatt:
                 # Cannot reset while logging is active
                 return False
 
-            success = await self.unsubscribe_all()
+            success = await self.unsubscribe_streams()
             if not success:
                 logging.warning("Failed to unsubscribe all paths before reset")
                 return None
