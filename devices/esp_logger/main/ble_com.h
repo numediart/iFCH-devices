@@ -23,6 +23,37 @@
 #define BLE_DATA_QUEUE_LENGTH 512
 #define BLE_LOG_QUEUE_LENGTH 8192
 
+enum Status : uint8_t
+{
+    SUCCESS = 0x00,
+    ERROR = 0x01,
+};
+
+enum Codes : uint8_t
+{
+    // Codes returned by the Movesense
+    OK = 0xC8,                   // 200
+    CREATED = 0xC9,              // 201
+    ACCEPTED = 0xCA,             // 202
+    BAD_REQUEST = 0x90,          // 400
+    FORBIDDEN = 0x93,            // 403
+    NOT_FOUND = 0x94,            // 404
+    CONFLICT = 0x99,             // 409
+    INTERNAL_ERROR = 0xF4,       // 500
+    INSUFFICIENT_STORAGE = 0xFB, // 507
+
+    // Codes returned by the ESP
+    NOT_ACCEPTABLE = 0x96,  // 406
+    REQUEST_TIMEOUT = 0x98, // 408
+    BAD_GATEWAY = 0xF6,     // 502
+};
+
+struct Response
+{
+    Status status;
+    Codes code;
+};
+
 // Is movesense currently connected
 extern volatile bool isMovesenseConnected;
 

@@ -62,25 +62,6 @@ enum Responses
     DATA_PART2 = 3,
 };
 
-enum Status
-{
-    SUCCESS = 0x00,
-    ERROR = 0x01,
-};
-
-enum Codes
-{
-    OK = 0xC8,                   // 200
-    CREATED = 0xC9,              // 201
-    ACCEPTED = 0xCA,             // 202
-    BAD_REQUEST = 0x90,          // 400
-    FORBIDDEN = 0x93,            // 403
-    NOT_FOUND = 0x94,            // 404
-    CONFLICT = 0x99,             // 409
-    INTERNAL_ERROR = 0xF4,       // 500
-    INSUFFICIENT_STORAGE = 0xFB, // 507
-};
-
 // Convert a 6-byte address to a string
 std::string
 addr_to_str(const void *addr)
@@ -346,7 +327,7 @@ bool writeMovesenseCommandNowait(uint8_t command, uint8_t reference, uint8_t *da
     return true;
 }
 
-bool waitForMovesenseResponse(uint8_t reference, uint8_t *response_data = NULL, uint8_t *response_length = NULL, uint16_t timeout_ms = BLE_TIMEOUT)
+Response waitForMovesenseResponse(uint8_t reference, uint8_t *response_data = NULL, uint8_t *response_length = NULL, uint16_t timeout_ms = BLE_TIMEOUT)
 {
     // Compute the deadline for the timeout
     uint32_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
@@ -380,9 +361,10 @@ bool waitForMovesenseResponse(uint8_t reference, uint8_t *response_data = NULL, 
             // Check if the header matches the expected format and process it
             else if (responseNotif[1] == Responses::COMMAND_RESULT && responseNotif[2] == reference)
             {
-                uint8_t status = responseNotif[4];
+                Status status = static_cast<Status>(responseNotif[4]);
+                Codes code = static_cast<Codes>(responseNotif[3]);
                 ESP_LOGI("waitForMovesenseResponse", "Command response received: Type %d, Reference %d, Status %d, Code 0x%02x",
-                         responseNotif[1], responseNotif[2], responseNotif[3], status);
+                         responseNotif[1], responseNotif[2], code, status);
 
                 // The response contains data
                 if (len > 4)
@@ -393,7 +375,7 @@ bool waitForMovesenseResponse(uint8_t reference, uint8_t *response_data = NULL, 
                     if (response_data == NULL || response_length == NULL || *response_length < len - 4)
                     {
                         logError("waitForMovesenseResponse", "Response buffer too small: %d bytes received", len - 4);
-                        return false;
+                        return {Status::ERROR, Codes::NOT_ACCEPTABLE};
                     }
                     else
                     {
@@ -409,7 +391,7 @@ bool waitForMovesenseResponse(uint8_t reference, uint8_t *response_data = NULL, 
                 }
 
                 // Return true if the response was successful
-                return status == Status::SUCCESS;
+                return {status, code};
             }
 
             // Incorrect response, ignore
@@ -426,17 +408,17 @@ bool waitForMovesenseResponse(uint8_t reference, uint8_t *response_data = NULL, 
     } while (current_tick < deadline);
 
     logError("writeMovesenseCommand", "Command response timed out");
-    return false;
+    return {Status::ERROR, Codes::REQUEST_TIMEOUT};
 }
 
 // Write a Movesense command and wait for the corresponding response
-bool writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, uint8_t length, uint8_t *response_data = NULL, uint8_t *response_length = NULL, uint16_t timeout_ms = BLE_TIMEOUT)
+Response writeMovesenseCommand(uint8_t command, uint8_t reference, uint8_t *data, uint8_t length, uint8_t *response_data = NULL, uint8_t *response_length = NULL, uint16_t timeout_ms = BLE_TIMEOUT)
 {
     // Write the Movesense command
     bool success = writeMovesenseCommandNowait(command, reference, data, length);
     if (!success)
     {
-        return false;
+        return {Status::ERROR, Codes::BAD_GATEWAY};
     }
 
     // Wait for the Movesense response
@@ -1007,9 +989,9 @@ bool getMovesenseBattery(uint8_t &batteryLevel)
     uint8_t responseBuffer[1];
     uint8_t responseLength = sizeof(responseBuffer);
 
-    bool success = writeMovesenseCommand(Commands::GET_BATTERY, Commands::GET_BATTERY + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength, BLE_CONNECT_TIMEOUT);
+    Response response = writeMovesenseCommand(Commands::GET_BATTERY, Commands::GET_BATTERY + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength, BLE_CONNECT_TIMEOUT);
 
-    if (!success)
+    if (response.status != Status::SUCCESS)
     {
         logError("getMovesenseBattery", "Failed to send get battery command");
         return false;
@@ -1029,9 +1011,9 @@ bool getMovesenseBattery(uint8_t &batteryLevel)
 
 bool movHello(uint8_t *responseBuffer, uint8_t &responseLength)
 {
-    bool success = writeMovesenseCommand(Commands::HELLO, Commands::HELLO + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
+    Response response = writeMovesenseCommand(Commands::HELLO, Commands::HELLO + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
 
-    if (!success)
+    if (response.status != Status::SUCCESS)
     {
         logError("movHello", "Failed to send hello command");
         return false;
@@ -1047,9 +1029,9 @@ bool movGetTime(uint32_t &time, int64_t &utcTimeUs)
     uint8_t responseBuffer[12];
     uint8_t responseLength = sizeof(responseBuffer);
 
-    bool success = writeMovesenseCommand(Commands::GET_TIME, Commands::GET_TIME + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
+    Response response = writeMovesenseCommand(Commands::GET_TIME, Commands::GET_TIME + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
 
-    if (!success)
+    if (response.status != Status::SUCCESS)
     {
         logError("movGetTime", "Failed to send get time command");
         return false;
@@ -1078,9 +1060,11 @@ bool movGetTime(uint32_t &time, int64_t &utcTimeUs)
 // Set the Movesense UTC time
 bool movSetUTCTime(int64_t utcTimeUs)
 {
-    bool success = writeMovesenseCommand(Commands::SET_UTCTIME, Commands::SET_UTCTIME + REF_OFFSET_COMMAND, (uint8_t *)&utcTimeUs, sizeof(utcTimeUs));
+    Response response = writeMovesenseCommand(Commands::SET_UTCTIME, Commands::SET_UTCTIME + REF_OFFSET_COMMAND, (uint8_t *)&utcTimeUs, sizeof(utcTimeUs));
     ESP_LOGI("movSetUTCTime", "Set UTC time to: %" PRId64, utcTimeUs);
-    return success;
+
+    // TODO: handle errors
+    return response.status == Status::SUCCESS;
 }
 
 bool movGetLoggingStatus(uint8_t &loggingStatus)
@@ -1088,7 +1072,10 @@ bool movGetLoggingStatus(uint8_t &loggingStatus)
     uint8_t responseBuffer[1];
     uint8_t responseLength = sizeof(responseBuffer);
 
-    bool success = writeMovesenseCommand(Commands::GET_LOGGING_STATE, Commands::GET_LOGGING_STATE + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
+    Response response = writeMovesenseCommand(Commands::GET_LOGGING_STATE, Commands::GET_LOGGING_STATE + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
+
+    // TODO: handle errors
+    bool success = response.status == Status::SUCCESS;
 
     if (!success)
     {
@@ -1111,7 +1098,10 @@ bool movGetLoggingStatus(uint8_t &loggingStatus)
 bool movReset()
 {
     logInfo("movReset", "Sending reset command to Movesense");
-    return writeMovesenseCommand(Commands::RESET, Commands::RESET + REF_OFFSET_COMMAND, nullptr, 0);
+    Response response = writeMovesenseCommand(Commands::RESET, Commands::RESET + REF_OFFSET_COMMAND, nullptr, 0);
+
+    // TODO: handle errors
+    return response.status == Status::SUCCESS;
 }
 
 bool movSubscribe()
@@ -1122,7 +1112,9 @@ bool movSubscribe()
         std::string path = config.sensorPaths[index];
 
         // Subscribe to the Movesense path
-        if (!writeMovesenseCommand(Commands::SUBSCRIBE, Commands::SUBSCRIBE + index, (uint8_t *)path.c_str(), path.length()))
+        Response response = writeMovesenseCommand(Commands::SUBSCRIBE, Commands::SUBSCRIBE + index, (uint8_t *)path.c_str(), path.length());
+        // TODO: handle errors
+        if (response.status != Status::SUCCESS)
         {
             logError("movSubscribe", "Failed to send subscribe command for path: %s", path.c_str());
             return false;
@@ -1155,13 +1147,19 @@ bool movUnsubscribe()
 
     ESP_LOGI("movUnsubscribe", "Sending unsubscribe all command to Movesense");
 
-    return writeMovesenseCommand(Commands::UNSUBSCRIBE_ALL, Commands::UNSUBSCRIBE_ALL + REF_OFFSET_COMMAND, nullptr, 0);
+    Response response = writeMovesenseCommand(Commands::UNSUBSCRIBE_ALL, Commands::UNSUBSCRIBE_ALL + REF_OFFSET_COMMAND, nullptr, 0);
+
+    // TODO: handle errors
+    return response.status == Status::SUCCESS;
 }
 
 bool movClearLogs()
 {
     logInfo("movClearLogs", "Sending clear logs command to Movesense");
-    return writeMovesenseCommand(Commands::CLEAR_LOGS, Commands::CLEAR_LOGS + REF_OFFSET_COMMAND, nullptr, 0);
+    Response response = writeMovesenseCommand(Commands::CLEAR_LOGS, Commands::CLEAR_LOGS + REF_OFFSET_COMMAND, nullptr, 0);
+
+    // TODO: handle errors
+    return response.status == Status::SUCCESS;
 }
 
 bool movSubLogs()
@@ -1172,7 +1170,10 @@ bool movSubLogs()
         std::string path = config.sensorPaths[index];
 
         // Subscribe to the Movesense path
-        if (!writeMovesenseCommand(Commands::SUB_LOG, Commands::SUB_LOG + index, (uint8_t *)path.c_str(), path.length()))
+        Response response = writeMovesenseCommand(Commands::SUB_LOG, Commands::SUB_LOG + index, (uint8_t *)path.c_str(), path.length());
+
+        // TODO: handle errors
+        if (response.status != Status::SUCCESS)
         {
             logError("movSubLogs", "Failed to send log subscribe command for path: %s", path.c_str());
             return false;
@@ -1189,13 +1190,22 @@ bool movSubLogs()
 bool movStartLog()
 {
     logInfo("movStartLog", "Sending start log command to Movesense");
-    return writeMovesenseCommand(Commands::START_LOG, Commands::START_LOG + REF_OFFSET_COMMAND, nullptr, 0);
+    uint8_t rotationIntervalBytes[2];
+    rotationIntervalBytes[0] = config.rotationIntervalMin & 0xFF;        // Lower byte
+    rotationIntervalBytes[1] = (config.rotationIntervalMin >> 8) & 0xFF; // Upper byte
+    Response response = writeMovesenseCommand(Commands::START_LOG, Commands::START_LOG + REF_OFFSET_COMMAND, rotationIntervalBytes, sizeof(rotationIntervalBytes));
+
+    // TODO: handle errors
+    return response.status == Status::SUCCESS;
 }
 
 bool movStopLog()
 {
     logInfo("movStopLog", "Sending stop log command to Movesense");
-    return writeMovesenseCommand(Commands::STOP_LOG, Commands::STOP_LOG + REF_OFFSET_COMMAND, nullptr, 0);
+    Response response = writeMovesenseCommand(Commands::STOP_LOG, Commands::STOP_LOG + REF_OFFSET_COMMAND, nullptr, 0);
+
+    // TODO: handle errors
+    return response.status == Status::SUCCESS;
 }
 
 bool movListLogs(std::vector<uint32_t> &logIds)
@@ -1204,7 +1214,10 @@ bool movListLogs(std::vector<uint32_t> &logIds)
     uint8_t responseLength = sizeof(responseBuffer);
 
     uint8_t reference = Commands::LIST_LOGS + REF_OFFSET_COMMAND;
-    bool success = writeMovesenseCommand(Commands::LIST_LOGS, reference, nullptr, 0, responseBuffer, &responseLength);
+
+    // TODO handle responses
+    Response response = writeMovesenseCommand(Commands::LIST_LOGS, reference, nullptr, 0, responseBuffer, &responseLength);
+    bool success = response.status == Status::SUCCESS;
 
     if (!success)
     {
@@ -1450,7 +1463,11 @@ bool _movFetchLog(FILE *f, uint32_t logId)
     uint8_t responseBuffer[4];
     uint8_t responseLength = sizeof(responseBuffer);
 
-    success = waitForMovesenseResponse(fetchReference, responseBuffer, &responseLength);
+    Response response;
+    response = waitForMovesenseResponse(fetchReference, responseBuffer, &responseLength);
+
+    // TODO handle errors
+    success = response.status == Status::SUCCESS;
     if (!success || responseLength != 4)
     {
         logError("_movFetchLog", "Failed to wait for final response after fetching log");
