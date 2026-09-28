@@ -34,6 +34,7 @@ struct Config
 
     // JSON config fields
     uint16_t fetchIntervalMin = 1;        // Duration in minutes to wait between Movesense data fetches
+    uint16_t rotationIntervalMin = 1;     // Duration in minutes to wait between Movesense log rotations
     std::vector<std::string> sensorPaths; // Paths to the sensors to log
     std::string address = "";             // Movesense BLE address
 };

@@ -654,6 +654,7 @@ bool endMovesenseLogging()
 
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
+    // FIXME update this for multi-log
     // Fetch the last Movesense log ID
     uint32_t logId;
     if (!getMovesenseLastLogId(logId))
@@ -955,6 +956,7 @@ bool rescueMovesenseData()
         return false;
     }
 
+    // FIXME update this for multi-log
     // Fetch the last Movesense log ID
     uint32_t logId;
     if (!getMovesenseLastLogId(logId))

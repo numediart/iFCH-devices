@@ -445,8 +445,17 @@ bool loadJsonConfig()
         return false;
     }
 
+    cJSON *rotationInterval = cJSON_GetObjectItemCaseSensitive(json, "rotationIntervalMin");
+    if (rotationInterval == NULL || !cJSON_IsNumber(rotationInterval))
+    {
+        logError("loadJsonConfig", "Invalid fetchIntervalMin in config file");
+        cJSON_Delete(json);
+        return false;
+    }
+
     config.address = std::string(address->valuestring);
     config.fetchIntervalMin = fetchInterval->valueint;
+    config.rotationIntervalMin = rotationInterval->valueint;
     config.initialized = true;
 
     ESP_LOGI("loadJsonConfig", "Config file loaded");

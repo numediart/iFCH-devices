@@ -120,6 +120,7 @@ void fetchLogic()
 
             // If we fail to connect too many times in a row, we consider that
             // the Movesense is not reachable and stop attempting to connect
+            // for a longer time
             connectFailureCount++;
             if (connectFailureCount >= MAX_CONNECT_FAILURES)
             {
@@ -170,6 +171,8 @@ void fetchLogic()
                 record.part++;
             }
 
+            // FIXME the data will be lost if the connexion is lost during the fetch
+            // Use a standard fetch step instead
             if (!retry(movReset, 3, GATT_DELAY))
             {
                 logError("fetchStep", "Failed to reset Movesense");
@@ -193,6 +196,24 @@ void fetchLogic()
                 return;
             }
             vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
+            // If the Movesense was reset, it may have lost the UTC time
+            uint32_t currentEpoch;
+            currentEpoch = getUNIXTime();
+            if (currentEpoch == 0)
+            {
+                logError("fetchLogic", "Failed to get RTC time");
+                errorReset();
+                return;
+            }
+            if (!movSetUTCTime(currentEpoch * 1000000LL))
+            {
+                logError("fetchLogic", "Failed to set Movesense UTC time");
+                errorReset();
+                return;
+            }
+            vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
             if (!retry(movStartLog, 3, GATT_DELAY))
             {
                 logError("fetchStep", "Failed to start Movesense logging");
