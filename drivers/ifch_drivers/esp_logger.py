@@ -529,6 +529,7 @@ class ESPLogger:
     BLE_BATTERY_TIMEOUT_S = 5
     ERROR_LOG_DELETE_TIMEOUT_S = 5
     END_LOG_TIMEOUT_S = 300
+    MAX_CONFIG_SIZE = 512
 
     CONFIG_FILE = "config.jsn"
     ERROR_LOG_FILE = "log.txt"
@@ -697,7 +698,14 @@ class ESPLogger:
 
         # Step 2 - send the file
         config_data = json.dumps(self._config, separators=(",", ":")).encode("utf-8")
+
+        if len(config_data) > self.MAX_CONFIG_SIZE:
+            raise RuntimeError(
+                f"Config file too large: {len(config_data)} bytes (max {self.MAX_CONFIG_SIZE})"
+            )
+
         logging.debug("Sending config file: %s", config_data)
+
         ok = await self._proto.send_file(config_data, self.CONFIG_FILE)
 
         if not ok:
