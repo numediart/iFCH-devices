@@ -16,10 +16,10 @@ MOVESENSE_FEATURES_BEGIN()
 // Explicitly enable or disable Movesense framework core modules.
 // List of modules and their default state is found in documentation
 // DataLogger/Logbook are required for on-device recording and retrieval.
-// EEPROM service is required for manually writing to the memory
 OPTIONAL_CORE_MODULE(DataLogger, true)
 OPTIONAL_CORE_MODULE(Logbook, true)
-OPTIONAL_CORE_MODULE(EepromService, true)
+// EEPROM service will be required for manually writing to the memory
+OPTIONAL_CORE_MODULE(EepromService, false)
 // LedService/IndicationService are used for user-visible status signaling.
 OPTIONAL_CORE_MODULE(LedService, true)
 OPTIONAL_CORE_MODULE(IndicationService, true)
@@ -38,11 +38,16 @@ DEBUGSERVICE_BUFFER_SIZE(6, 120);     // 6 lines, 120 characters total
 DEBUG_EEPROM_MEMORY_AREA(false, 0, 0) // EEPROM storage disabled
 
 #ifdef HWCONFIG_SS2
-#error "SS2 not supported"
+// When using custom EEPROM memory, the SS2 will not be compatible anymore
+// #error "SS2 not supported"
 // TODO: add support for SS2 by reserving part of the EEPROM?
 // Chip #0: 128kiB, reserved for custom buffer
 // Chip #1: 256MiB, reserved for logbook
-LOGBOOK_EEPROM_MEMORY_AREA(131072, MEMORY_SIZE_FILL_REST)
+
+// The following macro has no effect on SS2_NAND because the logbook is stored
+// in NAND flash memory, not in EEPROM.
+// LOGBOOK_EEPROM_MEMORY_AREA(131072, MEMORY_SIZE_FILL_REST)
+LOGBOOK_EEPROM_MEMORY_AREA(0, MEMORY_SIZE_FILL_REST)
 #elifdef HWCONFIG_SS2_NAND
 // In FLASH devices, the logbook is stored in the NAND flash memory, not in EEPROM.
 // There is no need to reserve EEPROM space for the logbook.
