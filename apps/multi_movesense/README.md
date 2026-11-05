@@ -2,6 +2,8 @@
 
 Desktop application for monitoring and coordinating multiple Movesense devices.
 
+Movesense firmware version >= 2.3.1 or iFCH is required for this app.
+
 ## Run
 
 First install UV (see parent README).

@@ -57,3 +57,25 @@ Related notices are included in:
 
 - `../../NOTICE.txt`
 - `../../THIRD_PARTY_NOTICES.md`
+
+## Differences with the default Movesense firmware
+
+### Minor differences
+
+- The GATT protocol used here is different, and includes finegrained commands. It provides the following additional features:
+  - unsubscribing from all streams at once,
+  - unsubscribing from all logs at once.
+- The device description returned by the custom firmware also includes the version of the core library, for maximum traceability.
+
+### Major additions
+
+- **Automated log rotation**: the custom firmware can automatically create new log files after a chosen time interval, to limit the size of each log file. This makes it much more stable to download logs from the device, and allows restarting from a checkpoint rather than from the start of a long recording in case of a connection loss.
+- **Packet loss detection**: the custom firmware sends a validation message allowing to guarantee that all packets have been received at the end of a log download.
+- **24h hibernation**: the custom firmware will hibernate for 24h instead of shutting down after 1 minute of inactivity. This allows the device to keep track of time and continue resume logging after a connection loss, even if the device is not touched for a long time.
+- **Protected responses**: the custom firmware uses a separate channel for command responses, and uses an acknowledgement mechanism to ensure that responses are correctly received. This enables more robust communication and fault detection.
+- **Separate data and log channels**: the custom firmware uses a different channel for live data streams and log downloads. This allows to easily distinguish between the two types of data, and cut out one of the channels if the bandwidth is not sufficient for both.
+
+### Fixes
+
+- The `UNSUBSCRIBE` command correctly returns a success response.
+- Some commands have safeguards that return an error code instead of silently crashing the device when used incorrectly.
