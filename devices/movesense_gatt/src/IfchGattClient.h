@@ -122,6 +122,7 @@ private:
     uint8_t mDataLoggerState;
     uint8_t mDataloggerTargetState;
     bool mDataloggerTransitionPending;
+    bool mLogFetchInProgress;
     uint32_t mLogRotationInterval; // in milliseconds
     PowerState mPowerState;
 

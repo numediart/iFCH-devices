@@ -134,6 +134,7 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mDataLoggerState(WB_RES::DataLoggerStateValues::DATALOGGER_INVALID),
                                    mDataloggerTargetState(WB_RES::DataLoggerStateValues::DATALOGGER_INVALID),
                                    mDataloggerTransitionPending(false),
+                                   mLogFetchInProgress(false),
                                    mLogRotationInterval(0),
                                    mCounter(0),
                                    mLogListReference(0),
@@ -174,6 +175,7 @@ void IfchGattClient::resetInnerState()
     // Reset datalogger state
     mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_INVALID;
     mDataloggerTransitionPending = false;
+    mLogFetchInProgress = false;
     mLogRotationInterval = 0;
 
     // Reset GATT indicate queue
@@ -559,7 +561,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             return;
         }
 
-        if (mLogFetchReference != 0)
+        if (mLogFetchReference != 0 || mLogFetchInProgress)
         {
             // 409: Conflict, already fetching a log
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
@@ -583,6 +585,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             // hasOffset = true;
         }
 
+        mLogFetchInProgress = true;
         mLogFetchReference = reference;
 
         // // If fetching with offset, use the GET method
@@ -607,8 +610,8 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::CLEAR_LOGS. reference: %d", reference);
 
-        // Cannot clear logs if logging
-        if (mDataloggerTransitionPending || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        // Cannot clear logs if logging or fetching
+        if (mDataloggerTransitionPending || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING || mLogFetchInProgress)
         {
             // 409: Conflict
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
@@ -756,7 +759,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             return;
         }
 
-        if (mDataloggerTransitionPending || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        if (mDataloggerTransitionPending || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING || mLogFetchInProgress)
         {
             // 409: Conflict
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
@@ -823,6 +826,15 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::LIST_LOGS. reference: %d", reference);
 
+        // Cannot list logs while fetching
+        if (mLogFetchInProgress)
+        {
+            // 409: Conflict, already fetching a log
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            return;
+        }
+
         mLogListReference = reference;
         mLogListDataSent = 0;
 
@@ -844,8 +856,8 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::RESET. reference: %d", reference);
 
-        // Cannot reset if logging (bug)
-        if (mDataloggerTransitionPending || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        // Cannot reset if logging (bug) or fetching
+        if (mDataloggerTransitionPending || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING || mLogFetchInProgress)
         {
             // 409: Conflict
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
@@ -1106,26 +1118,32 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         const auto &stream = rResultData.convertTo<const wb::ByteStream &>();
         DEBUGLOG("MEM_LOGBOOK_BYID_LOGID_DATA. resultCode: %d", resultCode);
 
-        if (mLogFetchReference == 0)
-        {
-            // FIXME this leaves the logbook in an invalid state
-            // Current library requires to follow up on HTTP_CODE_CONTINUE
-            // until the log is fully read
-            // This breaks the chain prematurely if the client disconnects while
-            // fetching a log. If a request is then made to list the logs, the
-            // device will crash
-            return;
-        }
+        // FIXME this would leave the logbook in an invalid state
+        // if (mLogFetchReference == 0)
+        // {
+        // Current library requires to follow up on HTTP_CODE_CONTINUE
+        // until the log is fully read
+        // This breaks the chain prematurely if the client disconnects while
+        // fetching a log. If a request is then made to list the logs, the
+        // device will crash
+        // Uncomment when this will be fixed in the core lib
+        //     return;
+        // }
 
         if (resultCode >= 400)
         {
-            uint8_t errorCode[2];
-            errorCode[0] = resultCode & 0xFF;
-            errorCode[1] = (resultCode >> 8) & 0xFF;
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogFetchReference, errorCode[0], errorCode[1]};
-            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            // Only send a message if the client is still connected
+            if (mLogFetchReference != 0)
+            {
+                uint8_t errorCode[2];
+                errorCode[0] = resultCode & 0xFF;
+                errorCode[1] = (resultCode >> 8) & 0xFF;
+                uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogFetchReference, errorCode[0], errorCode[1]};
+                asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            }
 
             mLogFetchReference = 0;
+            mLogFetchInProgress = false;
             mLogIdToFetch = 0;
             mLogFetchOffset = 0;
             mLogFetchDataSent = 0;
@@ -1135,7 +1153,11 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         DEBUGLOG("Sending from get. size: %d", stream.length());
 
-        handleSendingLogbookData(stream.data, stream.length());
+        // Only send data if the client is still connected
+        if (mLogFetchReference != 0)
+        {
+            handleSendingLogbookData(stream.data, stream.length());
+        }
 
         if (resultCode == wb::HTTP_CODE_CONTINUE)
         {
@@ -1144,25 +1166,29 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         }
         if (resultCode == wb::HTTP_CODE_OK)
         {
-            DEBUGLOG("Fetching log complete. sending end marker.");
-            // Send end marker (offset and no bytes)
-            handleSendingLogbookData(nullptr, 0);
+            if (mLogFetchReference != 0)
+            {
+                DEBUGLOG("Fetching log complete. sending end marker.");
+                // Send end marker (offset and no bytes)
+                handleSendingLogbookData(nullptr, 0);
 
-            // Send OK response with total number of packets sent
-            uint8_t ackMsg[8];
-            ackMsg[0] = Responses::COMMAND_RESULT;
-            ackMsg[1] = mLogFetchReference;
-            ackMsg[2] = Codes::OK;
-            ackMsg[3] = Status::SUCCESS;
-            memcpy(&ackMsg[4], &mLogFetchDataSent, sizeof(mLogFetchDataSent));
+                // Send OK response with total number of packets sent
+                uint8_t ackMsg[8];
+                ackMsg[0] = Responses::COMMAND_RESULT;
+                ackMsg[1] = mLogFetchReference;
+                ackMsg[2] = Codes::OK;
+                ackMsg[3] = Status::SUCCESS;
+                memcpy(&ackMsg[4], &mLogFetchDataSent, sizeof(mLogFetchDataSent));
 
-            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
+                asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
+            }
 
             // Mark "no current log"
             mLogIdToFetch = 0;
             mLogFetchOffset = 0;
             mLogFetchReference = 0;
             mLogFetchDataSent = 0;
+            mLogFetchInProgress = false;
         }
         break;
     }
@@ -1699,6 +1725,8 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             mDataloggerTargetState = WB_RES::DataLoggerStateValues::DATALOGGER_INVALID;
             mDataloggerTransitionPending = false;
 
+            // Except log fetch (due to a bug in the current library)
+
             setShutdownTimer();
         }
         else if (peerChange.state == peerChange.state.CONNECTED)
@@ -1726,78 +1754,94 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
 
     case WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA::LID:
     {
-        if (mLogFetchReference == 0)
-        {
-            // The client lost connection while fetching a log.
-            // Unsubscribe from the logbook
+        // FIXME this would leave the logbook in an invalid state
+        // if (mLogFetchReference == 0)
+        // {
+        // The client lost connection while fetching a log.
+        // Unsubscribe from the logbook
 
-            // FIXME this leaves the logbook in an invalid state
-            // Current library requires to read the log till the end
-            // This stops prematurely if the client disconnects while
-            // fetching a log. If a request is then made to list the logs, the
-            // device will crash
+        // Current library requires to read the log till the end
+        // This stops prematurely if the client disconnects while
+        // fetching a log. If a request is then made to list the logs, the
+        // device will crash
+        // Uncomment when fixed in the core lib
 
-            asyncUnsubscribe(WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA(), AsyncRequestOptions::Empty, mLogIdToFetch);
-            mLogIdToFetch = 0;
-            return;
-        }
+        // asyncUnsubscribe(WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA(), AsyncRequestOptions::Empty, mLogIdToFetch);
+        // mLogIdToFetch = 0;
+        // return;
+        // }
 
         // Handle special case of subscribing logbook data
         const auto &dataNotification = value.convertTo<const WB_RES::LogDataNotification &>();
         const size_t length = dataNotification.bytes.size();
         DEBUGLOG("Logbook data notification. offset: %d, length: %d", dataNotification.offset, length);
 
-        // Forward data to client in same format (offset + bytes)
-        // If length > MAX_DATA_SIZE, split in two notifications
-        memset(mDataMsgBuffer, 0, sizeof(mDataMsgBuffer));
-        mDataMsgBuffer[0] = Responses::DATA;
-        mDataMsgBuffer[1] = mLogFetchReference;
-
-        // Copy offset
-        size_t writePos = 2;
-        memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.offset), sizeof(dataNotification.offset));
-        writePos += sizeof(dataNotification.offset);
-        size_t dataSize = sizeof(mDataMsgBuffer) - writePos;
-        size_t firstPartLen = (length > dataSize) ? dataSize : length;
-        size_t secondPartLen = length - firstPartLen;
-        DEBUGLOG("firstPartLen: %d, secondPartLen: %d", firstPartLen, secondPartLen);
-        if (firstPartLen > 0)
+        // Only send data if the client is still connected
+        if (mLogFetchReference != 0)
         {
-            memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.bytes[0]), firstPartLen);
-            writePos += firstPartLen;
-        }
-        else
-        {
-            DEBUGLOG("End of file marker");
-        }
+            // Forward data to client in same format (offset + bytes)
+            // If length > MAX_DATA_SIZE, split in two notifications
+            memset(mDataMsgBuffer, 0, sizeof(mDataMsgBuffer));
+            mDataMsgBuffer[0] = Responses::DATA;
+            mDataMsgBuffer[1] = mLogFetchReference;
 
-        WB_RES::Characteristic logCharValue;
-        logCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
-        asyncPut(mLogCharResource, AsyncRequestOptions::Empty, logCharValue);
-
-        if (secondPartLen > 0)
-        {
-            if (secondPartLen > dataSize)
+            // Copy offset
+            size_t writePos = 2;
+            memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.offset), sizeof(dataNotification.offset));
+            writePos += sizeof(dataNotification.offset);
+            size_t dataSize = sizeof(mDataMsgBuffer) - writePos;
+            size_t firstPartLen = (length > dataSize) ? dataSize : length;
+            size_t secondPartLen = length - firstPartLen;
+            DEBUGLOG("firstPartLen: %d, secondPartLen: %d", firstPartLen, secondPartLen);
+            if (firstPartLen > 0)
             {
-
-                DEBUGLOG("ERROR: secondPartLen > dataSize. secondPartLen: %d, dataSize: %d", secondPartLen, dataSize);
-                return;
+                memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.bytes[0]), firstPartLen);
+                writePos += firstPartLen;
+            }
+            else
+            {
+                DEBUGLOG("End of file marker");
             }
 
-            mDataMsgBuffer[0] = DATA_PART2;
-
-            // Calc and write second offset
-            writePos = 2;
-            uint32_t secondOffset = dataNotification.offset + firstPartLen;
-            memcpy(&(mDataMsgBuffer[writePos]), &secondOffset, sizeof(secondOffset));
-            writePos += sizeof(secondOffset);
-            // Copy second part data
-            memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.bytes[firstPartLen]), secondPartLen);
-            writePos += secondPartLen;
-
+            WB_RES::Characteristic logCharValue;
             logCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
             asyncPut(mLogCharResource, AsyncRequestOptions::Empty, logCharValue);
+
+            // If the data is larger than the buffer, send the second part
+            // only if the client is still connected
+            if (secondPartLen > 0 && mLogFetchReference != 0)
+            {
+                if (secondPartLen > dataSize)
+                {
+
+                    DEBUGLOG("ERROR: secondPartLen > dataSize. secondPartLen: %d, dataSize: %d", secondPartLen, dataSize);
+                    return;
+                }
+
+                mDataMsgBuffer[0] = DATA_PART2;
+
+                // Calc and write second offset
+                writePos = 2;
+                uint32_t secondOffset = dataNotification.offset + firstPartLen;
+                memcpy(&(mDataMsgBuffer[writePos]), &secondOffset, sizeof(secondOffset));
+                writePos += sizeof(secondOffset);
+                // Copy second part data
+                memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.bytes[firstPartLen]), secondPartLen);
+                writePos += secondPartLen;
+
+                logCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
+                asyncPut(mLogCharResource, AsyncRequestOptions::Empty, logCharValue);
+            }
         }
+
+        // Clean up the log fetch state if the fetch is over
+        if (length == 0)
+        {
+            mLogFetchReference = 0;
+            mLogFetchInProgress = false;
+            return;
+        }
+
         return;
     }
 
@@ -2060,9 +2104,9 @@ void IfchGattClient::onTimer(wb::TimerId timerId)
         STATIC_VERIFY(WB_EXEC_CTX_APPLICATION == WB_RES::LOCAL::MEM_DATALOGGER_STATE::EXECUTION_CONTEXT, DataLogger_must_be_application_thread);
 
         asyncGet(WB_RES::LOCAL::MEM_DATALOGGER_STATE());
-        if (mDataloggerTransitionPending || mLeadsConnected || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        if (mDataloggerTransitionPending || mLeadsConnected || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING || mLogFetchInProgress)
         {
-            DEBUGLOG("transition pending [%d], leads connected [%d], datalogger state [%d]. postponing shutdown", mDataloggerTransitionPending, mLeadsConnected, mDataLoggerState);
+            DEBUGLOG("transition pending [%d], leads connected [%d], datalogger state [%d], log fetching [%d]. postponing shutdown", mDataloggerTransitionPending, mLeadsConnected, mDataLoggerState, mLogFetchInProgress);
             mCounter = 0;
             return;
         }
