@@ -7,6 +7,7 @@
 #include "driver/i2c_master.h"
 
 #include "globals.h"
+#include "ble_com.h"
 
 #include <functional>
 
@@ -79,6 +80,8 @@ bool deleteLog();
 
 // Retry a function call with a specified number of retries and delay
 bool retry(std::function<bool()> func, int retries, int delay_ms);
+
+Response retry(std::function<Response()> func, int retries, int delay_ms);
 
 // Validate Movesense HELLO payload and enforce expected app/version constraints.
 // Also format the HELLO buffer

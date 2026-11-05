@@ -79,7 +79,7 @@ void streamDumpTask(void *params)
     }
 
     // Subscribe to Movesense sensors for stream dumping
-    success = movSubscribe();
+    success = movSubscribe().status == Status::SUCCESS;
 
     // Notify the control task that the stream dump has started
     if (stream_dump_control == nullptr)
@@ -181,7 +181,7 @@ void streamDumpTask(void *params)
     }
 
     // Stop the subscription to Movesense sensors
-    success = movUnsubscribe();
+    success = movUnsubscribe().status == Status::SUCCESS;
 
     // Notify the control task that the stream dump has stopped
     if (stream_dump_control == nullptr)
@@ -344,7 +344,7 @@ bool getMovesenseLastLogId(uint32_t &logId)
     std::vector<uint32_t> logIds;
 
     // List the available Movesense logs
-    if (!movListLogs(logIds))
+    if (movListLogs(logIds).status != Status::SUCCESS)
     {
         logError("getMovesenseLastLogId", "Failed to list Movesense logs");
         return false;
@@ -385,7 +385,7 @@ bool saveCheckpoint(uint32_t &currentEpoch)
     uint8_t battery = static_cast<uint8_t>(battery_);
 
     uint8_t mov_battery;
-    success = getMovesenseBattery(mov_battery);
+    success = getMovesenseBattery(mov_battery).status == Status::SUCCESS;
     if (!success)
     {
         logError("saveCheckpoint", "Failed to get Movesense battery level");
@@ -401,7 +401,7 @@ bool saveCheckpoint(uint32_t &currentEpoch)
 
     uint32_t movTime;
     int64_t movUTCTimeUs;
-    success = movGetTime(movTime, movUTCTimeUs);
+    success = movGetTime(movTime, movUTCTimeUs).status == Status::SUCCESS;
     if (!success)
     {
         logError("saveCheckpoint", "Failed to get Movesense time");
@@ -469,7 +469,7 @@ bool startMovesenseLogging()
     uint8_t helloBuffer[NOTIF_LEN];
     uint8_t helloLength = sizeof(helloBuffer);
 
-    if (!movHello(helloBuffer, helloLength))
+    if (movHello(helloBuffer, helloLength).status != Status::SUCCESS)
     {
         logError("startMovesenseLogging", "Failed to send Movesense hello");
         return false;
@@ -504,7 +504,7 @@ bool startMovesenseLogging()
     record.logging = true;
 
     // Reset the Movesense device (makes sure it is ready for logging)
-    if (!retry(movReset, 3, GATT_DELAY))
+    if (retry(movReset, 3, GATT_DELAY).status != Status::SUCCESS)
     {
         logError("startMovesenseLogging", "Failed to reset Movesense");
         record.logging = false;
@@ -565,7 +565,7 @@ bool startMovesenseLogging()
         return false;
     }
 
-    if (!movSetUTCTime(currentEpoch * 1000000LL))
+    if (movSetUTCTime(currentEpoch * 1000000LL).status != Status::SUCCESS)
     {
         logError("startMovesenseLogging", "Failed to set Movesense UTC time");
         rremove(recordDir);
@@ -585,7 +585,7 @@ bool startMovesenseLogging()
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Subscribe to Movesense logs
-    if (!movSubLogs())
+    if (movSubLogs().status != Status::SUCCESS)
     {
         logError("startMovesenseLogging", "Failed to subscribe to Movesense logs");
         rremove(recordDir);
@@ -599,7 +599,7 @@ bool startMovesenseLogging()
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Start Movesense logging
-    if (!retry(movStartLog, 3, GATT_DELAY))
+    if (retry(movStartLog, 3, GATT_DELAY).status != Status::SUCCESS)
     {
         logError("startMovesenseLogging", "Failed to start Movesense logging");
         rremove(recordDir);
@@ -619,7 +619,7 @@ bool startMovesenseLogging()
         vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
         // Wait for the Movesense to stop logging
-        if (!retry(movStopLog, 3, GATT_DELAY))
+        if (retry(movStopLog, 3, GATT_DELAY).status != Status::SUCCESS)
         {
             logError("startMovesenseLogging", "Failed to stop Movesense logging after error");
         }
@@ -667,7 +667,7 @@ bool endMovesenseLogging()
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Stop Movesense logging
-    if (!retry(movStopLog, 3, GATT_DELAY))
+    if (retry(movStopLog, 3, GATT_DELAY).status != Status::SUCCESS)
     {
         logError("endMovesenseLogging", "Failed to stop Movesense logging");
         record.part--;
@@ -694,7 +694,7 @@ bool endMovesenseLogging()
         {
             return movFetchLog(recordFile, logId);
         };
-        if (!retry(movFetchLog_, 3, GATT_DELAY))
+        if (retry(movFetchLog_, 3, GATT_DELAY).status != Status::SUCCESS)
         {
             logError("endMovesenseLogging", "Failed to fetch Movesense log with ID: %d", logId);
             record.part--;
@@ -722,7 +722,7 @@ bool endMovesenseLogging()
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // And clear the Movesense logs
-    if (!retry(movClearLogs, 3, GATT_DELAY))
+    if (retry(movClearLogs, 3, GATT_DELAY).status != Status::SUCCESS)
     {
         logError("endMovesenseLogging", "Failed to clear Movesense logs after ending logging");
         // Do not return false here, as the logging was stopped successfully
@@ -856,7 +856,7 @@ bool fetchMovesenseData()
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Stop Movesense logging
-    if (!retry(movStopLog, 3, GATT_DELAY))
+    if (retry(movStopLog, 3, GATT_DELAY).status != Status::SUCCESS)
     {
         logError("fetchMovesenseData", "Failed to stop Movesense logging");
         record.part--;
@@ -872,7 +872,7 @@ bool fetchMovesenseData()
     {
         return movFetchLog(recordFile, logId);
     };
-    if (!retry(movFetchLog_, 3, GATT_DELAY))
+    if (retry(movFetchLog_, 3, GATT_DELAY).status != Status::SUCCESS)
     {
         logError("fetchMovesenseData", "Failed to fetch Movesense log with ID: %d", logId);
         record.part--;
@@ -884,7 +884,7 @@ bool fetchMovesenseData()
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Delete the fetched logs from Movesense
-    if (!retry(movClearLogs, 3, GATT_DELAY))
+    if (retry(movClearLogs, 3, GATT_DELAY).status != Status::SUCCESS)
     {
         logError("fetchMovesenseData", "Failed to clear Movesense logs after fetching data");
         record.part--;
@@ -906,7 +906,7 @@ bool fetchMovesenseData()
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Restart Movesense logging
-    if (!retry(movStartLog, 3, GATT_DELAY))
+    if (retry(movStartLog, 3, GATT_DELAY).status != Status::SUCCESS)
     {
         logError("fetchMovesenseData", "Failed to restart Movesense logging after fetching data");
         retry(stopStreamDumpTask, 3, GATT_DELAY);
@@ -991,7 +991,7 @@ bool rescueMovesenseData()
     {
         return movFetchLog(recordFile, logId);
     };
-    if (!retry(movFetchLog_, 3, GATT_DELAY))
+    if (retry(movFetchLog_, 3, GATT_DELAY).status != Status::SUCCESS)
     {
         logError("rescueMovesenseData", "Failed to fetch Movesense log with ID: %d", logId);
         record.part--;
@@ -1001,7 +1001,7 @@ bool rescueMovesenseData()
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
     // Delete the fetched logs from Movesense
-    if (!retry(movClearLogs, 3, GATT_DELAY))
+    if (retry(movClearLogs, 3, GATT_DELAY).status != Status::SUCCESS)
     {
         logError("rescueMovesenseData", "Failed to clear Movesense logs after fetching data");
         record.part--;

@@ -77,19 +77,19 @@ bool resetMovesense()
     }
 
     // Stop logging if currently logging, also stop streaming then reset
-    if (!movStopLog())
+    if (movStopLog().status != Status::SUCCESS)
     {
         logError("MOV_FULL_RESET", "Failed to stop Movesense logging");
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-    if (!movUnsubscribe())
+    if (movUnsubscribe().status != Status::SUCCESS)
     {
         logError("MOV_FULL_RESET", "Failed to unsubscribe from Movesense sensors");
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-    if (!movReset())
+    if (movReset().status != Status::SUCCESS)
     {
         logError("MOV_FULL_RESET", "Failed to reset Movesense");
         return false;
@@ -146,7 +146,7 @@ void fetchLogic()
 
         // Check the Movesense state
         uint8_t loggingStatus;
-        if (!movGetLoggingStatus(loggingStatus))
+        if (movGetLoggingStatus(loggingStatus).status != Status::SUCCESS)
         {
             logError("fetchStep", "Failed to get Movesense logging status");
             errorReset();
@@ -173,7 +173,7 @@ void fetchLogic()
 
             // FIXME the data will be lost if the connexion is lost during the fetch
             // Use a standard fetch step instead
-            if (!retry(movReset, 3, GATT_DELAY))
+            if (retry(movReset, 3, GATT_DELAY).status != Status::SUCCESS)
             {
                 logError("fetchStep", "Failed to reset Movesense");
                 record.part--;
@@ -189,7 +189,7 @@ void fetchLogic()
                 return;
             }
             vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-            if (!movSubLogs())
+            if (movSubLogs().status != Status::SUCCESS)
             {
                 logError("fetchStep", "Failed to subscribe to Movesense logs");
                 errorReset();
@@ -206,7 +206,7 @@ void fetchLogic()
                 errorReset();
                 return;
             }
-            if (!movSetUTCTime(currentEpoch * 1000000LL))
+            if (movSetUTCTime(currentEpoch * 1000000LL).status != Status::SUCCESS)
             {
                 logError("fetchLogic", "Failed to set Movesense UTC time");
                 errorReset();
@@ -214,7 +214,7 @@ void fetchLogic()
             }
             vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
-            if (!retry(movStartLog, 3, GATT_DELAY))
+            if (retry(movStartLog, 3, GATT_DELAY).status != Status::SUCCESS)
             {
                 logError("fetchStep", "Failed to start Movesense logging");
                 errorReset();
@@ -681,7 +681,7 @@ void handleSerialCommand(CmdType cmd)
         uint8_t helloBuffer[NOTIF_LEN];
         uint8_t helloLength = sizeof(helloBuffer);
 
-        if (!movHello(helloBuffer, helloLength))
+        if (movHello(helloBuffer, helloLength).status != Status::SUCCESS)
         {
             logError("CMD_MOV_VALIDATE", "Failed to send hello to Movesense");
             sendERR(CmdType::CMD_MOV_VALIDATE);
@@ -722,7 +722,7 @@ void handleSerialCommand(CmdType cmd)
             sendERR(CmdType::CMD_MOV_HELLO);
             break;
         }
-        else if (movHello(helloBuffer, helloLength))
+        else if (movHello(helloBuffer, helloLength).status == Status::SUCCESS)
         {
             sendFrame(CmdType::CMD_MOV_HELLO, helloBuffer, helloLength);
         }
@@ -747,7 +747,7 @@ void handleSerialCommand(CmdType cmd)
         {
 
             uint8_t movesenseBatteryLevel;
-            if (getMovesenseBattery(movesenseBatteryLevel))
+            if (getMovesenseBattery(movesenseBatteryLevel).status == Status::SUCCESS)
             {
                 sendFrame(CmdType::CMD_MOV_BATTERY_GET, &movesenseBatteryLevel, sizeof(movesenseBatteryLevel));
             }
@@ -781,7 +781,7 @@ void handleSerialCommand(CmdType cmd)
             sendERR(CmdType::CMD_MOV_STREAM);
             break;
         }
-        else if (movSubscribe())
+        else if (movSubscribe().status == Status::SUCCESS)
         {
             sendCMD(CmdType::CMD_MOV_STREAM);
             isStreaming = true;
@@ -809,7 +809,7 @@ void handleSerialCommand(CmdType cmd)
             sendERR(CmdType::CMD_MOV_UNSTREAM);
             break;
         }
-        else if (movUnsubscribe())
+        else if (movUnsubscribe().status == Status::SUCCESS)
         {
             sendCMD(CmdType::CMD_MOV_UNSTREAM);
             isStreaming = false;
@@ -904,7 +904,7 @@ void handleSerialCommand(CmdType cmd)
             sendERR(CmdType::CMD_MOV_GET_LOGGING_STATE);
             break;
         }
-        else if (movGetLoggingStatus(loggingStatus))
+        else if (movGetLoggingStatus(loggingStatus).status == Status::SUCCESS)
         {
             sendFrame(CmdType::CMD_MOV_GET_LOGGING_STATE, &loggingStatus, sizeof(loggingStatus));
         }

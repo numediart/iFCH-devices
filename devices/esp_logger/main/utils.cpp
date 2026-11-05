@@ -766,3 +766,19 @@ bool retry(std::function<bool()> func, int retries, int delay_ms)
     }
     return false; // All retries failed
 }
+
+Response retry(std::function<Response()> func, int retries, int delay_ms)
+{
+    Response response = {Status::ERROR, Codes::NOT_ACCEPTABLE}; // Default response in case of failure
+    for (int i = 0; i < retries; ++i)
+    {
+        response = func();
+        if (response.status == Status::SUCCESS)
+        {
+            return response; // Success
+        }
+        logWarning("retry", "Attempt %d failed", i + 1);
+        vTaskDelay(pdMS_TO_TICKS(delay_ms)); // Wait before retrying
+    }
+    return response; // All retries failed
+}

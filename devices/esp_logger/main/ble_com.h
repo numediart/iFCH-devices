@@ -46,6 +46,7 @@ enum Codes : uint8_t
     NOT_ACCEPTABLE = 0x96,  // 406
     REQUEST_TIMEOUT = 0x98, // 408
     BAD_GATEWAY = 0xF6,     // 502
+    ESP_ERROR = 0xF3,       // 499
 };
 
 struct Response
@@ -70,46 +71,46 @@ bool connectMovesense();
 bool disconnectMovesense();
 
 // Get the Movesense battery level
-bool getMovesenseBattery(uint8_t &batteryLevel);
+Response getMovesenseBattery(uint8_t &batteryLevel);
 
 // Send the Movesense HELLO command and save the response
-bool movHello(uint8_t *responseBuffer, uint8_t &responseLength);
+Response movHello(uint8_t *responseBuffer, uint8_t &responseLength);
 
 // Get the Movesense time
-bool movGetTime(uint32_t &time, int64_t &utcTimeUs);
+Response movGetTime(uint32_t &time, int64_t &utcTimeUs);
 
 // Set the Movesense UTC time
-bool movSetUTCTime(int64_t utcTimeUs);
+Response movSetUTCTime(int64_t utcTimeUs);
 
 // Check if Movesense is logging
-bool movGetLoggingStatus(uint8_t &loggingStatus);
+Response movGetLoggingStatus(uint8_t &loggingStatus);
 
 // Reset the Movesense device (fails if currently logging)
-bool movReset();
+Response movReset();
 
 // Subscribe to Movesense sensors
-bool movSubscribe();
+Response movSubscribe();
 
 // Unsubscribe from Movesense sensors
-bool movUnsubscribe();
+Response movUnsubscribe();
 
 // Clear Movesense logs (fails if currently logging)
-bool movClearLogs();
+Response movClearLogs();
 
 // Subscribe to Movesense sensors for logging
-bool movSubLogs();
+Response movSubLogs();
 
 // Start Movesense logging
-bool movStartLog();
+Response movStartLog();
 
 // Stop Movesense logging
-bool movStopLog();
+Response movStopLog();
 
 // List existing Movesense logs
-bool movListLogs(std::vector<uint32_t> &logIds);
+Response movListLogs(std::vector<uint32_t> &logIds);
 
 // Fetch the required Movesense log and save it to a file
-bool movFetchLog(std::string filename, uint32_t logId);
+Response movFetchLog(std::string filename, uint32_t logId);
 
 // Movesense GATT service and characteristic UUIDs
 const ble_uuid128_t ifch_svc_uuid =

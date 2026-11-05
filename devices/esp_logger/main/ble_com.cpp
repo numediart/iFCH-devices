@@ -984,7 +984,7 @@ bool disconnectMovesense()
     }
 }
 
-bool getMovesenseBattery(uint8_t &batteryLevel)
+Response getMovesenseBattery(uint8_t &batteryLevel)
 {
     uint8_t responseBuffer[1];
     uint8_t responseLength = sizeof(responseBuffer);
@@ -993,38 +993,38 @@ bool getMovesenseBattery(uint8_t &batteryLevel)
 
     if (response.status != Status::SUCCESS)
     {
-        logError("getMovesenseBattery", "Failed to send get battery command");
-        return false;
+        logError("getMovesenseBattery", "Failed to send get battery command - %u", response.code);
+        return response;
     }
 
     if (responseLength != 1)
     {
         logError("getMovesenseBattery", "Unexpected response length: %d", responseLength);
-        return false;
+        return {Status::ERROR, Codes::NOT_ACCEPTABLE};
     }
 
     batteryLevel = responseBuffer[0];
 
     ESP_LOGI("getMovesenseBattery", "Battery level: %u%%", batteryLevel);
-    return true;
+    return {Status::SUCCESS, Codes::OK};
 }
 
-bool movHello(uint8_t *responseBuffer, uint8_t &responseLength)
+Response movHello(uint8_t *responseBuffer, uint8_t &responseLength)
 {
     Response response = writeMovesenseCommand(Commands::HELLO, Commands::HELLO + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
 
     if (response.status != Status::SUCCESS)
     {
-        logError("movHello", "Failed to send hello command");
-        return false;
+        logError("movHello", "Failed to send hello command - %u", response.code);
+        return response;
     }
 
     ESP_LOGI("movHello", "Hello command sent successfully, response length: %d", responseLength);
 
-    return true;
+    return response;
 }
 
-bool movGetTime(uint32_t &time, int64_t &utcTimeUs)
+Response movGetTime(uint32_t &time, int64_t &utcTimeUs)
 {
     uint8_t responseBuffer[12];
     uint8_t responseLength = sizeof(responseBuffer);
@@ -1033,14 +1033,14 @@ bool movGetTime(uint32_t &time, int64_t &utcTimeUs)
 
     if (response.status != Status::SUCCESS)
     {
-        logError("movGetTime", "Failed to send get time command");
-        return false;
+        logError("movGetTime", "Failed to send get time command - %u", response.code);
+        return response;
     }
 
     if (responseLength != 12)
     {
         logError("movGetTime", "Unexpected response length: %d", responseLength);
-        return false;
+        return {Status::ERROR, Codes::NOT_ACCEPTABLE};
     }
 
     // Convert the response to a 32-bit integer
@@ -1054,57 +1054,69 @@ bool movGetTime(uint32_t &time, int64_t &utcTimeUs)
                 ((int64_t)responseBuffer[6] << 16) | ((int64_t)responseBuffer[5] << 8) |
                 (int64_t)responseBuffer[4];
     ESP_LOGI("movGetTime", "Current UTC time: %" PRId64, utcTimeUs);
-    return true;
+    return response;
 }
 
 // Set the Movesense UTC time
-bool movSetUTCTime(int64_t utcTimeUs)
+Response movSetUTCTime(int64_t utcTimeUs)
 {
     Response response = writeMovesenseCommand(Commands::SET_UTCTIME, Commands::SET_UTCTIME + REF_OFFSET_COMMAND, (uint8_t *)&utcTimeUs, sizeof(utcTimeUs));
-    ESP_LOGI("movSetUTCTime", "Set UTC time to: %" PRId64, utcTimeUs);
 
-    // TODO: handle errors
-    return response.status == Status::SUCCESS;
+    if (response.status != Status::SUCCESS)
+    {
+        logError("movSetUTCTime", "Failed to send set UTC time command - %u", response.code);
+    }
+    else
+    {
+        ESP_LOGI("movSetUTCTime", "Set UTC time to: %" PRId64, utcTimeUs);
+    }
+
+    return response;
 }
 
-bool movGetLoggingStatus(uint8_t &loggingStatus)
+Response movGetLoggingStatus(uint8_t &loggingStatus)
 {
     uint8_t responseBuffer[1];
     uint8_t responseLength = sizeof(responseBuffer);
 
     Response response = writeMovesenseCommand(Commands::GET_LOGGING_STATE, Commands::GET_LOGGING_STATE + REF_OFFSET_COMMAND, nullptr, 0, responseBuffer, &responseLength);
 
-    // TODO: handle errors
-    bool success = response.status == Status::SUCCESS;
-
-    if (!success)
+    if (response.status != Status::SUCCESS)
     {
-        logError("movGetLoggingStatus", "Failed to send get logging status command");
-        return false;
+        logError("movGetLoggingStatus", "Failed to send get logging status command - %u", response.code);
+        return response;
     }
 
     if (responseLength != 1)
     {
         logError("movGetLoggingStatus", "Unexpected response length: %d", responseLength);
-        return false;
+        return {Status::ERROR, Codes::NOT_ACCEPTABLE};
     }
 
     loggingStatus = responseBuffer[0];
     ESP_LOGI("movGetLoggingStatus", "Movesense status: %d", loggingStatus);
 
-    return true;
+    return response;
 }
 
-bool movReset()
+Response movReset()
 {
     logInfo("movReset", "Sending reset command to Movesense");
     Response response = writeMovesenseCommand(Commands::RESET, Commands::RESET + REF_OFFSET_COMMAND, nullptr, 0);
 
-    // TODO: handle errors
-    return response.status == Status::SUCCESS;
+    if (response.status != Status::SUCCESS)
+    {
+        logError("movReset", "Failed to send reset command - %u", response.code);
+    }
+    else
+    {
+        ESP_LOGI("movReset", "Reset command sent successfully");
+    }
+
+    return response;
 }
 
-bool movSubscribe()
+Response movSubscribe()
 {
     // For each path in config, subscribe to the Movesense
     for (uint8_t index = 0; index < config.sensorPaths.size(); index++)
@@ -1113,11 +1125,10 @@ bool movSubscribe()
 
         // Subscribe to the Movesense path
         Response response = writeMovesenseCommand(Commands::SUBSCRIBE, Commands::SUBSCRIBE + index, (uint8_t *)path.c_str(), path.length());
-        // TODO: handle errors
         if (response.status != Status::SUCCESS)
         {
-            logError("movSubscribe", "Failed to send subscribe command for path: %s", path.c_str());
-            return false;
+            logError("movSubscribe", "Failed to send subscribe command for path: %s - %u", path.c_str(), response.code);
+            return response;
         }
 
         vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
@@ -1127,42 +1138,58 @@ bool movSubscribe()
     if (!success)
     {
         logError("movSubscribe", "Failed to subscribe to data characteristic");
-        return false;
+        return {Status::ERROR, Codes::BAD_GATEWAY};
     }
 
     ESP_LOGI("movSubscribe", "Subscribed to Movesense streams successfully");
 
-    return true;
+    return {Status::SUCCESS, Codes::OK};
 }
 
-bool movUnsubscribe()
+Response movUnsubscribe()
 {
     bool success = unsubscribeCharacteristic(data_char_handle);
 
     if (!success)
     {
         logError("movUnsubscribe", "Failed to unsubscribe from data characteristic");
-        return false;
+        return {Status::ERROR, Codes::BAD_GATEWAY};
     }
 
     ESP_LOGI("movUnsubscribe", "Sending unsubscribe all command to Movesense");
 
     Response response = writeMovesenseCommand(Commands::UNSUBSCRIBE_ALL, Commands::UNSUBSCRIBE_ALL + REF_OFFSET_COMMAND, nullptr, 0);
 
-    // TODO: handle errors
-    return response.status == Status::SUCCESS;
+    if (response.status != Status::SUCCESS)
+    {
+        logError("movUnsubscribe", "Failed to send unsubscribe all command - %u", response.code);
+    }
+    else
+    {
+        ESP_LOGI("movUnsubscribe", "Unsubscribe all command sent successfully");
+    }
+
+    return response;
 }
 
-bool movClearLogs()
+Response movClearLogs()
 {
     logInfo("movClearLogs", "Sending clear logs command to Movesense");
     Response response = writeMovesenseCommand(Commands::CLEAR_LOGS, Commands::CLEAR_LOGS + REF_OFFSET_COMMAND, nullptr, 0);
 
-    // TODO: handle errors
-    return response.status == Status::SUCCESS;
+    if (response.status != Status::SUCCESS)
+    {
+        logError("movClearLogs", "Failed to send clear logs command - %u", response.code);
+    }
+    else
+    {
+        ESP_LOGI("movClearLogs", "Clear logs command sent successfully");
+    }
+
+    return response;
 }
 
-bool movSubLogs()
+Response movSubLogs()
 {
     // For each path in config, subscribe to the Movesense logging
     for (uint8_t index = 0; index < config.sensorPaths.size(); index++)
@@ -1172,11 +1199,10 @@ bool movSubLogs()
         // Subscribe to the Movesense path
         Response response = writeMovesenseCommand(Commands::SUB_LOG, Commands::SUB_LOG + index, (uint8_t *)path.c_str(), path.length());
 
-        // TODO: handle errors
         if (response.status != Status::SUCCESS)
         {
-            logError("movSubLogs", "Failed to send log subscribe command for path: %s", path.c_str());
-            return false;
+            logError("movSubLogs", "Failed to send log subscribe command for path: %s - %u", path.c_str(), response.code);
+            return response;
         }
 
         vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
@@ -1184,10 +1210,10 @@ bool movSubLogs()
 
     ESP_LOGI("movSubLogs", "Subscribed to Movesense logs successfully");
 
-    return true;
+    return {Status::SUCCESS, Codes::OK};
 }
 
-bool movStartLog()
+Response movStartLog()
 {
     logInfo("movStartLog", "Sending start log command to Movesense");
     uint8_t rotationIntervalBytes[2];
@@ -1195,40 +1221,54 @@ bool movStartLog()
     rotationIntervalBytes[1] = (config.rotationIntervalMin >> 8) & 0xFF; // Upper byte
     Response response = writeMovesenseCommand(Commands::START_LOG, Commands::START_LOG + REF_OFFSET_COMMAND, rotationIntervalBytes, sizeof(rotationIntervalBytes));
 
-    // TODO: handle errors
-    return response.status == Status::SUCCESS;
+    if (response.status != Status::SUCCESS)
+    {
+        logError("movStartLog", "Failed to send start log command - %u", response.code);
+    }
+    else
+    {
+        ESP_LOGI("movStartLog", "Start log command sent successfully");
+    }
+
+    return response;
 }
 
-bool movStopLog()
+Response movStopLog()
 {
     logInfo("movStopLog", "Sending stop log command to Movesense");
     Response response = writeMovesenseCommand(Commands::STOP_LOG, Commands::STOP_LOG + REF_OFFSET_COMMAND, nullptr, 0);
 
-    // TODO: handle errors
-    return response.status == Status::SUCCESS;
+    if (response.status != Status::SUCCESS)
+    {
+        logError("movStopLog", "Failed to send stop log command - %u", response.code);
+    }
+    else
+    {
+        ESP_LOGI("movStopLog", "Stop log command sent successfully");
+    }
+
+    return response;
 }
 
-bool movListLogs(std::vector<uint32_t> &logIds)
+Response movListLogs(std::vector<uint32_t> &logIds)
 {
     uint8_t responseBuffer[4];
     uint8_t responseLength = sizeof(responseBuffer);
 
     uint8_t reference = Commands::LIST_LOGS + REF_OFFSET_COMMAND;
 
-    // TODO handle responses
     Response response = writeMovesenseCommand(Commands::LIST_LOGS, reference, nullptr, 0, responseBuffer, &responseLength);
-    bool success = response.status == Status::SUCCESS;
 
-    if (!success)
+    if (response.status != Status::SUCCESS)
     {
-        logError("movListLogs", "Failed to send list logs command");
-        return false;
+        logError("movListLogs", "Failed to send list logs command - %u", response.code);
+        return response;
     }
 
     if (responseLength != 4)
     {
         logError("movListLogs", "Unexpected response length: %d", responseLength);
-        return false;
+        return {Status::ERROR, Codes::NOT_ACCEPTABLE};
     }
 
     uint32_t sentAmount = (responseBuffer[3] << 24) | (responseBuffer[2] << 16) |
@@ -1251,7 +1291,7 @@ bool movListLogs(std::vector<uint32_t> &logIds)
                 if ((len - 2) % 12 != 0)
                 {
                     logError("movListLogs", "Invalid log notification length: %d", len);
-                    return false;
+                    return {Status::ERROR, Codes::NOT_ACCEPTABLE};
                 }
 
                 for (uint8_t i = 0; i < len - 2; i += 12)
@@ -1275,16 +1315,16 @@ bool movListLogs(std::vector<uint32_t> &logIds)
         else
         {
             logError("movListLogs", "Failed to receive log notification");
-            return false;
+            return {Status::ERROR, Codes::REQUEST_TIMEOUT};
         }
     }
 
     ESP_LOGI("movListLogs", "Received %d log IDs", logIds.size());
 
-    return true;
+    return {Status::SUCCESS, Codes::OK};
 }
 
-bool _movFetchLog(FILE *f, uint32_t logId)
+Response _movFetchLog(FILE *f, uint32_t logId)
 {
     uint8_t fetchReference = Commands::FETCH_LOG + REF_OFFSET_COMMAND;
     uint8_t logIdBytes[] = {
@@ -1298,7 +1338,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
     if (!success)
     {
         logError("_movFetchLog", "Failed to send fetch log command for log ID: %" PRId32, logId);
-        return false;
+        return {Status::ERROR, Codes::BAD_GATEWAY};
     }
 
     // Start receiving the log data
@@ -1362,7 +1402,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
                         {
                             logError("_movFetchLog", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
                             errorReset();
-                            return false;
+                            return {Status::ERROR, Codes::ESP_ERROR};
                         }
                     }
 
@@ -1384,7 +1424,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
                     {
                         logError("_movFetchLog", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
                         errorReset();
-                        return false;
+                        return {Status::ERROR, Codes::ESP_ERROR};
                     }
 
                     bufferLen = 0;
@@ -1395,7 +1435,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
                     {
                         logError("_movFetchLog", "Failed to seek to offset %lu in file: %d", offset, ret);
                         errorReset();
-                        return false;
+                        return {Status::ERROR, Codes::ESP_ERROR};
                     }
 
                     // Align the buffer offset to the new location
@@ -1419,7 +1459,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
                     {
                         logError("_movFetchLog", "Failed to write data to file, expected %d bytes, wrote %zu bytes", bufferLen, written);
                         errorReset();
-                        return false;
+                        return {Status::ERROR, Codes::ESP_ERROR};
                     }
 
                     bufferOffset += bufferLen;
@@ -1456,7 +1496,7 @@ bool _movFetchLog(FILE *f, uint32_t logId)
     if (!complete)
     {
         logError("_movFetchLog", "Log response timed out after receiving %d chunks", receivedAmount);
-        return false;
+        return {Status::ERROR, Codes::REQUEST_TIMEOUT};
     }
 
     // The transmission is complete, the Movesense should now send a final response
@@ -1466,12 +1506,10 @@ bool _movFetchLog(FILE *f, uint32_t logId)
     Response response;
     response = waitForMovesenseResponse(fetchReference, responseBuffer, &responseLength);
 
-    // TODO handle errors
-    success = response.status == Status::SUCCESS;
-    if (!success || responseLength != 4)
+    if ((response.status != Status::SUCCESS) || responseLength != 4)
     {
-        logError("_movFetchLog", "Failed to wait for final response after fetching log");
-        return false;
+        logError("_movFetchLog", "Failed to wait for final response after fetching log - %u", response.code);
+        return response;
     }
 
     uint32_t sentAmount = (responseBuffer[3] << 24) | (responseBuffer[2] << 16) |
@@ -1480,14 +1518,14 @@ bool _movFetchLog(FILE *f, uint32_t logId)
     if (receivedAmount != sentAmount)
     {
         logError("_movFetchLog", "Received amount of log data (%d) does not match sent amount (%d)", receivedAmount, sentAmount);
-        return false;
+        return {Status::ERROR, Codes::BAD_GATEWAY};
     }
 
     ESP_LOGI("_movFetchLog", "Successfully fetched log ID: %" PRId32 ", %" PRId32 " chunks", logId, receivedAmount);
-    return true;
+    return {Status::SUCCESS, Codes::OK};
 }
 
-bool movFetchLog(std::string filename, uint32_t logId)
+Response movFetchLog(std::string filename, uint32_t logId)
 {
     // Open the file for writing
     FILE *f = fopen(filename.c_str(), "w");
@@ -1495,11 +1533,11 @@ bool movFetchLog(std::string filename, uint32_t logId)
     {
         logError("movFetchLog", "Failed to open file for writing: %s", filename.c_str());
         errorReset();
-        return false;
+        return {Status::ERROR, Codes::ESP_ERROR};
     }
 
     logInfo("movFetchLog", "Fetching log: %" PRId32, logId);
-    bool success = _movFetchLog(f, logId);
+    Response response = _movFetchLog(f, logId);
 
     // Close the file
     if (f != NULL)
@@ -1509,7 +1547,7 @@ bool movFetchLog(std::string filename, uint32_t logId)
     }
 
     // If the fetch was not successful, remove the written file
-    if (!success)
+    if (response.status != Status::SUCCESS)
     {
         rremove(filename);
         logWarning("movFetchLog", "Removed incomplete log file: %s", filename.c_str());
@@ -1519,5 +1557,5 @@ bool movFetchLog(std::string filename, uint32_t logId)
         logInfo("movFetchLog", "Wrote log: %s", filename.c_str());
     }
 
-    return success;
+    return response;
 }
