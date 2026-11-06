@@ -576,7 +576,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         // bool hasOffset = false;
         if (dataLen == sizeof(uint32_t) + sizeof(uint32_t))
         {
-            // FIXME offset does not seem to work? Maybe in a later update
+            // TODO offset does not seem to work? Maybe in a later update
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::FORBIDDEN, Status::ERROR};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
@@ -1118,7 +1118,7 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         const auto &stream = rResultData.convertTo<const wb::ByteStream &>();
         DEBUGLOG("MEM_LOGBOOK_BYID_LOGID_DATA. resultCode: %d", resultCode);
 
-        // FIXME this would leave the logbook in an invalid state
+        // TODO this would leave the logbook in an invalid state
         // if (mLogFetchReference == 0)
         // {
         // Current library requires to follow up on HTTP_CODE_CONTINUE
@@ -1754,7 +1754,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
 
     case WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA::LID:
     {
-        // FIXME this would leave the logbook in an invalid state
+        // TODO this would leave the logbook in an invalid state
         // if (mLogFetchReference == 0)
         // {
         // The client lost connection while fetching a log.
