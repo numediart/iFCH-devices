@@ -471,6 +471,7 @@ bool loadRecordState()
     uint32_t lastFetch = 0;
     uint16_t id = 0;
     uint16_t part = 0;
+    uint32_t fetchId = 0;
     uint8_t logging = 0;
 
     ret = nvs_get_u32(nvs_record, "lastFetch", &lastFetch);
@@ -494,6 +495,13 @@ bool loadRecordState()
         return false;
     }
 
+    ret = nvs_get_u32(nvs_record, "fetchId", &fetchId);
+    if (ret != ESP_OK)
+    {
+        logWarning("loadRecordState", "Failed to get fetchId from NVS");
+        return false;
+    }
+
     ret = nvs_get_u8(nvs_record, "logging", &logging);
     if (ret != ESP_OK)
     {
@@ -504,10 +512,11 @@ bool loadRecordState()
     record.lastFetch = lastFetch;
     record.logging = logging != 0;
     record.id = id;
+    record.fetchId = fetchId;
     record.part = part;
 
-    ESP_LOGI("loadRecordState", "Record state loaded: lastFetch=%lu, logging=%s, id=%u, part=%u",
-             record.lastFetch, record.logging ? "true" : "false", record.id, record.part);
+    ESP_LOGI("loadRecordState", "Record state loaded: lastFetch=%lu, logging=%s, id=%u, part=%u, fetchId=%lu",
+             record.lastFetch, record.logging ? "true" : "false", record.id, record.part, record.fetchId);
 
     return true;
 }
@@ -540,6 +549,13 @@ bool saveRecordState()
     if (ret != ESP_OK)
     {
         logError("saveRecordState", "Failed to save logging to NVS");
+        errorReset();
+        return false;
+    }
+    ret = nvs_set_u32(nvs_record, "fetchId", record.fetchId);
+    if (ret != ESP_OK)
+    {
+        logError("saveRecordState", "Failed to save fetchId to NVS");
         errorReset();
         return false;
     }

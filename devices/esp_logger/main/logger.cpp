@@ -455,9 +455,80 @@ bool saveCheckpoint(uint32_t &currentEpoch)
     return true;
 }
 
+// Set Movesense UTC time and subscribe to logs
+bool configureMovesense()
+{
+
+    // Subscribe to Movesense logs
+    if (movSubLogs().status != Status::SUCCESS)
+    {
+        logError("startMovesenseLogging_", "Failed to subscribe to Movesense logs");
+        return false;
+    }
+
+    uint32_t currentEpoch = getUNIXTime();
+    if (currentEpoch == 0)
+    {
+        logError("startMovesenseLogging_", "Failed to get RTC time");
+        return false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
+    if (movSetUTCTime(currentEpoch * 1000000LL).status != Status::SUCCESS)
+    {
+        logError("startMovesenseLogging_", "Failed to set Movesense UTC time");
+        return false;
+    }
+
+    return true;
+}
+
+// This function only handles the technical aspects of starting a Movesense logging session, but not the record ID and directory creation
+bool startMovesenseLogging_()
+{
+    logInfo("startMovesenseLogging_", "Starting logging");
+
+    // Reset the Movesense device (makes sure it is ready for logging)
+    if (retry(movReset, 3, GATT_DELAY).status != Status::SUCCESS)
+    {
+        logError("startMovesenseLogging_", "Failed to reset Movesense");
+        return false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
+    if (!configureMovesense())
+    {
+        logError("startMovesenseLogging_", "Failed to configure Movesense");
+        return false;
+    }
+
+    uint32_t currentEpoch;
+    // Save the starting timestamps and battery levels checkpoint
+    if (!saveCheckpoint(currentEpoch))
+    {
+        logError("startMovesenseLogging_", "Failed to save checkpoint before starting logging");
+        return false;
+    }
+
+    // Set the last fetch time to the current epoch (starting point)
+    record.lastFetch = currentEpoch;
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
+    // Start Movesense logging
+    if (retry(movStartLog, 3, GATT_DELAY).status != Status::SUCCESS)
+    {
+        logError("startMovesenseLogging_", "Failed to start Movesense logging");
+        return false;
+    }
+
+    return true;
+}
+
 bool startMovesenseLogging()
 {
-    logInfo("startMovesenseLogging", "Starting logging");
 
     if (record.logging)
     {
@@ -501,15 +572,8 @@ bool startMovesenseLogging()
     }
 
     record.part = 0;
+    record.fetchId = 0;
     record.logging = true;
-
-    // Reset the Movesense device (makes sure it is ready for logging)
-    if (retry(movReset, 3, GATT_DELAY).status != Status::SUCCESS)
-    {
-        logError("startMovesenseLogging", "Failed to reset Movesense");
-        record.logging = false;
-        return false;
-    }
 
     // Create the record directory
     if (!mkdir(recordDir))
@@ -553,53 +617,7 @@ bool startMovesenseLogging()
     fflush(f);
     fclose(f);
 
-    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-
-    uint32_t currentEpoch;
-    currentEpoch = getUNIXTime();
-    if (currentEpoch == 0)
-    {
-        logError("startMovesenseLogging", "Failed to get RTC time");
-        rremove(recordDir);
-        record.logging = false;
-        return false;
-    }
-
-    if (movSetUTCTime(currentEpoch * 1000000LL).status != Status::SUCCESS)
-    {
-        logError("startMovesenseLogging", "Failed to set Movesense UTC time");
-        rremove(recordDir);
-        record.logging = false;
-        return false;
-    }
-
-    // Save the starting timestamps and battery levels checkpoint
-    if (!saveCheckpoint(currentEpoch))
-    {
-        logError("startMovesenseLogging", "Failed to save checkpoint before starting logging");
-        rremove(recordDir);
-        record.logging = false;
-        return false;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-
-    // Subscribe to Movesense logs
-    if (movSubLogs().status != Status::SUCCESS)
-    {
-        logError("startMovesenseLogging", "Failed to subscribe to Movesense logs");
-        rremove(recordDir);
-        record.logging = false;
-        return false;
-    }
-
-    // Set the last fetch time to the current epoch (starting point)
-    record.lastFetch = currentEpoch;
-
-    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-
-    // Start Movesense logging
-    if (retry(movStartLog, 3, GATT_DELAY).status != Status::SUCCESS)
+    if (!startMovesenseLogging_())
     {
         logError("startMovesenseLogging", "Failed to start Movesense logging");
         rremove(recordDir);
@@ -608,11 +626,11 @@ bool startMovesenseLogging()
     }
 
     // Start the RTC timer to fetch data periodically
-    // Save the record state to the JSON file
+    // Save the record state to the persistent memory
     if (!startRTCTimer(config.fetchIntervalMin) || !saveRecordState())
     {
         // If saving the record state failed, stop logging
-        logError("startMovesenseLogging", "Failed to save record state or start timer after starting logging");
+        logError("startMovesenseLogging", "Failed to start timer or save record state after starting logging");
         record.logging = false;
         rremove(recordDir);
 
@@ -644,6 +662,8 @@ bool endMovesenseLogging()
     }
 
     // Start by incrementing the record part number and checkpointing
+    // FIXME reset fetchId?
+    // Or use standard fetchStep!
     record.part++;
     if (!saveCheckpoint(record.lastFetch))
     {
@@ -791,57 +811,99 @@ uint32_t readRecordTime(std::string path)
     }
 }
 
-bool fetchMovesenseData()
+// Checks that the state is right, create a checkpoint
+bool preFetchStep_()
 {
-    logInfo("fetchMovesenseData", "Fetching data");
-
     if (!record.logging)
     {
-        logError("fetchMovesenseData", "device is not currently logging!");
+        logError("preFetchStep_", "device is not currently logging!");
         return false;
     }
 
-    // Add: Verify connection before proceeding
+    // Verify connection before proceeding
     if (!isMovesenseConnected)
     {
-        logError("fetchMovesenseData", "Movesense not connected");
+        logError("preFetchStep_", "Movesense not connected");
         return false;
     }
 
-    // Start by incrementing the record part number and checkpointing
-    record.part++;
+    // Start by checkpointing
     if (!saveCheckpoint(record.lastFetch))
     {
-        logError("fetchMovesenseData", "Failed to save checkpoint before ending logging");
-        record.part--;
+        logError("preFetchStep_", "Failed to save checkpoint before ending logging");
         return false;
     }
 
-    // Fetch the last Movesense log ID
+    return true;
+}
+
+// Download all logs on the Movesense
+bool fetchStep_()
+{
+    ESP_LOGI("fetchStep_", "Fetching data from Movesense");
+
     uint32_t logId;
+    // Fetch the last Movesense log ID
     if (!getMovesenseLastLogId(logId))
     {
-        logError("fetchMovesenseData", "Failed to get Movesense last log ID");
-        record.part--;
-        return false;
-    }
-    else if (logId == 0)
-    {
-        logError("fetchMovesenseData", "No new Movesense logs to fetch");
-        record.part--;
+        logError("preFetchStep_", "Failed to get Movesense last log ID");
         return false;
     }
 
+    // TODO handle logId == 0 (no logs to fetch)
+
+    // FIXME update this for multi-log, with working error recovery
     // Prepare the record file
     std::string recordFile = std::format(MOUNT_POINT "/{:03}/{:03}.sbm", record.id, record.part);
     if (!backupIfExists(recordFile))
     {
         logError("fetchMovesenseData", "Failed to backup record file %s", recordFile.c_str());
-        record.part--;
         return false;
     }
 
-    ESP_LOGI("fetchMovesenseData", "Fetching data from Movesense");
+    // Fetch the Movesense log and save it to SD card
+    // Create a lambda to capture the parameters for retry
+    auto movFetchLog_ = [recordFile, logId]()
+    {
+        return movFetchLog(recordFile, logId);
+    };
+    if (retry(movFetchLog_, 3, GATT_DELAY).status != Status::SUCCESS)
+    {
+        logError("fetchStep_", "Failed to fetch Movesense log with ID: %d", logId);
+        return false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+
+    // Delete the fetched logs from Movesense
+    if (retry(movClearLogs, 3, GATT_DELAY).status != Status::SUCCESS)
+    {
+        logError("fetchStep_", "Failed to clear Movesense logs after fetching data");
+        return false;
+    }
+
+    // FIXME check if this should be done here
+    // Save the record state to the persistent memory
+    if (!retry(saveRecordState, 3, GATT_DELAY))
+    {
+        logError("fetchStep_", "Failed to save record state");
+        return false;
+    }
+
+    return true;
+}
+
+bool fetchMovesenseData()
+{
+    logInfo("fetchMovesenseData", "Fetching data");
+
+    record.part++;
+
+    if (!preFetchStep_())
+    {
+        record.part--;
+        return false;
+    }
 
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
@@ -866,37 +928,8 @@ bool fetchMovesenseData()
 
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
-    // Fetch the Movesense log and save it to SD card
-    // Create a lambda to capture the parameters for retry
-    auto movFetchLog_ = [recordFile, logId]()
+    if (!fetchStep_())
     {
-        return movFetchLog(recordFile, logId);
-    };
-    if (retry(movFetchLog_, 3, GATT_DELAY).status != Status::SUCCESS)
-    {
-        logError("fetchMovesenseData", "Failed to fetch Movesense log with ID: %d", logId);
-        record.part--;
-        retry(movStartLog, 3, GATT_DELAY);
-        retry(stopStreamDumpTask, 3, GATT_DELAY);
-        return false;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-
-    // Delete the fetched logs from Movesense
-    if (retry(movClearLogs, 3, GATT_DELAY).status != Status::SUCCESS)
-    {
-        logError("fetchMovesenseData", "Failed to clear Movesense logs after fetching data");
-        record.part--;
-        retry(movStartLog, 3, GATT_DELAY);
-        retry(stopStreamDumpTask, 3, GATT_DELAY);
-        return false;
-    }
-
-    // Save the record state to the JSON file
-    if (!retry(saveRecordState, 3, GATT_DELAY))
-    {
-        logError("fetchMovesenseData", "Failed to save record state");
         record.part--;
         retry(movStartLog, 3, GATT_DELAY);
         retry(stopStreamDumpTask, 3, GATT_DELAY);
@@ -926,94 +959,6 @@ bool fetchMovesenseData()
     if (!startRTCTimer(config.fetchIntervalMin))
     {
         logError("fetchMovesenseData", "Failed to start RTC timer after fetching data");
-    }
-
-    return true;
-}
-
-bool rescueMovesenseData()
-{
-    logInfo("rescueMovesenseData", "Rescuing data");
-    if (!record.logging)
-    {
-        logError("rescueMovesenseData", "device is not currently logging!");
-        return false;
-    }
-
-    // Add: Verify connection before proceeding
-    if (!isMovesenseConnected)
-    {
-        logError("rescueMovesenseData", "Movesense not connected");
-        return false;
-    }
-
-    // Start by incrementing the record part number and checkpointing
-    record.part++;
-    if (!saveCheckpoint(record.lastFetch))
-    {
-        logError("rescueMovesenseData", "Failed to save checkpoint before ending logging");
-        record.part--;
-        return false;
-    }
-
-    // FIXME update this for multi-log
-    // Fetch the last Movesense log ID
-    uint32_t logId;
-    if (!getMovesenseLastLogId(logId))
-    {
-        logError("rescueMovesenseData", "Failed to get Movesense last log ID");
-        record.part--;
-        return false;
-    }
-    else if (logId == 0)
-    {
-        logError("rescueMovesenseData", "No new Movesense logs to fetch");
-        record.part--;
-        return false;
-    }
-
-    // Prepare the record file
-    std::string recordFile = std::format(MOUNT_POINT "/{:03}/{:03}.sbm", record.id, record.part);
-    if (!backupIfExists(recordFile))
-    {
-        logError("rescueMovesenseData", "Failed to backup record file %s", recordFile.c_str());
-        record.part--;
-        return false;
-    }
-
-    ESP_LOGI("rescueMovesenseData", "Fetching data from Movesense");
-
-    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-
-    // Fetch the Movesense log and save it to SD card
-    // Create a lambda to capture the parameters for retry
-    auto movFetchLog_ = [recordFile, logId]()
-    {
-        return movFetchLog(recordFile, logId);
-    };
-    if (retry(movFetchLog_, 3, GATT_DELAY).status != Status::SUCCESS)
-    {
-        logError("rescueMovesenseData", "Failed to fetch Movesense log with ID: %d", logId);
-        record.part--;
-        return false;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-
-    // Delete the fetched logs from Movesense
-    if (retry(movClearLogs, 3, GATT_DELAY).status != Status::SUCCESS)
-    {
-        logError("rescueMovesenseData", "Failed to clear Movesense logs after fetching data");
-        record.part--;
-        return false;
-    }
-
-    // Save the record state to the JSON file
-    if (!retry(saveRecordState, 3, GATT_DELAY))
-    {
-        logError("rescueMovesenseData", "Failed to save record state");
-        record.part--;
-        return false;
     }
 
     return true;

@@ -106,16 +106,16 @@ void fetchLogic()
 
         if (isMovesenseConnected)
         {
-            logError("fetchStep", "Movesense already connected at fetch step start, aborting");
+            logError("fetchLogic", "Movesense already connected at fetch step start, aborting");
             return;
         }
 
         ledWrite(COLOR_BLE);
 
         // Connect to the Movesense
-        if (!retry(connectMovesense, 3, 5000))
+        if (!retry(connectMovesense, 3, CONNECT_RETRY_DELAY_MS))
         {
-            logWarning("fetchStep", "Failed to connect to Movesense");
+            logWarning("fetchLogic", "Failed to connect to Movesense");
             blink(COLOR_WARN, 5, 50);
 
             // If we fail to connect too many times in a row, we consider that
@@ -125,7 +125,7 @@ void fetchLogic()
             if (connectFailureCount >= MAX_CONNECT_FAILURES)
             {
                 connectFailureCount = 0;
-                logError("fetchStep", "Maximum connection failures reached");
+                logError("fetchLogic", "Maximum connection failures reached");
 
                 // If we failed to connect many times, enter hibernation for a longer time and retry later
                 enterHibernation(LONG_FAILURE_DELAY_MIN);
@@ -148,91 +148,61 @@ void fetchLogic()
         uint8_t loggingStatus;
         if (movGetLoggingStatus(loggingStatus).status != Status::SUCCESS)
         {
-            logError("fetchStep", "Failed to get Movesense logging status");
+            logError("fetchLogic", "Failed to get Movesense logging status");
             errorReset();
             return;
         }
 
         vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
-        // If not logging, restart logging
+        // If not logging, reconfigure Movesense if needed
         if (loggingStatus != 3)
         {
-            logError("fetchStep", "Movesense not logging at fetch step start");
+            logError("fetchLogic", "Movesense not logging at fetch step start");
 
-            // First attempt to fetch any existing logs on the Movesense to
-            // avoid losing data. If that fails repeatedly, only then reset to
-            // avoid being stuck
-            if (!retry(rescueMovesenseData, 3, GATT_DELAY))
-            {
-                logError("fetchStep", "Failed to rescue Movesense data, proceeding with reset");
-
-                // The record part should be incremented in the rescue function, but we do it manually if it failed
-                record.part++;
-            }
-
-            // FIXME the data will be lost if the connexion is lost during the fetch
-            // Use a standard fetch step instead
-            if (retry(movReset, 3, GATT_DELAY).status != Status::SUCCESS)
-            {
-                logError("fetchStep", "Failed to reset Movesense");
-                record.part--;
-                errorReset();
-                return;
-            }
-            // Save the record state to the JSON file
-            if (!retry(saveRecordState, 3, GATT_DELAY))
-            {
-                logError("fetchStep", "Failed to save record state");
-                record.part--;
-                errorReset();
-                return;
-            }
-            vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-            if (movSubLogs().status != Status::SUCCESS)
-            {
-                logError("fetchStep", "Failed to subscribe to Movesense logs");
-                errorReset();
-                return;
-            }
-            vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-
-            // If the Movesense was reset, it may have lost the UTC time
-            uint32_t currentEpoch;
-            currentEpoch = getUNIXTime();
+            // Start by checking if UTC time was reset or not
+            // If so, it means the Movesense restarted and needs to be configured
+            uint32_t currentEpoch = getUNIXTime();
             if (currentEpoch == 0)
             {
                 logError("fetchLogic", "Failed to get RTC time");
                 errorReset();
                 return;
             }
-            if (movSetUTCTime(currentEpoch * 1000000LL).status != Status::SUCCESS)
+
+            uint32_t time;
+            int64_t utcTimeUs;
+            if (movGetTime(time, utcTimeUs).status != Status::SUCCESS)
             {
-                logError("fetchLogic", "Failed to set Movesense UTC time");
+                logError("fetchLogic", "Failed to get Movesense time");
                 errorReset();
                 return;
             }
+
             vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
-            if (retry(movStartLog, 3, GATT_DELAY).status != Status::SUCCESS)
-            {
-                logError("fetchStep", "Failed to start Movesense logging");
-                errorReset();
-                return;
-            }
-            vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
+            int64_t timeDiff = (int64_t)currentEpoch * 1000000LL - utcTimeUs;
 
-            // Restart the RTC timer to continue fetching data
-            if (!startRTCTimer(config.fetchIntervalMin))
+            // If UTC was reset on the Movesense, we set it again
+            if (timeDiff > UTC_RESET_THRESHOLD_US)
             {
-                logError("fetchStep", "Failed to start RTC timer after fetching data");
+                logError("fetchLogic", "Movesense reset detected");
+
+                if (!configureMovesense())
+                {
+                    logError("fetchLogic", "Failed to configure Movesense after reset");
+                    errorReset();
+                    return;
+                }
+
+                vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
             }
         }
 
         // Fetch the data from Movesense
-        else if (!fetchMovesenseData())
+        if (!fetchMovesenseData())
         {
-            logError("fetchStep", "Failed to fetch Movesense data");
+            logError("fetchLogic", "Failed to fetch Movesense data");
             errorReset();
             return;
         }
@@ -244,17 +214,17 @@ void fetchLogic()
         // Prune old archives if space needed
         if (!pruneArchives())
         {
-            logError("fetchStep", "Failed to prune archives, SD card may be full");
+            logError("fetchLogic", "Failed to prune archives, SD card may be full");
         }
 
         if (!disconnectMovesense())
         {
-            logError("fetchStep", "Failed to disconnect from Movesense");
+            logError("fetchLogic", "Failed to disconnect from Movesense");
         }
     }
     else
     {
-        logError("fetchStep", "Called fetch but not logging, stopping timer");
+        logError("fetchLogic", "Called fetch but not logging, stopping timer");
         stopRTCTimer();
     }
 }
