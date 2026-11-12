@@ -230,6 +230,12 @@ async def test_datalogger(client):
 
     await run_test_command(
         client,
+        Commands.PAUSE_LOG,
+        StatusCodes.OK_202,
+    )
+
+    await run_test_command(
+        client,
         Commands.CLEAR_LOGS,
         StatusCodes.OK_200,
     )
@@ -302,7 +308,7 @@ async def test_datalogger(client):
 
     await run_test_command(
         client,
-        Commands.STOP_LOG,
+        Commands.PAUSE_LOG,
         StatusCodes.OK_200,
     )
 

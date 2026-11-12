@@ -14,6 +14,7 @@ from ifch_drivers.movesense_gatt import MovesenseGatt
 
 data_notifications = []
 PATH_ECG_125 = "/Meas/ECG/125"
+PATH_ACC_13 = "/Meas/Acc/13"
 TEST_TIME = 1704742200000000
 
 
@@ -93,6 +94,21 @@ async def test_unsubscribe_all(client: MovesenseGatt):
     await asyncio.sleep(0.5)
 
     assert len(data_notifications) == 0, "Data received after unsubscribe all"
+
+
+async def test_unsubscribe_all_logs(client: MovesenseGatt):
+    """Verify unsubscribe-all-logs clears active log subscriptions."""
+
+    assert await client.sub_log(PATH_ECG_125)
+    assert await client.sub_log(PATH_ACC_13)
+
+    assert await client.unsubsribe_logs()
+
+    assert not await client.unsub_log(PATH_ECG_125), (
+        "Should not be able to unsubscribe log after unsubsribe all"
+    )
+
+    assert not await client.start_log(), "Should not be able to start log after unsubsribe all"
 
 
 async def test_battery(client: MovesenseGatt):
@@ -217,3 +233,41 @@ async def test_reset(client: MovesenseGatt):
     log_list = await client.list_logs()
     assert log_list is not None
     assert len(log_list) == 0, "Logs should be cleared after reset"
+
+
+@pytest.mark.order("last")
+async def test_pause_log(client: MovesenseGatt):
+    """Verify pausing and auto resuming of logs."""
+    assert await client.reset()
+
+    assert await client.sub_log(PATH_ECG_125)
+
+    assert await client.start_log()
+
+    await asyncio.sleep(0.5)
+
+    assert await client.pause_log()
+
+    is_logging = await client.get_logging_state()
+    assert is_logging is False
+
+    log_list = await client.list_logs()
+    assert log_list is not None
+    assert len(log_list) == 1
+
+    await client.stop()
+
+    await asyncio.sleep(0.5)
+
+    await client.start()
+
+    is_logging = await client.get_logging_state()
+    assert is_logging is True, "Log should auto resume after BLE reconnect"
+
+    assert await client.stop_log()
+
+    log_list = await client.list_logs()
+    assert log_list is not None
+    assert len(log_list) == 2
+
+    await client.reset()

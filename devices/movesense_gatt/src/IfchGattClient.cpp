@@ -81,6 +81,7 @@ enum Commands
     GET_BATTERY = 14,
     SET_UTCTIME = 15,
     UNSUB_ALL_LOGS = 16,
+    PAUSE_LOG = 17,
 };
 
 enum Responses
@@ -135,6 +136,7 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mDataloggerTargetState(WB_RES::DataLoggerStateValues::DATALOGGER_INVALID),
                                    mDataloggerTransitionPending(false),
                                    mLogFetchInProgress(false),
+                                   mLogPaused(false),
                                    mLogRotationInterval(0),
                                    mCounter(0),
                                    mLogListReference(0),
@@ -176,6 +178,7 @@ void IfchGattClient::resetInnerState()
     mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_INVALID;
     mDataloggerTransitionPending = false;
     mLogFetchInProgress = false;
+    mLogPaused = false;
     mLogRotationInterval = 0;
 
     // Reset GATT indicate queue
@@ -774,6 +777,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         mDataloggerTargetState = WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING;
         mDataloggerStateReference = reference;
         mDataloggerTransitionPending = true;
+        mLogPaused = false;
 
         mLogRotationInterval = 0;
         if (pData != nullptr)
@@ -801,6 +805,42 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
             return;
         }
+
+        mLogPaused = false;
+
+        if (mDataLoggerState != WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        {
+            // There is already no logging in progress, so we can return immediately
+            // 202: Accepted
+            uint8_t rspMsg[] = {Responses::COMMAND_RESULT, reference, Codes::ACCEPTED, Status::SUCCESS};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), rspMsg, sizeof(rspMsg));
+            return;
+        }
+
+        mDataloggerTargetState = WB_RES::DataLoggerStateValues::DATALOGGER_READY;
+        mDataloggerStateReference = reference;
+        mDataloggerTransitionPending = true;
+
+        // Stop logging
+        asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(),
+                 AsyncRequestOptions::Empty,
+                 WB_RES::DataLoggerStateValues::DATALOGGER_READY);
+
+        return;
+    }
+    case Commands::PAUSE_LOG:
+    {
+        DEBUGLOG("Commands::PAUSE_LOG. reference: %d", reference);
+
+        if (mDataloggerTransitionPending)
+        {
+            DEBUGLOG("Datalogger transition already pending");
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            return;
+        }
+
+        mLogPaused = true;
 
         if (mDataLoggerState != WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
         {
@@ -1557,6 +1597,7 @@ void IfchGattClient::clearLogSubs()
         mLogSubs[i].clientReference = 0;
         memset(mLogSubs[i].path, 0, sizeof(mLogSubs[i].path));
     }
+    mLogPaused = false;
 }
 
 void IfchGattClient::enterLowPowerMode()
@@ -1652,6 +1693,29 @@ void IfchGattClient::exitLowPowerMode()
     mPowerState = POWER_NORMAL;
 }
 
+void IfchGattClient::tryResumePausedLog()
+{
+    if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING || mDataloggerTransitionPending)
+    {
+        DEBUGLOG("Cannot resume log - datalogger state is not ready. Current state: %d", mDataLoggerState);
+        return;
+    }
+    if (mLogFetchInProgress)
+    {
+        DEBUGLOG("Cannot resume log - log fetch is in progress");
+        return;
+    }
+
+    // Rotate the log file before resuming
+    asyncPost(WB_RES::LOCAL::MEM_LOGBOOK_ENTRIES(), AsyncRequestOptions(NULL, 0, true));
+
+    DEBUGLOG("Resuming paused log");
+    mDataloggerTargetState = WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING;
+    mDataloggerTransitionPending = true;
+    mLogPaused = false;
+    asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(), AsyncRequestOptions::Empty, WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING);
+}
+
 void IfchGattClient::onNotify(wb::ResourceId resourceId,
                               const wb::Value &value,
                               const wb::ParameterList &rParameters)
@@ -1681,6 +1745,14 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         WB_RES::PeerChange peerChange = value.convertTo<WB_RES::PeerChange>();
         if (peerChange.state == peerChange.state.DISCONNECTED)
         {
+            // If logging is paused, automatically try resume it when BLE disconnects.
+            // If we are transitioning or fetching, resuming will be postponed until the operation is complete
+            if (mLogPaused)
+            {
+                DEBUGLOG("BLE disconnected while paused - resuming log");
+                tryResumePausedLog();
+            }
+
             // Skip if already in low power mode
             if (mPowerState == POWER_LOW)
             {
@@ -1691,12 +1763,12 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             // if connection is dropped, unsubscribe all data streams so that sensor does not stay on for no reason
             unsubscribeAllStreams();
 
+            // This creates uncertainty on the log sub state
             // If not logging, forget the log subs
-            // asyncGet(WB_RES::LOCAL::MEM_DATALOGGER_STATE());
-            if (mDataLoggerState != WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING && !mDataloggerTransitionPending)
-            {
-                clearLogSubs();
-            }
+            // if (mDataLoggerState != WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING && !(mDataloggerTransitionPending && mDataloggerTargetState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING))
+            // {
+            //     clearLogSubs();
+            // }
 
             if (mIndicateTimer != wb::ID_INVALID_TIMER)
             {
@@ -1722,10 +1794,6 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             mGetBatteryReference = 0;
             mGetLoggingReference = 0;
             mDataloggerStateReference = 0;
-            mDataloggerTargetState = WB_RES::DataLoggerStateValues::DATALOGGER_INVALID;
-            mDataloggerTransitionPending = false;
-
-            // Except log fetch (due to a bug in the current library)
 
             setShutdownTimer();
         }
@@ -2104,6 +2172,14 @@ void IfchGattClient::onTimer(wb::TimerId timerId)
         STATIC_VERIFY(WB_EXEC_CTX_APPLICATION == WB_RES::LOCAL::MEM_DATALOGGER_STATE::EXECUTION_CONTEXT, DataLogger_must_be_application_thread);
 
         asyncGet(WB_RES::LOCAL::MEM_DATALOGGER_STATE());
+
+        // If log was paused, try to resume it
+        if (mLogPaused)
+        {
+            DEBUGLOG("Log paused and datalogger ready. Resuming log");
+            tryResumePausedLog();
+        }
+
         if (mDataloggerTransitionPending || mLeadsConnected || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING || mLogFetchInProgress)
         {
             DEBUGLOG("transition pending [%d], leads connected [%d], datalogger state [%d], log fetching [%d]. postponing shutdown", mDataloggerTransitionPending, mLeadsConnected, mDataLoggerState, mLogFetchInProgress);

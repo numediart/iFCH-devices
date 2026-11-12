@@ -100,6 +100,7 @@ private:
     void enterLowPowerMode();
     void exitLowPowerMode();
     void resetInnerState();
+    void tryResumePausedLog();
 
     void asyncPutIndicate(wb::ResourceId resourceId, const AsyncRequestOptions &rOptions, const uint8_t *data, size_t length);
     void putNextIndicate();
@@ -123,6 +124,7 @@ private:
     uint8_t mDataloggerTargetState;
     bool mDataloggerTransitionPending;
     bool mLogFetchInProgress;
+    bool mLogPaused;
     uint32_t mLogRotationInterval; // in milliseconds
     PowerState mPowerState;
 

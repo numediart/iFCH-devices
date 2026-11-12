@@ -46,6 +46,8 @@ class Commands(enum.Enum):
     GET_BATTERY = 14
     SET_UTCTIME = 15
     UNSUB_ALL_LOGS = 16
+    PAUSE_LOG = 17
+
     INVALID = 0xFF
 
 
@@ -789,6 +791,24 @@ class MovesenseGatt:
 
         return success
 
+    async def pause_log(self) -> bool | None:
+        """Pause datalogger recording on the connected device. It will resume
+        automatically on disconnect.
+
+        Returns:
+            bool | None: ``True`` on success, ``False`` if rejected (e.g. not
+            recording), or ``None`` on communication error.
+        """
+        if not self._is_ifch_firmware:
+            raise NotImplementedError("Pause log is not supported on standard Movesense firmware")
+
+        else:
+            result = await self.send_and_wait(Commands.PAUSE_LOG)
+
+        success, _, _ = result
+
+        return success
+
     async def list_logs(self) -> list[tuple[int, int]] | None:
         """List available logs stored on the device.
 
@@ -1073,6 +1093,11 @@ class MovesenseGatt:
         else:
             result = await self.send_and_wait(Commands.RESET)
             success, _, _ = result
+
+            if success:
+                self._stream_subscribtions.clear()
+                self._stream_decoder.subscriptions = self._stream_subscribtions
+                self._log_subscriptions.clear()
 
         return success
 
