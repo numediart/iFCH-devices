@@ -101,9 +101,9 @@ class ESPRecordConverter:
                 deviation in time between the RTC and Movesense is logged as
                 a warning, in seconds. Defaults to 5 seconds.
         """
+        if not isinstance(record_path, pathlib.Path):
+            record_path = pathlib.Path(record_path)
         self.record_path = record_path
-        if not isinstance(self.record_path, pathlib.Path):
-            self.record_path = pathlib.Path(self.record_path)
 
         if self.record_path.suffix == ".zip":
             self.record_path = zipfile.Path(self.record_path)
@@ -120,6 +120,9 @@ class ESPRecordConverter:
         self._time_corrections = {}
 
     def _append_chunk(self, chunk):
+        if self.record is None:
+            raise RuntimeError("Record is None, cannot append chunk")
+
         self._patch_timestamps(chunk)
 
         for sensor, sensor_dict in chunk.items():
@@ -178,6 +181,9 @@ class ESPRecordConverter:
 
         if self.config is None:
             self._read_metadata()
+
+            if self.config is None:
+                raise RuntimeError("Missing config file, cannot read data")
 
         await asyncio.sleep(0)
 
@@ -268,6 +274,9 @@ class ESPRecordConverter:
 
         if self.config is None:
             self._read_metadata()
+
+            if self.config is None:
+                raise RuntimeError("Failed to read config, cannot read data")
 
         bin_decoder = ESPBinReader(self.config["sensorPaths"])
         sbem_decoder = SBEMDecoder()
@@ -383,6 +392,9 @@ class ESPRecordConverter:
             logging.warning("ESP Record Converter: hello file not found")
 
     def _compute_time_corrections(self):
+        if self.checkpoints is None:
+            raise RuntimeError("Checkpoints not read, cannot compute time corrections")
+
         ckpt_utc = np.asarray(self.checkpoints["mov_utc"])
         ckpt_rel = np.asarray(self.checkpoints["mov_time"])
         ckpt_rtc = np.asarray(self.checkpoints["rtc_time"])
@@ -502,6 +514,9 @@ class ESPRecordConverter:
         # Allow cancellation before writing checkpoints
         await asyncio.sleep(0)
 
+        if self.record is None or self.config is None or self.checkpoints is None:
+            raise RuntimeError("Record, config, or checkpoints is None, cannot write HDF5 file")
+
         with open(output_path / "checkpoints.csv", "w") as f:
             writer = csv.writer(f)
             writer.writerow(self.checkpoints.keys())
@@ -531,6 +546,9 @@ class ESPRecordConverter:
         if not isinstance(output_path, pathlib.Path):
             output_path = pathlib.Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
+
+        if self.checkpoints is None or self.record is None or self.config is None:
+            raise RuntimeError("Checkpoints, record, or config is None, cannot write HDF5 file")
 
         with open(output_path / "checkpoints.csv", "w") as f:
             writer = csv.writer(f)
