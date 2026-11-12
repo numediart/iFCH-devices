@@ -183,8 +183,8 @@ class ESPRecordConverter:
 
         bin_decoder = ESPBinReader(self.config["sensorPaths"])
         sbem_decoder = SBEMDecoder()
-        sbem_glob = "*.SBM" if self.esp_filenames else "*.sbem"
-        bin_glob = "*.BIN" if self.esp_filenames else "*.bin"
+        sbem_glob = "*.S" if self.esp_filenames else "*.sbem"
+        bin_glob = "*.B" if self.esp_filenames else "*.bin"
         sbem_list = sorted(self.record_path.glob(sbem_glob), key=lambda p: p.name)
         bin_list = sorted(self.record_path.glob(bin_glob), key=lambda p: p.name)
 
@@ -202,9 +202,9 @@ class ESPRecordConverter:
             # Allow cancellation
             await asyncio.sleep(0)
 
-            sbem_ext = "SBM" if self.esp_filenames else "sbem"
+            sbem_ext = "S" if self.esp_filenames else "sbem"
             sbem_files = sorted(
-                self.record_path.glob(f"{chunk_id:03d}*{sbem_ext}*"),
+                self.record_path.glob(f"{chunk_id:03d}.{sbem_ext}*"),
                 key=lambda p: p.name,
             )
 
@@ -237,9 +237,9 @@ class ESPRecordConverter:
                         e,
                     )
 
-            bin_ext = "BIN" if self.esp_filenames else "bin"
+            bin_ext = "B" if self.esp_filenames else "bin"
             bin_files = sorted(
-                self.record_path.glob(f"{chunk_id:03d}*{bin_ext}*"),
+                self.record_path.glob(f"{chunk_id:03d}.{bin_ext}*"),
                 key=lambda p: p.name,
             )
             if len(bin_files) > 1:
@@ -271,8 +271,8 @@ class ESPRecordConverter:
 
         bin_decoder = ESPBinReader(self.config["sensorPaths"])
         sbem_decoder = SBEMDecoder()
-        sbem_glob = "*.SBM" if self.esp_filenames else "*.sbem"
-        bin_glob = "*.BIN" if self.esp_filenames else "*.bin"
+        sbem_glob = "*.S" if self.esp_filenames else "*.sbem"
+        bin_glob = "*.B" if self.esp_filenames else "*.bin"
         sbem_list = sorted(self.record_path.glob(sbem_glob), key=lambda p: p.name)
         bin_list = sorted(self.record_path.glob(bin_glob), key=lambda p: p.name)
 
@@ -289,9 +289,9 @@ class ESPRecordConverter:
         logging.info("Reading record data from %s", self.record_path)
 
         for chunk_id in range(1, max_id + 1):
-            sbem_ext = "SBM" if self.esp_filenames else "sbem"
+            sbem_ext = "S" if self.esp_filenames else "sbem"
             sbem_files = sorted(
-                self.record_path.glob(f"{chunk_id:03d}*{sbem_ext}*"),
+                self.record_path.glob(f"{chunk_id:03d}*.{sbem_ext}*"),
                 key=lambda p: p.name,
             )
 
@@ -322,9 +322,9 @@ class ESPRecordConverter:
                         e,
                     )
 
-            bin_ext = "BIN" if self.esp_filenames else "bin"
+            bin_ext = "B" if self.esp_filenames else "bin"
             bin_files = sorted(
-                self.record_path.glob(f"{chunk_id:03d}*{bin_ext}*"),
+                self.record_path.glob(f"{chunk_id:03d}*.{bin_ext}*"),
                 key=lambda p: p.name,
             )
             if len(bin_files) > 1:
@@ -356,7 +356,7 @@ class ESPRecordConverter:
 
         if not config_file.exists():
             logging.info("Missing config.json, trying ESP-style filenames")
-            config_file = self.record_path / "CONFIG.JSN"
+            config_file = self.record_path / "CONFIG.J"
             self.esp_filenames = True
 
         if not config_file.exists():
@@ -434,12 +434,12 @@ class ESPRecordConverter:
         logging.info("Reading checkpoints from %s", self.record_path)
         ignored = ["metadata.json", "config.json"]
         if self.esp_filenames:
-            ignored = ["metadata.json", "CONFIG.JSN"]
+            ignored = ["metadata.json", "CONFIG.J"]
 
         expect_id = 0
         checkpoints = collections.defaultdict(list)
 
-        json_glob = "*.JSN" if self.esp_filenames else "*.json"
+        json_glob = "*.J" if self.esp_filenames else "*.json"
         for checkpoint_path in sorted(self.record_path.glob(json_glob), key=lambda p: p.name):
             if checkpoint_path.name in ignored:
                 continue

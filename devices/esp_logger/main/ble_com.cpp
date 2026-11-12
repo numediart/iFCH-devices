@@ -53,6 +53,8 @@ enum Commands
     GET_LOGGING_STATE = 13,
     GET_BATTERY = 14,
     SET_UTCTIME = 15,
+    UNSUB_ALL_LOGS = 16,
+    PAUSE_LOG = 17,
 };
 
 enum Responses
@@ -61,6 +63,28 @@ enum Responses
     DATA = 2,
     DATA_PART2 = 3,
 };
+
+Response retry_mov(std::function<Response()> func, int retries, int delay_ms)
+{
+    Response response = {Status::ERROR, Codes::NOT_ACCEPTABLE}; // Default response in case of failure
+    for (int i = 0; i < retries; ++i)
+    {
+        if (isMovesenseConnected == false)
+        {
+            logError("retry_mov", "Movesense is not connected, aborting retry");
+            return {Status::ERROR, Codes::BAD_GATEWAY};
+        }
+
+        response = func();
+        if (response.status == Status::SUCCESS)
+        {
+            return response; // Success
+        }
+        logWarning("retry_mov", "Attempt %d failed", i + 1);
+        vTaskDelay(pdMS_TO_TICKS(delay_ms)); // Wait before retrying
+    }
+    return response; // All retries failed
+}
 
 // Convert a 6-byte address to a string
 std::string
@@ -1213,6 +1237,23 @@ Response movSubLogs()
     return {Status::SUCCESS, Codes::OK};
 }
 
+Response movUnsubLogs()
+{
+    logInfo("movUnsubLogs", "Sending unsubscribe logs command to Movesense");
+    Response response = writeMovesenseCommand(Commands::UNSUB_ALL_LOGS, Commands::UNSUB_ALL_LOGS + REF_OFFSET_COMMAND, nullptr, 0);
+
+    if (response.status != Status::SUCCESS)
+    {
+        logError("movUnsubLogs", "Failed to send unsub logs command - %u", response.code);
+    }
+    else
+    {
+        ESP_LOGI("movUnsubLogs", "Unsub logs command sent successfully");
+    }
+
+    return response;
+}
+
 Response movStartLog()
 {
     logInfo("movStartLog", "Sending start log command to Movesense");
@@ -1245,6 +1286,23 @@ Response movStopLog()
     else
     {
         ESP_LOGI("movStopLog", "Stop log command sent successfully");
+    }
+
+    return response;
+}
+
+Response movPauseLog()
+{
+    logInfo("movPauseLog", "Sending pause log command to Movesense");
+    Response response = writeMovesenseCommand(Commands::PAUSE_LOG, Commands::PAUSE_LOG + REF_OFFSET_COMMAND, nullptr, 0);
+
+    if (response.status != Status::SUCCESS)
+    {
+        logError("movPauseLog", "Failed to send pause log command - %u", response.code);
+    }
+    else
+    {
+        ESP_LOGI("movPauseLog", "Pause log command sent successfully");
     }
 
     return response;
@@ -1505,11 +1563,15 @@ Response _movFetchLog(FILE *f, uint32_t logId)
 
     Response response;
     response = waitForMovesenseResponse(fetchReference, responseBuffer, &responseLength);
-
-    if ((response.status != Status::SUCCESS) || responseLength != 4)
+    if (response.status != Status::SUCCESS)
     {
         logError("_movFetchLog", "Failed to wait for final response after fetching log - %u", response.code);
         return response;
+    }
+    else if (responseLength != 4)
+    {
+        logError("_movFetchLog", "Invalid final response after fetching log");
+        return {Status::ERROR, Codes::NOT_ACCEPTABLE};
     }
 
     uint32_t sentAmount = (responseBuffer[3] << 24) | (responseBuffer[2] << 16) |
@@ -1542,8 +1604,15 @@ Response movFetchLog(std::string filename, uint32_t logId)
     // Close the file
     if (f != NULL)
     {
-        fflush(f);
-        fclose(f);
+        bool flush_ = fflush(f) == 0;
+        bool close_ = fclose(f) == 0;
+
+        if (!flush_ || !close_)
+        {
+            logError("movFetchLog", "Failed to flush or close file: %s", filename.c_str());
+            errorReset();
+            return {Status::ERROR, Codes::ESP_ERROR};
+        }
     }
 
     // If the fetch was not successful, remove the written file

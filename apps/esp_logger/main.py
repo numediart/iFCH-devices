@@ -2411,13 +2411,13 @@ class CmdSaveRecord:
                 zipf.writestr(METADATA_FILENAME, str_data)
 
             for idx, filename in enumerate(back.record_files):
-                filename_local = filename.lower()
-                filename_local = filename_local.replace("sbm", "sbem")
-                filename_local = filename_local.replace("jsn", "json")
+                filename = filename.replace("S", "sbem")
+                filename = filename.replace("B", "BIN")
+                filename = filename.replace("J", "json")
 
                 # Check if file already exists
-                if filename_local in zipf.namelist():
-                    logging.debug("File %s already exists, skipping download", filename_local)
+                if filename in zipf.namelist():
+                    logging.debug("File %s already exists, skipping download", filename)
                     back.ui.download_view.progress_bar.setValue(
                         int((idx + 1) / len(back.record_files) * 100)
                     )
@@ -2440,7 +2440,7 @@ class CmdSaveRecord:
                     return
 
                 # Write to file in zip
-                zipf.writestr(filename_local, data)
+                zipf.writestr(filename, data)
 
                 back.ui.download_view.progress_bar.setValue(
                     int((idx + 1) / len(back.record_files) * 100)

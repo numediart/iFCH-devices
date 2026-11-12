@@ -69,29 +69,41 @@ bool sendFile(std::string filename)
         while (!feof(f))
         {
             size_t file_read = fread(file_buffer, 1, SD_RW_BUFFER_SIZE, f);
-            if (file_read == 0)
+            if (ferror(f))
+            {
+                logError("sendFile", "Error reading file: %s", filename.c_str());
+                sendERR(CmdType::CMD_FILE_CHUNK);
+                fclose(f);
+                errorReset();
+                return false;
+            }
+
+            else if (file_read > 0)
+            {
+                // Send chunks
+                size_t offset = 0;
+                while (offset < file_read && sentOK)
+                {
+                    size_t chunk_size = std::min((size_t)(MAX_TX_PAYLOAD_SIZE - 1), file_read - offset);
+                    seqNum += 1;
+                    tx_buffer[0] = seqNum;
+
+                    memcpy(tx_buffer + 1, file_buffer + offset, chunk_size);
+
+                    sentOK = sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, chunk_size + 1, seqNum);
+                    if (!sentOK)
+                    {
+                        break;
+                    }
+
+                    offset += chunk_size;
+                }
+            }
+
+            if (feof(f))
             {
                 // Already reached EOF
                 break;
-            }
-
-            // Send chunks
-            size_t offset = 0;
-            while (offset < file_read && sentOK)
-            {
-                size_t chunk_size = std::min((size_t)(MAX_TX_PAYLOAD_SIZE - 1), file_read - offset);
-                seqNum += 1;
-                tx_buffer[0] = seqNum;
-
-                memcpy(tx_buffer + 1, file_buffer + offset, chunk_size);
-
-                sentOK = sendProtectedFrame(CmdType::CMD_FILE_CHUNK, tx_buffer, chunk_size + 1, seqNum);
-                if (!sentOK)
-                {
-                    break;
-                }
-
-                offset += chunk_size;
             }
         }
 
@@ -278,8 +290,15 @@ std::string receiveFile(std::string filename)
     }
 
     // If file exists, close it
-    fflush(f);
-    fclose(f);
+    bool flush_ = fflush(f) == 0;
+    bool close_ = fclose(f) == 0;
+
+    if (!flush_ || !close_)
+    {
+        logError("receiveFile", "Failed to flush or close file: %s", filename.c_str());
+        errorReset();
+        receivedName = "";
+    }
 
     ledWrite(false);
 
@@ -628,9 +647,15 @@ bool copy(std::string src, std::string dest)
     }
 
     // Close the files
-    fflush(destFile);
+    bool flush_ = fflush(destFile) == 0;
     fclose(srcFile);
-    fclose(destFile);
+    bool close_ = fclose(destFile) == 0;
+
+    if (!flush_ || !close_)
+    {
+        logError("copy", "Failed to flush or close destination file: %s", dest.c_str());
+        return false;
+    }
 
     ESP_LOGI("copy", "File copied from %s to %s", src.c_str(), dest.c_str());
     return true;

@@ -4,7 +4,11 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
-#define VERSION "iFCH-logger v1.1"
+#define VERSION "iFCH-logger v1.2"
+
+#define MOV_REQ_FIRMWARE "iFCH GATT"
+#define MOV_MIN_VER_MAJOR 1
+#define MOV_MIN_VER_MINOR 9
 
 #include <vector>
 #include <map>

@@ -531,8 +531,8 @@ class ESPLogger:
     END_LOG_TIMEOUT_S = 300
     MAX_CONFIG_SIZE = 512
 
-    CONFIG_FILE = "config.jsn"
-    ERROR_LOG_FILE = "log.txt"
+    CONFIG_FILE = "CONFIG.J"
+    ERROR_LOG_FILE = "LOG.TXT"
 
     def __init__(
         self,

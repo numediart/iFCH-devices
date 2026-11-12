@@ -146,7 +146,11 @@ void fetchLogic()
 
         // Check the Movesense state
         uint8_t loggingStatus;
-        if (movGetLoggingStatus(loggingStatus).status != Status::SUCCESS)
+        auto getLoggingStatus_ = [&loggingStatus]()
+        {
+            return movGetLoggingStatus(loggingStatus);
+        };
+        if (retry_mov(getLoggingStatus_, 3, GATT_DELAY).status != Status::SUCCESS)
         {
             logError("fetchLogic", "Failed to get Movesense logging status");
             errorReset();
@@ -172,7 +176,11 @@ void fetchLogic()
 
             uint32_t time;
             int64_t utcTimeUs;
-            if (movGetTime(time, utcTimeUs).status != Status::SUCCESS)
+            auto getTime_ = [&time, &utcTimeUs]()
+            {
+                return movGetTime(time, utcTimeUs);
+            };
+            if (retry_mov(getTime_, 3, GATT_DELAY).status != Status::SUCCESS)
             {
                 logError("fetchLogic", "Failed to get Movesense time");
                 errorReset();
@@ -188,7 +196,8 @@ void fetchLogic()
             {
                 logError("fetchLogic", "Movesense reset detected");
 
-                if (!configureMovesense())
+                // Configure without reset to keep potential data
+                if (!configureMovesense(false))
                 {
                     logError("fetchLogic", "Failed to configure Movesense after reset");
                     errorReset();

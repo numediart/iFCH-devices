@@ -4,6 +4,8 @@
 #ifndef BLE_COM_H
 #define BLE_COM_H
 
+#include <functional>
+
 #include "host/ble_uuid.h"
 
 #include "globals.h"
@@ -100,17 +102,26 @@ Response movClearLogs();
 // Subscribe to Movesense sensors for logging
 Response movSubLogs();
 
+// Unsubscribe from Movesense sensors
+Response movUnsubLogs();
+
 // Start Movesense logging
 Response movStartLog();
 
 // Stop Movesense logging
 Response movStopLog();
 
+// Pause Movesense logging
+Response movPauseLog();
+
 // List existing Movesense logs
 Response movListLogs(std::vector<uint32_t> &logIds);
 
 // Fetch the required Movesense log and save it to a file
 Response movFetchLog(std::string filename, uint32_t logId);
+
+// Retry a Movesense function call with a specified number of retries and delay
+Response retry_mov(std::function<Response()> func, int retries, int delay_ms);
 
 // Movesense GATT service and characteristic UUIDs
 const ble_uuid128_t ifch_svc_uuid =

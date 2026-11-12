@@ -20,7 +20,7 @@ bool rescueMovesenseData();
 bool startMovesenseLogging();
 
 // Sets UTC and subscribes to logs
-bool configureMovesense();
+bool configureMovesense(bool doReset);
 
 // Ends Movesense logging and cleans up the record state
 bool endMovesenseLogging();

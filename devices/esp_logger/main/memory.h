@@ -6,10 +6,10 @@
 
 #include "globals.h"
 
-#define MOUNT_POINT "/sdcard"
-#define CONFIG_FILE MOUNT_POINT "/config.jsn"
-#define RECORD_FILE MOUNT_POINT "/record.jsn"
-#define LOG_FILE MOUNT_POINT "/log.txt"
+#define MOUNT_POINT "/sd"
+#define CONFIG_FILE MOUNT_POINT "/CONFIG.J"
+#define RECORD_FILE MOUNT_POINT "/RECORD.J"
+#define LOG_FILE MOUNT_POINT "/LOG.TXT"
 
 #define SD_CMD_PIN (gpio_num_t)34
 #define SD_CLK_PIN (gpio_num_t)38
