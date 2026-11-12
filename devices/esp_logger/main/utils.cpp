@@ -496,6 +496,7 @@ static led_strip_handle_t setupLED(void)
         .led_model = LED_MODEL_WS2812, // LED strip model
         // set the color order of the strip: GRB
         .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
+        .timings = {},
         .flags = {
             .invert_out = false, // don't invert the output signal
         }};
