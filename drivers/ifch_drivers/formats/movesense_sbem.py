@@ -20,7 +20,7 @@ class SBEMPath:
     def __init__(self, name: str):
         self.name = name.replace("+", ".")
         self.type: SBEMType | None = None
-        self.modifier: callable | None = None
+        self.modifier: typing.Callable[[typing.Any], typing.Any] | None = None
         self.modifier_source: str | None = None
 
     @property

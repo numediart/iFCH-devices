@@ -10,10 +10,6 @@
 
 #include <functional>
 
-#define MOV_REQ_FIRMWARE "iFCH GATT"
-#define MOV_MIN_VER_MAJOR 1
-#define MOV_MIN_VER_MINOR 6
-
 #define RGB_MAX 64
 
 #define I2C_MASTER_SCL_IO (gpio_num_t)9

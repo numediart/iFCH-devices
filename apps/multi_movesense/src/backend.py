@@ -416,7 +416,8 @@ class CmdConnect:
         if not success:
             back.ui.update_warning_status(
                 "Connection failed",
-                f"Failed to connect to device {self.device[1]}. Please try again.",
+                f"Failed to connect to device {self.device[1]}. Please try again.\n"
+                "Make sure the device has a compatible firmware (Movesense >= 2.3.1 or iFCH).",
                 ok_cb=back.refresh_devices(),
             )
             back.ui.set_state(UIState.WARNING)

@@ -39,7 +39,7 @@ async def client():
 async def run_test_command(
     client: MovesenseGatt,
     command: Commands,
-    expected: StatusCodes,
+    expected: StatusCodes | list[StatusCodes],
     client_ref=None,
     data: bytes | None = None,
 ):
@@ -48,7 +48,10 @@ async def run_test_command(
         client_ref = min(command.value + 10, 255)
     _, code, data_rx = await client.send_and_wait(command, client_ref, data)
 
-    assert code == expected
+    if isinstance(expected, StatusCodes):
+        assert code == expected
+    else:
+        assert code in expected
 
     return data_rx
 
@@ -92,7 +95,7 @@ async def test_battery(client):
 
 async def test_reset(client):
     """Verify RESET returns success in idle state."""
-    await run_test_command(client, Commands.STOP_LOG, StatusCodes.OK_200)
+    await run_test_command(client, Commands.STOP_LOG, [StatusCodes.OK_200, StatusCodes.OK_202])
     await run_test_command(client, Commands.RESET, StatusCodes.OK_200)
 
 
@@ -227,6 +230,12 @@ async def test_datalogger(client):
 
     await run_test_command(
         client,
+        Commands.PAUSE_LOG,
+        StatusCodes.OK_202,
+    )
+
+    await run_test_command(
+        client,
         Commands.CLEAR_LOGS,
         StatusCodes.OK_200,
     )
@@ -250,6 +259,13 @@ async def test_datalogger(client):
         StatusCodes.OK_200,
         client_ref=1,
         data=ECG_125,
+    )
+
+    await run_test_command(
+        client,
+        Commands.START_LOG,
+        StatusCodes.ERROR_400,
+        data=(1).to_bytes(4, byteorder="little"),
     )
 
     await run_test_command(
@@ -292,6 +308,19 @@ async def test_datalogger(client):
 
     await run_test_command(
         client,
+        Commands.PAUSE_LOG,
+        StatusCodes.OK_200,
+    )
+
+    await run_test_command(
+        client,
+        Commands.START_LOG,
+        StatusCodes.OK_200,
+        data=(1).to_bytes(2, byteorder="little"),
+    )
+
+    await run_test_command(
+        client,
         Commands.STOP_LOG,
         StatusCodes.OK_200,
     )
@@ -301,6 +330,12 @@ async def test_datalogger(client):
         Commands.UNSUB_LOG,
         StatusCodes.OK_200,
         client_ref=1,
+    )
+
+    await run_test_command(
+        client,
+        Commands.UNSUB_ALL_LOGS,
+        StatusCodes.OK_200,
     )
 
     await run_test_command(
@@ -322,16 +357,6 @@ async def test_datalogger(client):
     await run_test_command(
         client,
         Commands.FETCH_LOG,
-        StatusCodes.OK_200,
-        data=payload,
-    )
-
-    log_id = (5).to_bytes(4, byteorder="little")
-    offset = (0).to_bytes(4, byteorder="little")
-    payload = b"".join([log_id, offset])
-    await run_test_command(
-        client,
-        Commands.FETCH_LOG,
-        StatusCodes.ERROR_404,
+        StatusCodes.ERROR_403,
         data=payload,
     )

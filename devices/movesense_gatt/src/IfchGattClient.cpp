@@ -80,6 +80,8 @@ enum Commands
     GET_LOGGING_STATE = 13,
     GET_BATTERY = 14,
     SET_UTCTIME = 15,
+    UNSUB_ALL_LOGS = 16,
+    PAUSE_LOG = 17,
 };
 
 enum Responses
@@ -128,8 +130,14 @@ IfchGattClient::IfchGattClient() : ResourceClient(WBDEBUG_NAME(__FUNCTION__), WB
                                    mIndicateTimer(wb::ID_INVALID_TIMER),
                                    mIndicateTimeoutTimer(wb::ID_INVALID_TIMER),
                                    mLowPowerOffTimer(wb::ID_INVALID_TIMER),
+                                   mLogRotationTimer(wb::ID_INVALID_TIMER),
                                    mLeadsConnected(false),
                                    mDataLoggerState(WB_RES::DataLoggerStateValues::DATALOGGER_INVALID),
+                                   mDataloggerTargetState(WB_RES::DataLoggerStateValues::DATALOGGER_INVALID),
+                                   mDataloggerTransitionPending(false),
+                                   mLogFetchInProgress(false),
+                                   mLogPaused(false),
+                                   mLogRotationInterval(0),
                                    mCounter(0),
                                    mLogListReference(0),
                                    mLogListLastId(0),
@@ -161,17 +169,50 @@ void IfchGattClient::deinitModule()
     mModuleState = WB_RES::ModuleStateValues::UNINITIALIZED;
 }
 
+void IfchGattClient::resetInnerState()
+{
+    mPowerState = POWER_NORMAL;
+    mLeadsConnected = false;
+
+    // Reset datalogger state
+    mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_INVALID;
+    mDataloggerTransitionPending = false;
+    mLogFetchInProgress = false;
+    mLogPaused = false;
+    mLogRotationInterval = 0;
+
+    // Reset GATT indicate queue
+    mIsIndicating = false;
+    mIsIndicateRetry = false;
+    mIndicateQueue = std::queue<IndicateRequest>();
+
+    // Reset GATT references
+    mLogFetchReference = 0;
+    mLogListReference = 0;
+    mDataloggerStateReference = 0;
+    mGetTimeReference = 0;
+    mSetUTCTimeReference = 0;
+    mGetInfoReference = 0;
+    mGetBatteryReference = 0;
+    mGetLoggingReference = 0;
+
+    // Reset log fetch state
+    mLogIdToFetch = 0;
+    mLogFetchOffset = 0;
+    mLogListLastId = 0;
+    mLogFetchDataSent = 0;
+    mLogListDataSent = 0;
+
+    // Clear subscriptions
+    unsubscribeAllStreams();
+    clearLogSubs();
+}
+
 bool IfchGattClient::startModule()
 {
     mModuleState = WB_RES::ModuleStateValues::STARTED;
 
-    // Clear subscription tables
-    for (size_t i = 0; i < MAX_DATASUB_COUNT; i++)
-    {
-        mDataSubs[i].clean();
-    }
-
-    clearLogSubs();
+    resetInnerState();
 
     // Subscribe to leads detection
     asyncSubscribe(WB_RES::LOCAL::SYSTEM_STATES_STATEID(), AsyncRequestOptions::Empty, WB_RES::StateIdValues::CONNECTOR);
@@ -197,9 +238,15 @@ void IfchGattClient::stopModule()
     stopTimer(mShutdownTimer);
     stopTimer(mIndicateTimer);
     stopTimer(mIndicateTimeoutTimer);
+    stopTimer(mLogRotationTimer);
+    stopTimer(mLowPowerOffTimer);
+    stopTimer(mLogRotationTimer);
+
     mShutdownTimer = wb::ID_INVALID_TIMER;
     mIndicateTimer = wb::ID_INVALID_TIMER;
     mIndicateTimeoutTimer = wb::ID_INVALID_TIMER;
+    mLogRotationTimer = wb::ID_INVALID_TIMER;
+    mLowPowerOffTimer = wb::ID_INVALID_TIMER;
 
     // Unsubscribe lead state
     asyncUnsubscribe(WB_RES::LOCAL::SYSTEM_STATES_STATEID(), AsyncRequestOptions::Empty, WB_RES::StateIdValues::CONNECTOR);
@@ -209,12 +256,11 @@ void IfchGattClient::stopModule()
              AsyncRequestOptions::Empty,
              WB_RES::DataLoggerStateValues::DATALOGGER_READY);
 
-    // Unsubscribe sensor data
-    unsubscribeAllStreams();
-    clearLogSubs();
+    resetInnerState();
 
     // Clean up GATT stuff
     asyncUnsubscribe(mCommandCharResource);
+    asyncUnsubscribe(WB_RES::LOCAL::COMM_BLE_PEERS());
 
     releaseResource(mCommandCharResource);
     releaseResource(mDataCharResource);
@@ -226,11 +272,13 @@ void IfchGattClient::stopModule()
     mResponseCharResource = wb::ID_INVALID_RESOURCE;
     mLogCharResource = wb::ID_INVALID_RESOURCE;
 
-    mModuleState = WB_RES::ModuleStateValues::STOPPED;
+    mSensorSvcHandle = 0;
+    mDataCharHandle = 0;
+    mCommandCharHandle = 0;
+    mResponseCharHandle = 0;
+    mLogCharHandle = 0;
 
-    mIsIndicating = false;
-    mIsIndicateRetry = false;
-    mIndicateQueue = std::queue<IndicateRequest>();
+    mModuleState = WB_RES::ModuleStateValues::STOPPED;
 }
 
 void IfchGattClient::configGattSvc()
@@ -508,7 +556,6 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::FETCH_LOG. reference: %d", reference);
 
-        // Use the "old" API for fetching the log (GET)
         if (pData == nullptr || (dataLen != sizeof(uint32_t) && dataLen != sizeof(uint32_t) + sizeof(uint32_t)))
         {
             // 400: Bad request
@@ -517,19 +564,48 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             return;
         }
 
+        if (mLogFetchReference != 0 || mLogFetchInProgress)
+        {
+            // 409: Conflict, already fetching a log
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            return;
+        }
+
         memcpy(&mLogIdToFetch, pData, sizeof(uint32_t));
 
         // If the commands contains an offset, start from there
         uint32_t startOffset = 0;
+        // bool hasOffset = false;
         if (dataLen == sizeof(uint32_t) + sizeof(uint32_t))
         {
-            memcpy(&startOffset, pData + sizeof(uint32_t), sizeof(uint32_t));
+            // TODO offset does not seem to work? Maybe in a later update
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::FORBIDDEN, Status::ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            return;
+
+            // memcpy(&startOffset, pData + sizeof(uint32_t), sizeof(uint32_t));
+            // hasOffset = true;
         }
 
+        mLogFetchInProgress = true;
         mLogFetchReference = reference;
-        mLogFetchDataSent = 0;
 
+        // // If fetching with offset, use the GET method
+        // if (hasOffset)
+        // {
+
+        // Use the "old" API for fetching the log (GET)
+        mLogFetchDataSent = 0;
+        mLogFetchOffset = startOffset;
         asyncGet(WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA(), AsyncRequestOptions::ForceAsync, mLogIdToFetch, startOffset);
+
+        // }
+        // else
+        // {
+        //     // If fetching without offset, use the SUBSCRIBE method
+        //     asyncSubscribe(WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA(), AsyncRequestOptions::ForceAsync, mLogIdToFetch);
+        // }
         return;
     }
 
@@ -537,8 +613,8 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::CLEAR_LOGS. reference: %d", reference);
 
-        // Cannot clear logs if logging
-        if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        // Cannot clear logs if logging or fetching
+        if (mDataloggerTransitionPending || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING || mLogFetchInProgress)
         {
             // 409: Conflict
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
@@ -652,6 +728,14 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::START_LOG. reference: %d", reference);
 
+        if (pData != nullptr && dataLen != sizeof(uint16_t))
+        {
+            // 400: Bad request
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::BAD_REQUEST, Status::ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            return;
+        }
+
         WB_RES::DataLoggerConfig ldConfig;
         WB_RES::DataEntry entries[MAX_LOGSUB_COUNT];
         size_t count = 0;
@@ -678,7 +762,7 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             return;
         }
 
-        if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        if (mDataloggerTransitionPending || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING || mLogFetchInProgress)
         {
             // 409: Conflict
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
@@ -690,18 +774,39 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
         ldConfig.dataEntries.dataEntry = wb::MakeArray<WB_RES::DataEntry>(entries, count);
         asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_CONFIG(), AsyncRequestOptions::Empty, ldConfig);
 
+        mDataloggerTargetState = WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING;
         mDataloggerStateReference = reference;
+        mDataloggerTransitionPending = true;
+        mLogPaused = false;
+
+        mLogRotationInterval = 0;
+        if (pData != nullptr)
+        {
+            uint16_t rotationInterval = 0;
+            memcpy(&rotationInterval, pData, sizeof(uint16_t));
+
+            // Convert minutes to milliseconds
+            mLogRotationInterval = (uint32_t)rotationInterval * 60 * 1000;
+        }
 
         // Start Logging
         asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(), AsyncRequestOptions::Empty, WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING);
-
-        mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING;
 
         return;
     }
     case Commands::STOP_LOG:
     {
         DEBUGLOG("Commands::STOP_LOG. reference: %d", reference);
+
+        if (mDataloggerTransitionPending)
+        {
+            DEBUGLOG("Datalogger transition already pending");
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            return;
+        }
+
+        mLogPaused = false;
 
         if (mDataLoggerState != WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
         {
@@ -712,20 +817,63 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
             return;
         }
 
+        mDataloggerTargetState = WB_RES::DataLoggerStateValues::DATALOGGER_READY;
         mDataloggerStateReference = reference;
+        mDataloggerTransitionPending = true;
 
         // Stop logging
         asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(),
                  AsyncRequestOptions::Empty,
                  WB_RES::DataLoggerStateValues::DATALOGGER_READY);
 
-        mDataLoggerState = WB_RES::DataLoggerStateValues::DATALOGGER_READY;
+        return;
+    }
+    case Commands::PAUSE_LOG:
+    {
+        DEBUGLOG("Commands::PAUSE_LOG. reference: %d", reference);
+
+        if (mDataloggerTransitionPending)
+        {
+            DEBUGLOG("Datalogger transition already pending");
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            return;
+        }
+
+        mLogPaused = true;
+
+        if (mDataLoggerState != WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        {
+            // There is already no logging in progress, so we can return immediately
+            // 202: Accepted
+            uint8_t rspMsg[] = {Responses::COMMAND_RESULT, reference, Codes::ACCEPTED, Status::SUCCESS};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), rspMsg, sizeof(rspMsg));
+            return;
+        }
+
+        mDataloggerTargetState = WB_RES::DataLoggerStateValues::DATALOGGER_READY;
+        mDataloggerStateReference = reference;
+        mDataloggerTransitionPending = true;
+
+        // Stop logging
+        asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(),
+                 AsyncRequestOptions::Empty,
+                 WB_RES::DataLoggerStateValues::DATALOGGER_READY);
 
         return;
     }
     case Commands::LIST_LOGS:
     {
         DEBUGLOG("Commands::LIST_LOGS. reference: %d", reference);
+
+        // Cannot list logs while fetching
+        if (mLogFetchInProgress)
+        {
+            // 409: Conflict, already fetching a log
+            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            return;
+        }
 
         mLogListReference = reference;
         mLogListDataSent = 0;
@@ -748,8 +896,8 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
     {
         DEBUGLOG("Commands::RESET. reference: %d", reference);
 
-        // Cannot reset if logging (bug)
-        if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+        // Cannot reset if logging (bug) or fetching
+        if (mDataloggerTransitionPending || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING || mLogFetchInProgress)
         {
             // 409: Conflict
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
@@ -794,9 +942,31 @@ void IfchGattClient::handleIncomingCommand(const wb::Array<uint8> &commandData)
 
         return;
     }
+    case Commands::UNSUB_ALL_LOGS:
+    {
+        DEBUGLOG("Commands::UNSUB_ALL_LOGS. reference: %d", reference);
+
+        // Clear all log subscriptions
+        clearLogSubs();
+
+        // Send OK response
+        uint8_t ackMsg[] = {Responses::COMMAND_RESULT, reference, Codes::OK, Status::SUCCESS};
+        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
+
+        return;
+    }
     case Commands::GET_LOGGING_STATE:
     {
         DEBUGLOG("Commands::GET_LOGGING_STATE. reference: %d", reference);
+
+        // If a transition is pending, refuse the request
+        if (mDataloggerTransitionPending)
+        {
+            uint8_t errMsg[] = {Responses::COMMAND_RESULT, reference, Codes::CONFLICT, Status::ERROR};
+
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errMsg, sizeof(errMsg));
+            return;
+        }
 
         mGetLoggingReference = reference;
         asyncGet(WB_RES::LOCAL::MEM_DATALOGGER_STATE(), AsyncRequestOptions::ForceAsync);
@@ -988,20 +1158,32 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         const auto &stream = rResultData.convertTo<const wb::ByteStream &>();
         DEBUGLOG("MEM_LOGBOOK_BYID_LOGID_DATA. resultCode: %d", resultCode);
 
-        if (mLogFetchReference == 0)
-        {
-            return;
-        }
+        // TODO this would leave the logbook in an invalid state
+        // if (mLogFetchReference == 0)
+        // {
+        // Current library requires to follow up on HTTP_CODE_CONTINUE
+        // until the log is fully read
+        // This breaks the chain prematurely if the client disconnects while
+        // fetching a log. If a request is then made to list the logs, the
+        // device will crash
+        // Uncomment when this will be fixed in the core lib
+        //     return;
+        // }
 
         if (resultCode >= 400)
         {
-            uint8_t errorCode[2];
-            errorCode[0] = resultCode & 0xFF;
-            errorCode[1] = (resultCode >> 8) & 0xFF;
-            uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogFetchReference, errorCode[0], errorCode[1]};
-            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            // Only send a message if the client is still connected
+            if (mLogFetchReference != 0)
+            {
+                uint8_t errorCode[2];
+                errorCode[0] = resultCode & 0xFF;
+                errorCode[1] = (resultCode >> 8) & 0xFF;
+                uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mLogFetchReference, errorCode[0], errorCode[1]};
+                asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+            }
 
             mLogFetchReference = 0;
+            mLogFetchInProgress = false;
             mLogIdToFetch = 0;
             mLogFetchOffset = 0;
             mLogFetchDataSent = 0;
@@ -1011,7 +1193,11 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
 
         DEBUGLOG("Sending from get. size: %d", stream.length());
 
-        handleSendingLogbookData(stream.data, stream.length());
+        // Only send data if the client is still connected
+        if (mLogFetchReference != 0)
+        {
+            handleSendingLogbookData(stream.data, stream.length());
+        }
 
         if (resultCode == wb::HTTP_CODE_CONTINUE)
         {
@@ -1020,25 +1206,29 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         }
         if (resultCode == wb::HTTP_CODE_OK)
         {
-            DEBUGLOG("Fetching log complete. sending end marker.");
-            // Send end marker (offset and no bytes)
-            handleSendingLogbookData(nullptr, 0);
+            if (mLogFetchReference != 0)
+            {
+                DEBUGLOG("Fetching log complete. sending end marker.");
+                // Send end marker (offset and no bytes)
+                handleSendingLogbookData(nullptr, 0);
 
-            // Send OK response with total number of packets sent
-            uint8_t ackMsg[8];
-            ackMsg[0] = Responses::COMMAND_RESULT;
-            ackMsg[1] = mLogFetchReference;
-            ackMsg[2] = Codes::OK;
-            ackMsg[3] = Status::SUCCESS;
-            memcpy(&ackMsg[4], &mLogFetchDataSent, sizeof(mLogFetchDataSent));
+                // Send OK response with total number of packets sent
+                uint8_t ackMsg[8];
+                ackMsg[0] = Responses::COMMAND_RESULT;
+                ackMsg[1] = mLogFetchReference;
+                ackMsg[2] = Codes::OK;
+                ackMsg[3] = Status::SUCCESS;
+                memcpy(&ackMsg[4], &mLogFetchDataSent, sizeof(mLogFetchDataSent));
 
-            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
+                asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
+            }
 
             // Mark "no current log"
             mLogIdToFetch = 0;
             mLogFetchOffset = 0;
             mLogFetchReference = 0;
             mLogFetchDataSent = 0;
+            mLogFetchInProgress = false;
         }
         break;
     }
@@ -1062,22 +1252,22 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
             errorCode[1] = (resultCode >> 8) & 0xFF;
             uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mGetLoggingReference, errorCode[0], errorCode[1]};
             asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
+        }
+        else
+        {
+            uint8_t stateMsg[5];
+            stateMsg[0] = Responses::COMMAND_RESULT;
+            stateMsg[1] = mGetLoggingReference;
+            stateMsg[2] = Codes::OK;
+            stateMsg[3] = Status::SUCCESS;
 
-            mGetLoggingReference = 0;
-            return;
+            stateMsg[4] = (uint8_t)mDataLoggerState;
+
+            asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), stateMsg, sizeof(stateMsg));
         }
 
-        uint8_t stateMsg[5];
-        stateMsg[0] = Responses::COMMAND_RESULT;
-        stateMsg[1] = mGetLoggingReference;
-        stateMsg[2] = Codes::OK;
-        stateMsg[3] = Status::SUCCESS;
-
-        stateMsg[4] = (uint8_t)mDataLoggerState;
-
-        asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), stateMsg, sizeof(stateMsg));
-
-        break;
+        mGetLoggingReference = 0;
+        return;
     }
     case WB_RES::LOCAL::MEM_LOGBOOK_ENTRIES::LID:
     {
@@ -1394,11 +1584,8 @@ void IfchGattClient::unsubscribeAllStreams()
 {
     for (size_t i = 0; i < MAX_DATASUB_COUNT; i++)
     {
-        if (mDataSubs[i].resourceId != wb::ID_INVALID_RESOURCE)
-        {
-            asyncUnsubscribe(mDataSubs[i].resourceId);
-            mDataSubs[i].clean();
-        }
+        asyncUnsubscribe(mDataSubs[i].resourceId);
+        mDataSubs[i].clean();
     }
 }
 
@@ -1410,6 +1597,7 @@ void IfchGattClient::clearLogSubs()
         mLogSubs[i].clientReference = 0;
         memset(mLogSubs[i].path, 0, sizeof(mLogSubs[i].path));
     }
+    mLogPaused = false;
 }
 
 void IfchGattClient::enterLowPowerMode()
@@ -1457,6 +1645,13 @@ void IfchGattClient::enterLowPowerMode()
         mShutdownTimer = wb::ID_INVALID_TIMER;
     }
 
+    // Stop log rotation timer
+    if (mLogRotationTimer != wb::ID_INVALID_TIMER)
+    {
+        stopTimer(mLogRotationTimer);
+        mLogRotationTimer = wb::ID_INVALID_TIMER;
+    }
+
     // Turn LED off
     asyncPut(WB_RES::LOCAL::COMPONENT_LED(), AsyncRequestOptions::Empty, false);
 
@@ -1498,6 +1693,29 @@ void IfchGattClient::exitLowPowerMode()
     mPowerState = POWER_NORMAL;
 }
 
+void IfchGattClient::tryResumePausedLog()
+{
+    if (mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING || mDataloggerTransitionPending)
+    {
+        DEBUGLOG("Cannot resume log - datalogger state is not ready. Current state: %d", mDataLoggerState);
+        return;
+    }
+    if (mLogFetchInProgress)
+    {
+        DEBUGLOG("Cannot resume log - log fetch is in progress");
+        return;
+    }
+
+    // Rotate the log file before resuming
+    asyncPost(WB_RES::LOCAL::MEM_LOGBOOK_ENTRIES(), AsyncRequestOptions(NULL, 0, true));
+
+    DEBUGLOG("Resuming paused log");
+    mDataloggerTargetState = WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING;
+    mDataloggerTransitionPending = true;
+    mLogPaused = false;
+    asyncPut(WB_RES::LOCAL::MEM_DATALOGGER_STATE(), AsyncRequestOptions::Empty, WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING);
+}
+
 void IfchGattClient::onNotify(wb::ResourceId resourceId,
                               const wb::Value &value,
                               const wb::ParameterList &rParameters)
@@ -1519,7 +1737,7 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
                 exitLowPowerMode();
             }
         }
-        break;
+        return;
     }
 
     case WB_RES::LOCAL::COMM_BLE_PEERS::LID:
@@ -1527,6 +1745,14 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         WB_RES::PeerChange peerChange = value.convertTo<WB_RES::PeerChange>();
         if (peerChange.state == peerChange.state.DISCONNECTED)
         {
+            // If logging is paused, automatically try resume it when BLE disconnects.
+            // If we are transitioning or fetching, resuming will be postponed until the operation is complete
+            if (mLogPaused)
+            {
+                DEBUGLOG("BLE disconnected while paused - resuming log");
+                tryResumePausedLog();
+            }
+
             // Skip if already in low power mode
             if (mPowerState == POWER_LOW)
             {
@@ -1537,12 +1763,12 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             // if connection is dropped, unsubscribe all data streams so that sensor does not stay on for no reason
             unsubscribeAllStreams();
 
+            // This creates uncertainty on the log sub state
             // If not logging, forget the log subs
-            // asyncGet(WB_RES::LOCAL::MEM_DATALOGGER_STATE());
-            if (mDataLoggerState != WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
-            {
-                clearLogSubs();
-            }
+            // if (mDataLoggerState != WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING && !(mDataloggerTransitionPending && mDataloggerTargetState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING))
+            // {
+            //     clearLogSubs();
+            // }
 
             if (mIndicateTimer != wb::ID_INVALID_TIMER)
             {
@@ -1575,9 +1801,8 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
         {
             stopTimer(mShutdownTimer);
             mShutdownTimer = wb::ID_INVALID_TIMER;
-            return;
         }
-        break;
+        return;
     }
 
     case WB_RES::LOCAL::COMM_BLE_GATTSVC_SVCHANDLE_CHARHANDLE::LID:
@@ -1591,70 +1816,101 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             DEBUGLOG("onNotify: mCommandCharHandle: len: %d", charValue.bytes.size());
 
             handleIncomingCommand(charValue.bytes);
-            return;
         }
-        break;
+        return;
     }
 
     case WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA::LID:
     {
-        IfchGattClient::DataSub *ds = findDataSub(resourceId.localResourceId);
-        if (ds == nullptr)
-        {
-            DEBUGLOG("DataSub not found for resource: %u", resourceId);
-            return;
-        }
+        // TODO this would leave the logbook in an invalid state
+        // if (mLogFetchReference == 0)
+        // {
+        // The client lost connection while fetching a log.
+        // Unsubscribe from the logbook
+
+        // Current library requires to read the log till the end
+        // This stops prematurely if the client disconnects while
+        // fetching a log. If a request is then made to list the logs, the
+        // device will crash
+        // Uncomment when fixed in the core lib
+
+        // asyncUnsubscribe(WB_RES::LOCAL::MEM_LOGBOOK_BYID_LOGID_DATA(), AsyncRequestOptions::Empty, mLogIdToFetch);
+        // mLogIdToFetch = 0;
+        // return;
+        // }
 
         // Handle special case of subscribing logbook data
         const auto &dataNotification = value.convertTo<const WB_RES::LogDataNotification &>();
         const size_t length = dataNotification.bytes.size();
         DEBUGLOG("Logbook data notification. offset: %d, length: %d", dataNotification.offset, length);
 
-        // Forward data to client in same format (offset + bytes)
-        // If length > MAX_DATA_SIZE, split in two notifications
-        memset(mDataMsgBuffer, 0, sizeof(mDataMsgBuffer));
-        mDataMsgBuffer[0] = Responses::DATA;
-        mDataMsgBuffer[1] = ds->clientReference;
-
-        // Copy offset
-        size_t writePos = 2;
-        memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.offset), sizeof(dataNotification.offset));
-        writePos += sizeof(dataNotification.offset);
-        size_t dataSize = sizeof(mDataMsgBuffer) - writePos;
-        size_t firstPartLen = (length > dataSize) ? dataSize : length;
-        size_t secondPartLen = length - firstPartLen;
-        DEBUGLOG("firstPartLen: %d, secondPartLen: %d", firstPartLen, secondPartLen);
-        if (firstPartLen > 0)
+        // Only send data if the client is still connected
+        if (mLogFetchReference != 0)
         {
-            memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.bytes[0]), firstPartLen);
-            writePos += firstPartLen;
-        }
-        else
-        {
-            DEBUGLOG("End of file marker");
-        }
+            // Forward data to client in same format (offset + bytes)
+            // If length > MAX_DATA_SIZE, split in two notifications
+            memset(mDataMsgBuffer, 0, sizeof(mDataMsgBuffer));
+            mDataMsgBuffer[0] = Responses::DATA;
+            mDataMsgBuffer[1] = mLogFetchReference;
 
-        WB_RES::Characteristic logCharValue;
-        logCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
-        asyncPut(mLogCharResource, AsyncRequestOptions::Empty, logCharValue);
+            // Copy offset
+            size_t writePos = 2;
+            memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.offset), sizeof(dataNotification.offset));
+            writePos += sizeof(dataNotification.offset);
+            size_t dataSize = sizeof(mDataMsgBuffer) - writePos;
+            size_t firstPartLen = (length > dataSize) ? dataSize : length;
+            size_t secondPartLen = length - firstPartLen;
+            DEBUGLOG("firstPartLen: %d, secondPartLen: %d", firstPartLen, secondPartLen);
+            if (firstPartLen > 0)
+            {
+                memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.bytes[0]), firstPartLen);
+                writePos += firstPartLen;
+            }
+            else
+            {
+                DEBUGLOG("End of file marker");
+            }
 
-        if (secondPartLen > 0)
-        {
-            mDataMsgBuffer[0] = DATA_PART2;
-
-            // Calc and write second offset
-            writePos = 2;
-            uint32_t secondOffset = dataNotification.offset + firstPartLen;
-            memcpy(&(mDataMsgBuffer[writePos]), &secondOffset, sizeof(secondOffset));
-            writePos += sizeof(secondOffset);
-            // Copy second part data
-            memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.bytes[firstPartLen]), secondPartLen);
-            writePos += secondPartLen;
-
+            WB_RES::Characteristic logCharValue;
             logCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
             asyncPut(mLogCharResource, AsyncRequestOptions::Empty, logCharValue);
+
+            // If the data is larger than the buffer, send the second part
+            // only if the client is still connected
+            if (secondPartLen > 0 && mLogFetchReference != 0)
+            {
+                if (secondPartLen > dataSize)
+                {
+
+                    DEBUGLOG("ERROR: secondPartLen > dataSize. secondPartLen: %d, dataSize: %d", secondPartLen, dataSize);
+                    return;
+                }
+
+                mDataMsgBuffer[0] = DATA_PART2;
+
+                // Calc and write second offset
+                writePos = 2;
+                uint32_t secondOffset = dataNotification.offset + firstPartLen;
+                memcpy(&(mDataMsgBuffer[writePos]), &secondOffset, sizeof(secondOffset));
+                writePos += sizeof(secondOffset);
+                // Copy second part data
+                memcpy(&(mDataMsgBuffer[writePos]), &(dataNotification.bytes[firstPartLen]), secondPartLen);
+                writePos += secondPartLen;
+
+                logCharValue.bytes = wb::MakeArray<uint8_t>(mDataMsgBuffer, writePos);
+                asyncPut(mLogCharResource, AsyncRequestOptions::Empty, logCharValue);
+            }
         }
-        break;
+
+        // Clean up the log fetch state if the fetch is over
+        if (length == 0)
+        {
+            mLogFetchReference = 0;
+            mLogFetchInProgress = false;
+            return;
+        }
+
+        return;
     }
 
     default:
@@ -1718,8 +1974,6 @@ void IfchGattClient::onNotify(wb::ResourceId resourceId,
             asyncPut(mDataCharResource, AsyncRequestOptions::Empty, dataCharValue);
         }
         return;
-
-        break;
     }
     }
 }
@@ -1777,15 +2031,32 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
     {
     case WB_RES::LOCAL::MEM_DATALOGGER_STATE::LID:
     {
+
         if (resultCode < 400)
         {
+
+            mDataLoggerState = mDataloggerTargetState;
+
             if (mDataloggerStateReference != 0)
             {
                 // 200: OK
                 uint8_t ackMsg[] = {Responses::COMMAND_RESULT, mDataloggerStateReference, Codes::OK, Status::SUCCESS};
                 asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), ackMsg, sizeof(ackMsg));
+            }
 
-                mDataloggerStateReference = 0;
+            // If we are starting a log and a log rotation interval is set, start the log rotation timer
+            if (mLogRotationInterval > 0 && mDataloggerTargetState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+            {
+                mLogRotationTimer = startTimer(mLogRotationInterval, true);
+            }
+            else
+            {
+                // Stop the timer if it was running
+                if (mLogRotationTimer != wb::ID_INVALID_TIMER)
+                {
+                    stopTimer(mLogRotationTimer);
+                    mLogRotationTimer = wb::ID_INVALID_TIMER;
+                }
             }
         }
         else
@@ -1799,10 +2070,12 @@ void IfchGattClient::onPutResult(wb::RequestId requestId,
                 errorCode[1] = (resultCode >> 8) & 0xFF;
                 uint8_t errorMsg[] = {Responses::COMMAND_RESULT, mDataloggerStateReference, errorCode[0], errorCode[1]};
                 asyncPutIndicate(mResponseCharResource, AsyncRequestOptions(NULL, 0, true), errorMsg, sizeof(errorMsg));
-
-                mDataloggerStateReference = 0;
             }
         }
+
+        mDataloggerStateReference = 0;
+        mDataloggerTargetState = WB_RES::DataLoggerStateValues::DATALOGGER_INVALID;
+        mDataloggerTransitionPending = false;
         break;
     }
     case WB_RES::LOCAL::TIME::LID:
@@ -1899,9 +2172,17 @@ void IfchGattClient::onTimer(wb::TimerId timerId)
         STATIC_VERIFY(WB_EXEC_CTX_APPLICATION == WB_RES::LOCAL::MEM_DATALOGGER_STATE::EXECUTION_CONTEXT, DataLogger_must_be_application_thread);
 
         asyncGet(WB_RES::LOCAL::MEM_DATALOGGER_STATE());
-        if (mLeadsConnected || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING)
+
+        // If log was paused, try to resume it
+        if (mLogPaused)
         {
-            DEBUGLOG("leads connected [%d] or datalogger running [%d]. postponing shutdown", mLeadsConnected, mDataLoggerState);
+            DEBUGLOG("Log paused and datalogger ready. Resuming log");
+            tryResumePausedLog();
+        }
+
+        if (mDataloggerTransitionPending || mLeadsConnected || mDataLoggerState == WB_RES::DataLoggerStateValues::DATALOGGER_LOGGING || mLogFetchInProgress)
+        {
+            DEBUGLOG("transition pending [%d], leads connected [%d], datalogger state [%d], log fetching [%d]. postponing shutdown", mDataloggerTransitionPending, mLeadsConnected, mDataLoggerState, mLogFetchInProgress);
             mCounter = 0;
             return;
         }
@@ -1969,6 +2250,14 @@ void IfchGattClient::onTimer(wb::TimerId timerId)
             mIsIndicateRetry = true;
             putIndicate();
         }
+    }
+
+    else if (timerId == mLogRotationTimer)
+    {
+        // Log rotation timer expired. Rotate logs
+        DEBUGLOG("Rotating logs");
+
+        asyncPost(WB_RES::LOCAL::MEM_LOGBOOK_ENTRIES(), AsyncRequestOptions(NULL, 0, true));
     }
 }
 

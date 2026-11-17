@@ -4,7 +4,11 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
-#define VERSION "iFCH-logger v1.1"
+#define VERSION "iFCH-logger v1.2"
+
+#define MOV_REQ_FIRMWARE "iFCH GATT"
+#define MOV_MIN_VER_MAJOR 1
+#define MOV_MIN_VER_MINOR 9
 
 #include <vector>
 #include <map>
@@ -24,8 +28,11 @@
 
 #define MAX_CONNECT_FAILURES 5
 #define FAILURE_DELAY_MIN 2
-#define LONG_FAILURE_DELAY_MIN 50
+#define CONNECT_RETRY_DELAY_MS 5000
+#define LONG_FAILURE_DELAY_MIN 20
 #define INTERACTION_DELAY_S 30
+
+#define UTC_RESET_THRESHOLD_US 300'000'000'000'000LL // ~9.5 years
 
 // Global configuration parameters
 struct Config
@@ -34,6 +41,7 @@ struct Config
 
     // JSON config fields
     uint16_t fetchIntervalMin = 1;        // Duration in minutes to wait between Movesense data fetches
+    uint16_t rotationIntervalMin = 1;     // Duration in minutes to wait between Movesense log rotations
     std::vector<std::string> sensorPaths; // Paths to the sensors to log
     std::string address = "";             // Movesense BLE address
 };
@@ -44,6 +52,7 @@ struct Record
     uint32_t lastFetch = 0; // Last time data was fetched in UNIX format
     uint16_t id = 0;        // Current record ID
     uint16_t part = 0;      // Current part of the record
+    uint32_t fetchId = 0;   // Current fetch ID
     bool logging = false;   // Are we currently logging
 };
 

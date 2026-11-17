@@ -77,19 +77,19 @@ bool resetMovesense()
     }
 
     // Stop logging if currently logging, also stop streaming then reset
-    if (!movStopLog())
+    if (movStopLog().status != Status::SUCCESS)
     {
         logError("MOV_FULL_RESET", "Failed to stop Movesense logging");
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-    if (!movUnsubscribe())
+    if (movUnsubscribe().status != Status::SUCCESS)
     {
         logError("MOV_FULL_RESET", "Failed to unsubscribe from Movesense sensors");
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-    if (!movReset())
+    if (movReset().status != Status::SUCCESS)
     {
         logError("MOV_FULL_RESET", "Failed to reset Movesense");
         return false;
@@ -106,25 +106,26 @@ void fetchLogic()
 
         if (isMovesenseConnected)
         {
-            logError("fetchStep", "Movesense already connected at fetch step start, aborting");
+            logError("fetchLogic", "Movesense already connected at fetch step start, aborting");
             return;
         }
 
         ledWrite(COLOR_BLE);
 
         // Connect to the Movesense
-        if (!retry(connectMovesense, 3, 5000))
+        if (!retry(connectMovesense, 3, CONNECT_RETRY_DELAY_MS))
         {
-            logWarning("fetchStep", "Failed to connect to Movesense");
+            logWarning("fetchLogic", "Failed to connect to Movesense");
             blink(COLOR_WARN, 5, 50);
 
             // If we fail to connect too many times in a row, we consider that
             // the Movesense is not reachable and stop attempting to connect
+            // for a longer time
             connectFailureCount++;
             if (connectFailureCount >= MAX_CONNECT_FAILURES)
             {
                 connectFailureCount = 0;
-                logError("fetchStep", "Maximum connection failures reached");
+                logError("fetchLogic", "Maximum connection failures reached");
 
                 // If we failed to connect many times, enter hibernation for a longer time and retry later
                 enterHibernation(LONG_FAILURE_DELAY_MIN);
@@ -145,73 +146,72 @@ void fetchLogic()
 
         // Check the Movesense state
         uint8_t loggingStatus;
-        if (!movGetLoggingStatus(loggingStatus))
+        auto getLoggingStatus_ = [&loggingStatus]()
         {
-            logError("fetchStep", "Failed to get Movesense logging status");
+            return movGetLoggingStatus(loggingStatus);
+        };
+        if (retry_mov(getLoggingStatus_, 3, GATT_DELAY).status != Status::SUCCESS)
+        {
+            logError("fetchLogic", "Failed to get Movesense logging status");
             errorReset();
             return;
         }
 
         vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
-        // If not logging, restart logging
+        // If not logging, reconfigure Movesense if needed
         if (loggingStatus != 3)
         {
-            logError("fetchStep", "Movesense not logging at fetch step start");
+            logError("fetchLogic", "Movesense not logging at fetch step start");
 
-            // First attempt to fetch any existing logs on the Movesense to
-            // avoid losing data. If that fails repeatedly, only then reset to
-            // avoid being stuck
-            if (!retry(rescueMovesenseData, 3, GATT_DELAY))
+            // Start by checking if UTC time was reset or not
+            // If so, it means the Movesense restarted and needs to be configured
+            uint32_t currentEpoch = getUNIXTime();
+            if (currentEpoch == 0)
             {
-                logError("fetchStep", "Failed to rescue Movesense data, proceeding with reset");
+                logError("fetchLogic", "Failed to get RTC time");
+                errorReset();
+                return;
+            }
 
-                // The record part should be incremented in the rescue function, but we do it manually if it failed
-                record.part++;
+            uint32_t time;
+            int64_t utcTimeUs;
+            auto getTime_ = [&time, &utcTimeUs]()
+            {
+                return movGetTime(time, utcTimeUs);
+            };
+            if (retry_mov(getTime_, 3, GATT_DELAY).status != Status::SUCCESS)
+            {
+                logError("fetchLogic", "Failed to get Movesense time");
+                errorReset();
+                return;
             }
 
-            if (!retry(movReset, 3, GATT_DELAY))
-            {
-                logError("fetchStep", "Failed to reset Movesense");
-                record.part--;
-                errorReset();
-                return;
-            }
-            // Save the record state to the JSON file
-            if (!retry(saveRecordState, 3, GATT_DELAY))
-            {
-                logError("fetchStep", "Failed to save record state");
-                record.part--;
-                errorReset();
-                return;
-            }
-            vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-            if (!movSubLogs())
-            {
-                logError("fetchStep", "Failed to subscribe to Movesense logs");
-                errorReset();
-                return;
-            }
-            vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
-            if (!retry(movStartLog, 3, GATT_DELAY))
-            {
-                logError("fetchStep", "Failed to start Movesense logging");
-                errorReset();
-                return;
-            }
             vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
 
-            // Restart the RTC timer to continue fetching data
-            if (!startRTCTimer(config.fetchIntervalMin))
+            int64_t timeDiff = (int64_t)currentEpoch * 1000000LL - utcTimeUs;
+
+            // If UTC was reset on the Movesense, we set it again
+            if (timeDiff > UTC_RESET_THRESHOLD_US)
             {
-                logError("fetchStep", "Failed to start RTC timer after fetching data");
+                logError("fetchLogic", "Movesense reset detected");
+
+                // Configure without reset to keep potential data
+                if (!configureMovesense(false))
+                {
+                    logError("fetchLogic", "Failed to configure Movesense after reset");
+                    errorReset();
+                    return;
+                }
+
+                vTaskDelay(pdMS_TO_TICKS(GATT_DELAY));
             }
         }
 
         // Fetch the data from Movesense
-        else if (!fetchMovesenseData())
+        if (!fetchMovesenseData())
         {
-            logError("fetchStep", "Failed to fetch Movesense data");
+            logError("fetchLogic", "Failed to fetch Movesense data");
             errorReset();
             return;
         }
@@ -223,17 +223,17 @@ void fetchLogic()
         // Prune old archives if space needed
         if (!pruneArchives())
         {
-            logError("fetchStep", "Failed to prune archives, SD card may be full");
+            logError("fetchLogic", "Failed to prune archives, SD card may be full");
         }
 
         if (!disconnectMovesense())
         {
-            logError("fetchStep", "Failed to disconnect from Movesense");
+            logError("fetchLogic", "Failed to disconnect from Movesense");
         }
     }
     else
     {
-        logError("fetchStep", "Called fetch but not logging, stopping timer");
+        logError("fetchLogic", "Called fetch but not logging, stopping timer");
         stopRTCTimer();
     }
 }
@@ -660,7 +660,7 @@ void handleSerialCommand(CmdType cmd)
         uint8_t helloBuffer[NOTIF_LEN];
         uint8_t helloLength = sizeof(helloBuffer);
 
-        if (!movHello(helloBuffer, helloLength))
+        if (movHello(helloBuffer, helloLength).status != Status::SUCCESS)
         {
             logError("CMD_MOV_VALIDATE", "Failed to send hello to Movesense");
             sendERR(CmdType::CMD_MOV_VALIDATE);
@@ -701,7 +701,7 @@ void handleSerialCommand(CmdType cmd)
             sendERR(CmdType::CMD_MOV_HELLO);
             break;
         }
-        else if (movHello(helloBuffer, helloLength))
+        else if (movHello(helloBuffer, helloLength).status == Status::SUCCESS)
         {
             sendFrame(CmdType::CMD_MOV_HELLO, helloBuffer, helloLength);
         }
@@ -726,7 +726,7 @@ void handleSerialCommand(CmdType cmd)
         {
 
             uint8_t movesenseBatteryLevel;
-            if (getMovesenseBattery(movesenseBatteryLevel))
+            if (getMovesenseBattery(movesenseBatteryLevel).status == Status::SUCCESS)
             {
                 sendFrame(CmdType::CMD_MOV_BATTERY_GET, &movesenseBatteryLevel, sizeof(movesenseBatteryLevel));
             }
@@ -760,7 +760,7 @@ void handleSerialCommand(CmdType cmd)
             sendERR(CmdType::CMD_MOV_STREAM);
             break;
         }
-        else if (movSubscribe())
+        else if (movSubscribe().status == Status::SUCCESS)
         {
             sendCMD(CmdType::CMD_MOV_STREAM);
             isStreaming = true;
@@ -788,7 +788,7 @@ void handleSerialCommand(CmdType cmd)
             sendERR(CmdType::CMD_MOV_UNSTREAM);
             break;
         }
-        else if (movUnsubscribe())
+        else if (movUnsubscribe().status == Status::SUCCESS)
         {
             sendCMD(CmdType::CMD_MOV_UNSTREAM);
             isStreaming = false;
@@ -883,7 +883,7 @@ void handleSerialCommand(CmdType cmd)
             sendERR(CmdType::CMD_MOV_GET_LOGGING_STATE);
             break;
         }
-        else if (movGetLoggingStatus(loggingStatus))
+        else if (movGetLoggingStatus(loggingStatus).status == Status::SUCCESS)
         {
             sendFrame(CmdType::CMD_MOV_GET_LOGGING_STATE, &loggingStatus, sizeof(loggingStatus));
         }

@@ -19,6 +19,9 @@ bool rescueMovesenseData();
 // Sets up the logging folder and starts Movesense logging
 bool startMovesenseLogging();
 
+// Sets UTC and subscribes to logs
+bool configureMovesense(bool doReset);
+
 // Ends Movesense logging and cleans up the record state
 bool endMovesenseLogging();
 

@@ -19,7 +19,7 @@ ifch_drivers = { path = "../../drivers/", editable = true }
 dev = ["pyinstaller>=6.19.0", "ruff>=0.15.12", "pre-commit>=4.6.0"]
 
 [tool.hatch.version]
-path = "main.py"
+path = "src/__init__.py"
 
 [tool.ruff]
 line-length = 100

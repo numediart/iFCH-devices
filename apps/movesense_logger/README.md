@@ -2,6 +2,8 @@
 
 Desktop application for controlling one Movesense device, recording data, and exporting records.
 
+Movesense firmware version >= 2.3.1 or iFCH is required for this app.
+
 ## Run
 
 First install UV (see parent README).

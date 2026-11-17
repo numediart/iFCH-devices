@@ -80,6 +80,8 @@ Defined in firmware (`src/IfchGattClient.cpp`) and mirrored in Python driver (`d
 - `13` GET_LOGGING_STATE
 - `14` GET_BATTERY
 - `15` SET_UTCTIME
+- `16` UNSUB_ALL_LOGS
+- `17` PAUSE_LOG
 
 These commands are not inter-operable with the standard Movesense firmware.
 
@@ -103,6 +105,8 @@ These commands are not inter-operable with the standard Movesense firmware.
 | `GET_LOGGING_STATE` | `13` (`0x0D`) | Return whether the device is currently logging.                                                 |
 | `GET_BATTERY`       | `14` (`0x0E`) | Return the device battery level.                                                                |
 | `SET_UTCTIME`       | `15` (`0x0F`) | Set the device UTC time.                                                                        |
+| `UNSUB_ALL_LOGS`    | `16` (`0x10`) | Remove all log subscriptions in one request.                                                    |
+| `PAUSE_LOG`         | `17` (`0x11`) | Pause on-device logging. If BLE disconnects while paused, logging will automatically resume.    |
 
 ## Communication Model
 

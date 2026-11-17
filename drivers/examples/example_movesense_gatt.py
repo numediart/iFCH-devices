@@ -11,7 +11,7 @@
 # ///
 
 """
-Example script demonstrating the main funcionalities of the Movesense GATT driver:
+Script demonstrating the main funcionalities of the Movesense GATT driver:
 - connecting to a Movesense device with iFCH firmware
 - retrieving device information (description, battery level, time)
 - subscribing to real-time data streams
@@ -97,7 +97,7 @@ async def main():
         else:
             await asyncio.sleep(0.2)
 
-            if not await device.unsubscribe_all():
+            if not await device.unsubscribe_streams():
                 logging.error("Failed to unsubscribe from all")
 
         if not await device.reset():

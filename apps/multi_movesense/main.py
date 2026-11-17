@@ -26,10 +26,7 @@ from PySide6.QtWidgets import (
 
 from src.backend import Backend
 from src.ui_components import (
-    GREY_D,
-    GREY_L,
-    GREY_M,
-    ButtonStyle,
+    GREY_BUTTON,
     ViewSpec,
     WidgetFactory,
 )
@@ -133,8 +130,7 @@ class MainWindow(QWidget):
         views_layout = QVBoxLayout(views_widget)
 
         # Create settings button using factory
-        settings_style = ButtonStyle(GREY_L, GREY_M, GREY_D)
-        settings_button = WidgetFactory.create_button("Settings", settings_style)
+        settings_button = WidgetFactory.create_button("Settings", GREY_BUTTON)
         settings_button.clicked.connect(self.handle_settings)
 
         views_layout.addWidget(settings_button, alignment=Qt.AlignmentFlag.AlignRight)

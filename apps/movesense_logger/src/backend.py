@@ -426,7 +426,8 @@ class CmdConnect:
         if not success:
             back.ui.update_warning_status(
                 "Connection failed",
-                f"Failed to connect to device {self.device[1]}. Please try again.",
+                f"Failed to connect to device {self.device[1]}. Please try again."
+                "Make sure the device has a compatible firmware (Movesense >= 2.3.1 or iFCH).",
                 ok_cb=back.refresh_devices(),
             )
             back.ui.set_state(UIState.WARNING)
@@ -504,7 +505,7 @@ class CmdStartLogging:
         if not back.device:
             raise RuntimeError("CmdStartLogging: No device connected")
 
-        success = await back.device.unsubscribe_all()
+        success = await back.device.unsubscribe_streams()
         if not success:
             await back.show_error(
                 "Error",
@@ -584,7 +585,7 @@ class CmdDownloadLog:
         if not back.device:
             raise RuntimeError("CmdDownloadLog: No device connected")
 
-        success = await back.device.unsubscribe_all()
+        success = await back.device.unsubscribe_streams()
         if not success:
             await back.show_error(
                 "Error",

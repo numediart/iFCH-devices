@@ -4,6 +4,8 @@
 #ifndef BLE_COM_H
 #define BLE_COM_H
 
+#include <functional>
+
 #include "host/ble_uuid.h"
 
 #include "globals.h"
@@ -23,6 +25,38 @@
 #define BLE_DATA_QUEUE_LENGTH 512
 #define BLE_LOG_QUEUE_LENGTH 8192
 
+enum Status : uint8_t
+{
+    SUCCESS = 0x00,
+    ERROR = 0x01,
+};
+
+enum Codes : uint8_t
+{
+    // Codes returned by the Movesense
+    OK = 0xC8,                   // 200
+    CREATED = 0xC9,              // 201
+    ACCEPTED = 0xCA,             // 202
+    BAD_REQUEST = 0x90,          // 400
+    FORBIDDEN = 0x93,            // 403
+    NOT_FOUND = 0x94,            // 404
+    CONFLICT = 0x99,             // 409
+    INTERNAL_ERROR = 0xF4,       // 500
+    INSUFFICIENT_STORAGE = 0xFB, // 507
+
+    // Codes returned by the ESP
+    NOT_ACCEPTABLE = 0x96,  // 406
+    REQUEST_TIMEOUT = 0x98, // 408
+    BAD_GATEWAY = 0xF6,     // 502
+    ESP_ERROR = 0xF3,       // 499
+};
+
+struct Response
+{
+    Status status;
+    Codes code;
+};
+
 // Is movesense currently connected
 extern volatile bool isMovesenseConnected;
 
@@ -39,46 +73,55 @@ bool connectMovesense();
 bool disconnectMovesense();
 
 // Get the Movesense battery level
-bool getMovesenseBattery(uint8_t &batteryLevel);
+Response getMovesenseBattery(uint8_t &batteryLevel);
 
 // Send the Movesense HELLO command and save the response
-bool movHello(uint8_t *responseBuffer, uint8_t &responseLength);
+Response movHello(uint8_t *responseBuffer, uint8_t &responseLength);
 
 // Get the Movesense time
-bool movGetTime(uint32_t &time, int64_t &utcTimeUs);
+Response movGetTime(uint32_t &time, int64_t &utcTimeUs);
 
 // Set the Movesense UTC time
-bool movSetUTCTime(int64_t utcTimeUs);
+Response movSetUTCTime(int64_t utcTimeUs);
 
 // Check if Movesense is logging
-bool movGetLoggingStatus(uint8_t &loggingStatus);
+Response movGetLoggingStatus(uint8_t &loggingStatus);
 
 // Reset the Movesense device (fails if currently logging)
-bool movReset();
+Response movReset();
 
 // Subscribe to Movesense sensors
-bool movSubscribe();
+Response movSubscribe();
 
 // Unsubscribe from Movesense sensors
-bool movUnsubscribe();
+Response movUnsubscribe();
 
 // Clear Movesense logs (fails if currently logging)
-bool movClearLogs();
+Response movClearLogs();
 
 // Subscribe to Movesense sensors for logging
-bool movSubLogs();
+Response movSubLogs();
+
+// Unsubscribe from Movesense sensors
+Response movUnsubLogs();
 
 // Start Movesense logging
-bool movStartLog();
+Response movStartLog();
 
 // Stop Movesense logging
-bool movStopLog();
+Response movStopLog();
+
+// Pause Movesense logging
+Response movPauseLog();
 
 // List existing Movesense logs
-bool movListLogs(std::vector<uint32_t> &logIds);
+Response movListLogs(std::vector<uint32_t> &logIds);
 
 // Fetch the required Movesense log and save it to a file
-bool movFetchLog(std::string filename, uint32_t logId);
+Response movFetchLog(std::string filename, uint32_t logId);
+
+// Retry a Movesense function call with a specified number of retries and delay
+Response retry_mov(std::function<Response()> func, int retries, int delay_ms);
 
 // Movesense GATT service and characteristic UUIDs
 const ble_uuid128_t ifch_svc_uuid =

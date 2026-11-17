@@ -103,6 +103,7 @@ class FrameProtocol(asyncio.Protocol):
 
     def connection_made(self, transport) -> None:
         """Record transport state when the serial link is established."""
+        transport = typing.cast(serial_asyncio.SerialTransport, transport)
         self._transport = transport
         self._is_connected = True
         self.connected.set()
@@ -126,6 +127,9 @@ class FrameProtocol(asyncio.Protocol):
 
     def send_frame(self, cmd: Commands, payload: bytes = b"") -> None:
         """Serialize and send one framed command with CRC."""
+        if self._transport is None:
+            raise RuntimeError("Serial transport not connected")
+
         logging.debug("Sending command: %s, payload: %s", cmd.name, payload.hex(" "))
         header = struct.pack(">B H", cmd, len(payload))
         crc = zlib.crc32(header + payload)
@@ -290,7 +294,9 @@ class FrameProtocol(asyncio.Protocol):
         crc_calc = zlib.crc32(frame[1:-4])
         return cmd, payload, (crc_recv == crc_calc)
 
-    async def wait_for_cmd(self, wanted: Commands, timeout=SERIAL_TIMEOUT_S) -> bytes | None:
+    async def wait_for_cmd(
+        self, wanted: Commands, timeout: float = SERIAL_TIMEOUT_S
+    ) -> bytes | None:
         """Wait for one command payload from the receive queue."""
         # Enforce a single active waiter. Cancel the previous one if present.
         this_task = asyncio.current_task()
@@ -463,7 +469,7 @@ class FrameProtocol(asyncio.Protocol):
 
     @staticmethod
     async def _probe(port: str, probe_timeout: float) -> tuple[str, bytes] | None:
-        proto: FrameProtocol = await FrameProtocol.open_connection(port)
+        proto = await FrameProtocol.open_connection(port)
         if proto is None:
             return None
         proto.send_frame(Commands.CMD_VERSION)
@@ -523,9 +529,10 @@ class ESPLogger:
     BLE_BATTERY_TIMEOUT_S = 5
     ERROR_LOG_DELETE_TIMEOUT_S = 5
     END_LOG_TIMEOUT_S = 300
+    MAX_CONFIG_SIZE = 512
 
-    CONFIG_FILE = "config.jsn"
-    ERROR_LOG_FILE = "log.txt"
+    CONFIG_FILE = "CONFIG.J"
+    ERROR_LOG_FILE = "LOG.TXT"
 
     def __init__(
         self,
@@ -549,6 +556,7 @@ class ESPLogger:
                 "/Meas/Acc/13",
             ],
             "fetchIntervalMin": 30,
+            "rotationIntervalMin": 20,
             "MovesenseID": None,
         }
 
@@ -561,7 +569,8 @@ class ESPLogger:
         """Decode stream packet and forward it to the external callback."""
         if self._stream_callback_ext:
             decoded = self._decoder.decode_stream_packet(payload)
-            self._stream_callback_ext(self, decoded)
+            if decoded is not None:
+                self._stream_callback_ext(self, decoded)
 
     @property
     def disconnected(self) -> asyncio.Event | None:
@@ -641,6 +650,8 @@ class ESPLogger:
             list[str] | None: Device descriptors, or ``None`` on communication failure.
         """
         scanned = set()
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
 
         for _ in range(retries):
             self._proto.send_frame(Commands.CMD_SCAN)
@@ -687,7 +698,14 @@ class ESPLogger:
 
         # Step 2 - send the file
         config_data = json.dumps(self._config, separators=(",", ":")).encode("utf-8")
+
+        if len(config_data) > self.MAX_CONFIG_SIZE:
+            raise RuntimeError(
+                f"Config file too large: {len(config_data)} bytes (max {self.MAX_CONFIG_SIZE})"
+            )
+
         logging.debug("Sending config file: %s", config_data)
+
         ok = await self._proto.send_file(config_data, self.CONFIG_FILE)
 
         if not ok:
@@ -731,6 +749,8 @@ class ESPLogger:
 
     async def get_version(self) -> str | None:
         """Read firmware version string reported by the logger."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_VERSION)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_VERSION, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -745,6 +765,8 @@ class ESPLogger:
 
     async def get_record_id(self) -> int | None:
         """Read current record identifier from device state."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_GET_RECORD_ID)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_GET_RECORD_ID, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -763,6 +785,8 @@ class ESPLogger:
 
     async def get_battery(self) -> float | None:
         """Read battery level from the logger device."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_BATTERY_GET)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_BATTERY_GET, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -781,6 +805,8 @@ class ESPLogger:
 
     async def get_epoch(self) -> int | None:
         """Read current RTC epoch value from the logger, in seconds."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_TIME_GET)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_TIME_GET, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -808,6 +834,8 @@ class ESPLogger:
             bool | None: ``True`` on success, ``False`` on invalid response, or
                 ``None`` on communication failure.
         """
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         if epoch is None:
             epoch = int(datetime.datetime.now().timestamp())
 
@@ -829,6 +857,8 @@ class ESPLogger:
 
     async def get_status(self) -> dict[str, bool] | None:
         """Read logger state flags (configured/connected/streaming/logging)."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_STATUS)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_STATUS, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -852,6 +882,8 @@ class ESPLogger:
 
     async def force_reset_state(self) -> bool | None:
         """Force-reset logger state flags on device side."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_RESET_STATE)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_RESET_STATE, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -865,6 +897,8 @@ class ESPLogger:
 
     async def get_free_space(self) -> float | None:
         """Return free storage space on logger in GB."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_GET_FREE_SPACE)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_GET_FREE_SPACE, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -893,6 +927,8 @@ class ESPLogger:
             list[str] | None: Log directory names, or ``None`` on communication
                 failure.
         """
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_LIST_LOG)
 
         log_list = []
@@ -913,7 +949,7 @@ class ESPLogger:
                     log_list.append(log_id)
                     logging.debug("Listed log: %s", log_id)
                 except UnicodeDecodeError as e:
-                    logging.error("Failed to decode log ID: %s - %s", log_id, e)
+                    logging.error("Failed to decode log ID: %s - %s", result, e)
             else:
                 return log_list
 
@@ -926,10 +962,12 @@ class ESPLogger:
         Returns:
             list[str] | None: Sorted file names, or ``None`` on failure.
         """
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_LIST_DIR, dir_name.encode("utf-8"))
         rx_name, dir_files = await self._proto._wait_for_dir()
 
-        if rx_name is None:
+        if rx_name is None or dir_files is None:
             logging.warning("List dir failed")
             return None
         elif rx_name != dir_name:
@@ -947,6 +985,8 @@ class ESPLogger:
         Returns:
             bytes | None: File content bytes, or ``None`` on failure.
         """
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_GET_FILE, file_path.encode("utf-8"))
         file_name, data = await self._proto._wait_for_file()
 
@@ -972,6 +1012,8 @@ class ESPLogger:
         Returns:
             bool | None: ``True`` on success, or ``None`` on failure.
         """
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_ARCHIVE_LOG, log_id.encode("utf-8"))
         result = await self._proto.wait_for_cmd(
             Commands.CMD_ARCHIVE_LOG, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -990,10 +1032,12 @@ class ESPLogger:
             str | bytes | None: UTF-8 text if decodable, raw bytes otherwise,
                 or ``None`` on failure.
         """
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_GET_ERROR_LOG)
         file_name, data = await self._proto._wait_for_file()
 
-        if file_name is None:
+        if file_name is None or data is None:
             logging.warning("Failed to get error log file")
             return None
         elif file_name != self.ERROR_LOG_FILE:
@@ -1038,6 +1082,8 @@ class ESPLogger:
         Returns:
             bool | None: ``True`` on success, or ``None`` on failure.
         """
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_DELETE_ERROR_LOG)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_DELETE_ERROR_LOG,
@@ -1054,6 +1100,8 @@ class ESPLogger:
     # Movesense related methods
     async def connect(self) -> bool | None:
         """Connect the logger to the configured Movesense over BLE."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_CONNECT)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_CONNECT, timeout=self.BLE_CONNECT_TIMEOUT_S
@@ -1073,6 +1121,8 @@ class ESPLogger:
 
     async def disconnect(self) -> bool | None:
         """Disconnect the logger from the currently connected Movesense."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_DISCONNECT)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_DISCONNECT, timeout=FrameProtocol.SERIAL_TIMEOUT_S
@@ -1089,6 +1139,8 @@ class ESPLogger:
 
     async def hello_movesense(self) -> str | None:
         """Send hello command to the connected Movesense and return payload."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_MOV_HELLO)
         result = await self._proto.wait_for_cmd(Commands.CMD_MOV_HELLO, timeout=self.BLE_TIMEOUT_S)
 
@@ -1108,6 +1160,8 @@ class ESPLogger:
 
     async def get_min_version(self) -> tuple[str, str] | None:
         """Get the minimum required Movesense firmware version."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_GET_MIN_VERSION)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_GET_MIN_VERSION, timeout=self.BLE_TIMEOUT_S
@@ -1134,6 +1188,8 @@ class ESPLogger:
 
     async def validate_mov_version(self) -> bool | None:
         """Validate the Movesense firmware version against the required version.""" ""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_MOV_VALIDATE)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_MOV_VALIDATE, timeout=self.BLE_TIMEOUT_S
@@ -1152,6 +1208,8 @@ class ESPLogger:
 
     async def get_mov_battery(self) -> int | None:
         """Read battery percentage from the connected Movesense."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_MOV_BATTERY_GET)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_MOV_BATTERY_GET, timeout=self.BLE_BATTERY_TIMEOUT_S
@@ -1169,6 +1227,8 @@ class ESPLogger:
 
     async def get_mov_islogging(self) -> bool | None:
         """Return whether the connected Movesense datalogger is active."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_MOV_GET_LOGGING_STATE)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_MOV_GET_LOGGING_STATE, timeout=self.BLE_TIMEOUT_S
@@ -1190,6 +1250,8 @@ class ESPLogger:
     async def sub_stream(self) -> bool | None:
         """Enable BLE stream forwarding from Movesense through the logger. It
         will subscribe to the sensors path in config file."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_MOV_STREAM)
         result = await self._proto.wait_for_cmd(Commands.CMD_MOV_STREAM, timeout=self.BLE_TIMEOUT_S)
         if result is None:
@@ -1201,6 +1263,8 @@ class ESPLogger:
 
     async def unsub_stream(self) -> bool | None:
         """Disable BLE stream forwarding from Movesense."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_MOV_UNSTREAM)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_MOV_UNSTREAM, timeout=self.BLE_TIMEOUT_S
@@ -1214,6 +1278,8 @@ class ESPLogger:
 
     async def start_movesense_logging(self) -> bool | None:
         """Start on-device logging on the connected Movesense."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_MOV_LOG_START)
         result = await self._proto.wait_for_cmd(
             Commands.CMD_MOV_LOG_START, timeout=2 * self.BLE_TIMEOUT_S
@@ -1227,6 +1293,8 @@ class ESPLogger:
 
     async def stop_movesense_logging(self) -> int | None:
         """Stop on-device logging and return produced log id."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
         self._proto.send_frame(Commands.CMD_MOV_LOG_END)
         processing = await self._proto.wait_for_cmd(
             Commands.CMD_MOV_LOG_END, timeout=FrameProtocol.SERIAL_TIMEOUT_S
