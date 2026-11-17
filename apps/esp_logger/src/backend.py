@@ -942,8 +942,9 @@ class CmdSaveRecord:
 
             for idx, filename in enumerate(back.record_files):
                 filename_long = filename.replace("S", "sbem")
-                filename_long = filename_long.replace("B", "BIN")
+                filename_long = filename_long.replace("B", "bin")
                 filename_long = filename_long.replace("J", "json")
+                filename_long = filename_long.lower()
 
                 # Check if file already exists
                 if filename_long in zipf.namelist():
