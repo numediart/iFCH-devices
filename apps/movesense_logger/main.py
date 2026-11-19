@@ -13,6 +13,17 @@ from collections.abc import Callable
 import numpy as np
 import qasync
 import wakepy
+from ifch_ui import (
+    GREY_BUTTON,
+    DownloadView,
+    ErrorView,
+    InfoView,
+    RecordFormView,
+    SettingsView,
+    ViewSpec,
+    WarningView,
+    WidgetFactory,
+)
 from PySide6.QtCore import QSettings, Qt, QTimer, Slot
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
@@ -24,25 +35,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src import __version__
 from src.backend import Backend
-from src.ui_components import (
-    GREY_BUTTON,
-    ViewSpec,
-    WidgetFactory,
-)
 from src.views import (
     ConfirmView,
     DeviceSelectionView,
     DisconnectedView,
-    DownloadView,
-    ErrorView,
-    FormView,
-    InfoView,
     MonitoringView,
-    SettingsView,
     SuccessView,
     UIState,
-    WarningView,
 )
 
 
@@ -63,7 +64,7 @@ class MainWindow(QWidget):
         self.prevent_close = False
 
         self.settings_stack = QStackedWidget(self)
-        self.settings_view = SettingsView()
+        self.settings_view = SettingsView(__version__)
         self.settings_view.close_button.clicked.connect(self.handle_settings_close)
         self.settings_view.browse_btn.clicked.connect(self.select_output_dir)
         self.settings_stack.addWidget(self.settings_view)
@@ -103,7 +104,7 @@ class MainWindow(QWidget):
             on_enter=self._enter_monitoring_state,
         )
 
-        self.form_view = FormView()
+        self.form_view = RecordFormView()
         self.form_view.save_button.clicked.connect(self.handle_form_save)
         self._register_state(
             UIState.FORM,

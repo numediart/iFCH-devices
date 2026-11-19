@@ -1,0 +1,24 @@
+[project]
+name = "ifch-ui"
+version = "1.0.0"
+description = "Shared Qt UI components for iFCH desktop applications"
+license = { text = "GPL-3.0-only" }
+requires-python = ">=3.12"
+dependencies = ["PySide6>=6.9.2"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["ruff>=0.15.12"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["ifch_ui"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

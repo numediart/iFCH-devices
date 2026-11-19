@@ -3,6 +3,9 @@
 
 """Main window and entry point for the ESP logger desktop application."""
 
+# FIXME (all apps): unify the MainWindow class for shared logic
+# FIXME (all apps): unify the Backend class for shared logic (is it possible though?)
+
 import asyncio
 import logging
 import pathlib
@@ -13,6 +16,16 @@ from collections.abc import Callable
 import numpy as np
 import qasync
 import wakepy
+from ifch_ui import (
+    GREY_BUTTON,
+    DownloadView,
+    ErrorView,
+    InfoView,
+    RecordFormView,
+    ViewSpec,
+    WarningView,
+    WidgetFactory,
+)
 from PySide6.QtCore import QSettings, Qt, QTimer, Slot
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
@@ -25,22 +38,16 @@ from PySide6.QtWidgets import (
 )
 
 from src.backend import Backend
-from src.ui_components import GREY_BUTTON, ViewSpec, WidgetFactory
 from src.views import (
     ConnectionLostView,
     DeviceSelectionView,
     DisconnectedView,
-    DownloadView,
-    ErrorView,
-    FormView,
-    InfoView,
     LoggingView,
     LogSelectionView,
     MonitoringView,
     SettingsView,
     SuccessView,
     UIState,
-    WarningView,
 )
 
 
@@ -67,16 +74,22 @@ class MainWindow(QWidget):
         self._views_dict: dict[UIState, ViewSpec] = {}
 
         # Create all views
-        self.error_view = ErrorView()
+        self.error_view = ErrorView(fixed_button_width=150)
         self.disconnected_view = DisconnectedView()
         self.info_view = InfoView()
         self.device_selection_view = DeviceSelectionView()
         self.logging_view = LoggingView()
         self.monitoring_view = MonitoringView()
-        self.form_view = FormView()
-        self.warning_view = WarningView()
+        self.form_view = RecordFormView()
+        self.warning_view = WarningView(fixed_button_width=150)
         self.success_view = SuccessView()
-        self.download_view = DownloadView()
+        self.download_view = DownloadView(
+            status_text=(
+                "Downloading recorded data from iFCH device...\n"
+                "This may take up to 1 hour."
+                " Please make sure that your computer does not go to sleep."
+            )
+        )
         self.connection_lost_view = ConnectionLostView()
         self.log_selection_view = LogSelectionView()
 
@@ -376,7 +389,7 @@ class MainWindow(QWidget):
 
     def update_error_status(self, title, message):
         """Update the error view with a title and message"""
-        self.error_view.message.setText(title)
+        self.error_view.title_label.setText(title)
         self.error_view.status_label.setText(message)
 
     def show_main_view(self):
@@ -385,14 +398,14 @@ class MainWindow(QWidget):
     def update_warning_status(self, title, message, ok_text="OK", ok_cb=None, show_cancel=False):
         """Update the warning view with a title and message"""
         self._warning_ok_cb = ok_cb
-        self.warning_view.message.setText(title)
+        self.warning_view.title_label.setText(title)
         self.warning_view.status_label.setText(message)
         self.warning_view.ok_button.setText(ok_text)
         self.warning_view.cancel_button.setVisible(show_cancel)
 
     def update_success_status(self, title, message):
         """Update the warning view with a title and message"""
-        self.success_view.message.setText(title)
+        self.success_view.title_label.setText(title)
         self.success_view.status_label.setText(message)
 
     def show_device_selection(self):
@@ -402,7 +415,7 @@ class MainWindow(QWidget):
 
     def update_info_status(self, title, status):
         """Update title and message in the info page."""
-        self.info_view.message.setText(title)
+        self.info_view.title_label.setText(title)
         self.info_view.status_label.setText(status)
 
     def update_device_info(self, **kwargs):

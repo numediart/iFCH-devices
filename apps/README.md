@@ -8,6 +8,7 @@ Desktop applications for viewing, recording, and managing iFCH device data.
 - `esp_logger`: an app to control the ESP controller (start/stop recording, save data)
 - `movesense_logger`: an app to run fully autonomous Movesense recordings (without phone nor ESP controller)
 - `multi_movesense`: an app to record the live streaming data from multiple Movesense devices simultaneously
+- `common`: shared Qt styles, widgets, composed views, and live charts used by all desktop apps
 
 ## Run an app
 
