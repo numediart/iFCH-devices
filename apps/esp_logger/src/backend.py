@@ -197,7 +197,7 @@ class Backend:
                 # Try to keep running, but ensure replies are resolved
                 await self.show_error("Internal error", f"Exception in {str(cmd)}: {str(e)}")
 
-    async def start_device(self, port: str):
+    async def start_device(self, port: str) -> bool:
         """Open serial, start notification processing, start disconnect watcher."""
         self.device = ESPLogger(port, stream_callback=self.stream_callback)
         self.ecg_data = collections.deque(maxlen=self.PLOT_SAMPLES)
@@ -208,8 +208,9 @@ class Backend:
             self.device = None
             # Retry probing later
             self.schedule_after(0, CmdProbeUSB())
-            return
+            return False
 
+        self.ui.settings_view.set_sensor_selection_enabled(False)
         # Watch for physical disconnect; only enqueues CmdOnDisconnected
         if self._disconnect_watch:
             self._disconnect_watch.cancel()
@@ -226,6 +227,8 @@ class Backend:
             await self.disconnect()
 
         self._disconnect_watch = asyncio.create_task(_watch_disconnect())
+
+        return True
 
     async def disconnect(self):
         """Disconnect from the device and reset state."""
@@ -350,7 +353,9 @@ class CmdProbeUSB:
                     )
                     return
 
-                await back.start_device(port)
+                if not await back.start_device(port):
+                    logging.error("Failed to start device on %s", port)
+                    return
 
                 if back.ending_record:
                     # Resume end of record
@@ -441,8 +446,9 @@ class CmdLogging:
             logging.warning("Movesense stopped logging on its own")
             back.ui.update_warning_status(
                 "Movesense reset",
-                "The associated Movesense device stopped logging on its own."
-                " This may have happened if the battery was just replaced.",
+                "The associated Movesense device stopped logging on its own. "
+                "This may have happened if the battery was just replaced.\n"
+                "Press OK to end the recording and save the data collected so far.",
                 ok_cb=back.stop_logging,
                 show_cancel=False,
             )
@@ -523,6 +529,14 @@ class CmdStreamDevice:
         back.ui.set_state(UIState.INFO)
 
         parts = self.device.split(";")
+
+        if not await retry(
+            back.device.set_sensor_paths,
+            sensor_paths=back.ui.settings_view.sensor_paths(),
+        ):
+            logging.warning("Sensor configuration failed")
+            await back.show_error("Failed to configure sensors")
+            return
 
         if not await retry(back.device.set_address, address=parts[-1], movesense_id=parts[0]):
             logging.warning("Set address failed")

@@ -600,6 +600,14 @@ class ESPLogger:
 
         return await self._put_config()
 
+    async def set_sensor_paths(self, sensor_paths: list[str]) -> bool:
+        """Set sensor resources and upload the configuration when address data exists."""
+        self._config["sensorPaths"] = list(sensor_paths)
+        self._decoder = MovesenseStreamDecoder(self._config["sensorPaths"])
+        if self._config["address"] is None and self._config["MovesenseID"] is None:
+            return True
+        return bool(await self._put_config())
+
     async def start(self) -> bool:
         """Open serial link and validate communication with the logger.
 

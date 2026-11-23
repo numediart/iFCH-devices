@@ -123,7 +123,7 @@ class MovesenseStreamDecoder:
                 timestamp = int.from_bytes(packet[2:6], byteorder="little")
                 samples = {data_type.name: self._unpack_vectors(packet[6:], size=3, stride=4)}
 
-        elif data_type == MovesenseDataTypes.IMU6:
+        elif data_type in (MovesenseDataTypes.IMU6, MovesenseDataTypes.IMU6M):
             if packet_type == Responses.DATA:
                 if self._partial_data[reference] is not None:
                     logging.warning(
@@ -163,7 +163,11 @@ class MovesenseStreamDecoder:
 
             samples = {
                 MovesenseDataTypes.ACC.name: acc_samples,
-                MovesenseDataTypes.GYRO.name: gyr_samples,
+                (
+                    MovesenseDataTypes.GYRO.name
+                    if data_type == MovesenseDataTypes.IMU6
+                    else MovesenseDataTypes.MAGN.name
+                ): gyr_samples,
             }
 
         elif data_type == MovesenseDataTypes.IMU9:
