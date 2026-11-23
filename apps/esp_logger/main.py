@@ -3,45 +3,29 @@
 
 """Main window and entry point for the ESP logger desktop application."""
 
-# FIXME (all apps): unify the MainWindow class for shared logic
-# FIXME (all apps): unify the Backend class for shared logic (is it possible though?)
-
 import asyncio
 import logging
-import pathlib
-import sys
 import time
-from collections.abc import Callable
 
 import numpy as np
-import qasync
 import wakepy
 from ifch_ui import (
-    GREY_BUTTON,
+    AsyncStateMainWindow,
+    DisconnectedView,
     DownloadView,
     ErrorView,
     InfoView,
     RecordFormView,
-    ViewSpec,
     WarningView,
-    WidgetFactory,
+    run_async_app,
 )
-from PySide6.QtCore import QSettings, Qt, QTimer, Slot
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import (
-    QApplication,
-    QFileDialog,
-    QMessageBox,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import QSettings, QTimer, Slot
 
+from src import __version__
 from src.backend import Backend
 from src.views import (
     ConnectionLostView,
     DeviceSelectionView,
-    DisconnectedView,
     LoggingView,
     LogSelectionView,
     MonitoringView,
@@ -50,46 +34,40 @@ from src.views import (
     UIState,
 )
 
+ALLOW_SENSOR_CONFIG = False
 
-class MainWindow(QWidget):
+
+class MainWindow(AsyncStateMainWindow):
     """Main application window coordinating views and backend commands."""
 
-    FORCE_SHUTDOWN_ATTEMPTS = 3
+    restore_main_states = (
+        UIState.ERROR,
+        UIState.DISCONNECTED,
+        UIState.CONNECTION_LOST,
+    )
 
     def __init__(self, loop):
-        super().__init__()
-        self.setWindowTitle("iFCH Holter Control")
-        self.resize(1200, 675)
-
-        self.current_state = UIState.DISCONNECTED
-        self._shutdown_attempts = 0
-        self._shutdown_complete = False
-
-        self.settings_stack = QStackedWidget(self)
-        self.settings_view = SettingsView()
-        self.settings_stack.addWidget(self.settings_view)
-
-        # Create stacked widget to hold different views
-        self.stacked_widget = QStackedWidget(self)
-        self._views_dict: dict[UIState, ViewSpec] = {}
+        super().__init__(
+            title="iFCH Holter Control",
+            version=__version__,
+            settings=QSettings("UMONS", "iFCH-logger"),
+            settings_view=SettingsView(on_output_dir_selected=self.select_output_dir),
+        )
 
         # Create all views
-        self.error_view = ErrorView(fixed_button_width=150)
-        self.disconnected_view = DisconnectedView()
+        self.error_view = ErrorView()
+        self.disconnected_view = DisconnectedView(
+            "Please connect your iFCH device via USB",
+            "Waiting for iFCH device...",
+        )
         self.info_view = InfoView()
         self.device_selection_view = DeviceSelectionView()
         self.logging_view = LoggingView()
         self.monitoring_view = MonitoringView()
-        self.form_view = RecordFormView()
-        self.warning_view = WarningView(fixed_button_width=150)
+        self.form_view = RecordFormView(on_output_dir_selected=self.select_output_dir)
+        self.warning_view = WarningView()
         self.success_view = SuccessView()
-        self.download_view = DownloadView(
-            status_text=(
-                "Downloading recorded data from iFCH device...\n"
-                "This may take up to 1 hour."
-                " Please make sure that your computer does not go to sleep."
-            )
-        )
+        self.download_view = DownloadView()
         self.connection_lost_view = ConnectionLostView()
         self.log_selection_view = LogSelectionView()
 
@@ -97,7 +75,7 @@ class MainWindow(QWidget):
         self._register_state(UIState.ERROR, self.error_view)
         self._register_state(UIState.DISCONNECTED, self.disconnected_view)
         self._register_state(UIState.INFO, self.info_view)
-        self._views_dict[UIState.SCANNING] = ViewSpec(view=self.info_view)
+        self.register_state_alias(UIState.SCANNING, UIState.INFO)
         self._register_state(
             UIState.DEVICE_SELECTION, self.device_selection_view, self._enter_device_selection_state
         )
@@ -109,21 +87,6 @@ class MainWindow(QWidget):
         self._register_state(UIState.DOWNLOAD, self.download_view, self._enter_download_state)
         self._register_state(UIState.CONNECTION_LOST, self.connection_lost_view)
         self._register_state(UIState.LOG_SELECTION, self.log_selection_view)
-
-        # Set main layout
-        views_widget = QWidget(self)
-        views_layout = QVBoxLayout(views_widget)
-
-        self.settings_button = WidgetFactory.create_button("Settings", GREY_BUTTON)
-
-        views_layout.addWidget(self.settings_button, alignment=Qt.AlignmentFlag.AlignRight)
-        views_layout.addWidget(self.stacked_widget)
-
-        self.settings_stack.addWidget(views_widget)
-        self.settings_stack.setCurrentIndex(1)
-
-        main_layout = QVBoxLayout(self)
-        main_layout.addWidget(self.settings_stack)
 
         # Connect signals
         self.logging_view.stop_button.clicked.connect(self.handle_stop_logging)
@@ -138,17 +101,14 @@ class MainWindow(QWidget):
 
         self.success_view.ok_button.clicked.connect(self.close)
 
-        self.settings_button.clicked.connect(self.handle_settings)
-        self.settings_view.close_button.clicked.connect(self.handle_settings_close)
-        self.settings_view.browse_btn.clicked.connect(self.select_output_dir)
+        if not ALLOW_SENSOR_CONFIG:
+            self.settings_view.set_sensor_selection_enabled(False)
+            self.settings_view.sensor_lock_message.setText("Cannot be modified in this program.")
         self.settings_view.logs_button.clicked.connect(self.handle_browse_logs)
         self.log_selection_view.cancel_button.clicked.connect(self.handle_cancel_manual)
         self.log_selection_view.download_button.clicked.connect(self.handle_select_log)
 
-        self._warning_ok_cb = None
-
         # Load settings
-        self.settings = QSettings("UMONS", "iFCH-logger")
         self.update_settings()
 
         # Timer to update the live plot (only active in monitoring view)
@@ -157,34 +117,11 @@ class MainWindow(QWidget):
         self.plot_timer.start(30)
 
         # Non UI related stuff
-        self._tasks = []
         self.backend = Backend(self)
         self._tasks.append(loop.create_task(self.backend.run()))
 
         # Set initial state
         self.set_state(UIState.DISCONNECTED)
-
-    def _register_state(
-        self, key: UIState, view: QWidget, on_enter: Callable[[], None] | None = None
-    ):
-        """Register a state with its view and optional entry callback."""
-        self._views_dict[key] = ViewSpec(view=view, on_enter=on_enter)
-        self.stacked_widget.addWidget(view)
-
-    def set_state(self, new_state: UIState):
-        """Display the view associated with the current device state."""
-        spec = self._views_dict[new_state]
-        self.current_state = new_state
-        if spec.on_enter:
-            spec.on_enter()
-        self.stacked_widget.setCurrentWidget(spec.view)
-
-        if new_state in (
-            UIState.ERROR,
-            UIState.DISCONNECTED,
-            UIState.CONNECTION_LOST,
-        ):
-            self.settings_stack.setCurrentIndex(1)
 
     def _enter_device_selection_state(self):
         self.device_selection_view.connect_button.setEnabled(True)
@@ -210,26 +147,9 @@ class MainWindow(QWidget):
     def _enter_download_state(self):
         self.download_view.progress_bar.setValue(0)
 
-    @Slot()
-    def select_output_dir(self):
-        """Prompt user for an output directory and persist it in settings."""
-        path = QFileDialog.getExistingDirectory(
-            self, "Select output directory", self.settings_view.dir_edit.text()
-        )
-        if path:
-            self.settings.setValue("output_dir", path)
-        self.update_settings()
-
-    @Slot()
-    def handle_settings(self):
-        """Handle settings button"""
+    def before_show_settings(self):
+        """Refresh the manual-download action before opening settings."""
         self.update_log_button()
-        self.settings_stack.setCurrentIndex(0)
-
-    @Slot()
-    def handle_settings_close(self):
-        """Handle settings close button"""
-        self.settings_stack.setCurrentIndex(1)
 
     def update_log_button(self):
         """Enable the advanced action only in known idle device states."""
@@ -323,39 +243,6 @@ class MainWindow(QWidget):
         else:
             asyncio.create_task(self.backend.disconnect())
 
-    def update_settings(self):
-        """Load persisted settings and apply them to relevant form fields."""
-        output_dir = self.settings.value("output_dir", "", type=str)
-        if output_dir == "":
-            output_dir = str(pathlib.Path(".", "iFCH_records").absolute())
-            self.settings.setValue("output_dir", output_dir)
-
-        self.settings_view.dir_edit.setText(output_dir)
-        self.form_view.save_path.setText(output_dir)
-
-    async def cleanup(self):
-        logging.debug("Cleaning up...")
-
-        # Stop the plot timer first
-        if hasattr(self, "plot_timer") and self.plot_timer.isActive():
-            self.plot_timer.stop()
-
-        # Cleanup the backend first (this will stop ESPLogger tasks)
-        if hasattr(self, "backend"):
-            await self.backend.quit()
-
-        # Cancel remaining tasks
-        for task in self._tasks:
-            if not task.done():
-                task.cancel()
-
-        # Wait for tasks to complete cancellation
-        if self._tasks:
-            try:
-                await asyncio.wait(self._tasks, timeout=2.0, return_when=asyncio.ALL_COMPLETED)
-            except TimeoutError:
-                logging.warning("Some tasks did not cancel within timeout")
-
     @Slot()
     def poll_ecg_data(self):
         """Refresh the live ECG plot from buffered backend samples."""
@@ -387,36 +274,13 @@ class MainWindow(QWidget):
         """Update disconnected page status text."""
         self.disconnected_view.status_label.setText(status)
 
-    def update_error_status(self, title, message):
-        """Update the error view with a title and message"""
-        self.error_view.title_label.setText(title)
-        self.error_view.status_label.setText(message)
-
     def show_main_view(self):
-        self.settings_stack.setCurrentIndex(1)
-
-    def update_warning_status(self, title, message, ok_text="OK", ok_cb=None, show_cancel=False):
-        """Update the warning view with a title and message"""
-        self._warning_ok_cb = ok_cb
-        self.warning_view.title_label.setText(title)
-        self.warning_view.status_label.setText(message)
-        self.warning_view.ok_button.setText(ok_text)
-        self.warning_view.cancel_button.setVisible(show_cancel)
-
-    def update_success_status(self, title, message):
-        """Update the warning view with a title and message"""
-        self.success_view.title_label.setText(title)
-        self.success_view.status_label.setText(message)
+        self.show_main_content()
 
     def show_device_selection(self):
         """Populate and display the device selection page."""
         self.device_selection_view.set_devices(self.backend.available_devices)
         self.set_state(UIState.DEVICE_SELECTION)
-
-    def update_info_status(self, title, status):
-        """Update title and message in the info page."""
-        self.info_view.title_label.setText(title)
-        self.info_view.status_label.setText(status)
 
     def update_device_info(self, **kwargs):
         """Update monitoring info fields using keyword values."""
@@ -424,82 +288,23 @@ class MainWindow(QWidget):
             if key in kwargs:
                 self.monitoring_view.fields[key].setText(kwargs[key])
 
-    def closeEvent(self, event):
-        """Coordinate graceful async shutdown before final window close."""
+    def close_warning_message(self):
         if self.backend and self.backend.ending_record:
-            event.ignore()
+            return "Data could be lost if closing now!"
+        return None
 
-            # Open a popup or dialog to inform the user
-            logging.debug("Close event ignored due to prevent_close flag.")
-            msg = WidgetFactory.create_message_box(
-                "Warning", "Data could be lost if closing now!", parent=self
-            )
-            pressed = msg.exec()
-            if pressed == QMessageBox.StandardButton.Ignore:
-                logging.warning("User confirmed close, proceeding with shutdown.")
-                self.backend.ending_record = False
-                self.closeEvent(event)
-            return
+    def allow_blocked_close(self):
+        self.backend.ending_record = False
 
-        if self._shutdown_complete:
-            # If shutdown already complete, ignore the event to prevent further cleanup
-            event.accept()
-            return
-
-        if self._shutdown_attempts > self.FORCE_SHUTDOWN_ATTEMPTS:
-            # If shutdown already started, accept the event to close the window
-            # This will force the application to quit, preventing further cleanup
-            logging.warning("Multiple shutdown attempts detected, force closing application.")
-            event.accept()
-            return
-
-        # Ignore the event initially to prevent Qt from destroying objects
-        event.ignore()
-
-        if self._shutdown_attempts == 0:
-            logging.debug("Shutdown initiated, starting cleanup...")
-            # Start cleanup asynchronously
-            asyncio.create_task(self._finish_shutdown())
-
-            self.update_info_status(
-                "Shutting down...",
-                "Please wait while we clean up resources. This may take a few seconds.",
-            )
-            self.set_state(UIState.INFO)
-
-        self._shutdown_attempts += 1
-
-    async def _finish_shutdown(self):
-        try:
-            await self.cleanup()
-        except Exception as e:
-            logging.error("Error during cleanup: %s", e)
-        finally:
-            self._shutdown_complete = True
-            # Now actually close the window
-            self.close()
-            QApplication.instance().quit()
+    def shutdown_state(self):
+        return UIState.INFO
 
 
 # ----------------------------------------------------------------------
 @wakepy.keep.presenting()
 def main():
     logging.basicConfig(level=logging.INFO)
-
-    app = QApplication(sys.argv)
-
-    font = QFont()
-    font.setPointSize(12)
-    app.setFont(font)
-
-    loop = qasync.QEventLoop(app)
-    asyncio.set_event_loop(loop)
-
-    ui = MainWindow(loop)
-    ui.show()
-
-    with loop:
-        loop.run_forever()
+    run_async_app(MainWindow)
 
 
 if __name__ == "__main__":

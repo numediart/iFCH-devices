@@ -3,8 +3,10 @@
 
 """Factories and layout helpers for common iFCH widgets."""
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -29,6 +31,21 @@ from .styles import (
     RED_L,
     ButtonStyle,
 )
+
+
+class ClickableLineEdit(QLineEdit):
+    """Read-only line edit that reports mouse clicks."""
+
+    clicked = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 
 class WidgetFactory:
@@ -62,7 +79,7 @@ class WidgetFactory:
             }}
             QPushButton:disabled {{
                 background-color: {GREY_L};
-                color: {GREY_D};
+                color: {GREY_M};
             }}
         """
         button.setStyleSheet(stylesheet)
@@ -90,10 +107,105 @@ class WidgetFactory:
         return label
 
     @staticmethod
+    def create_checkbox(text: str) -> QCheckBox:
+        """Create a checkbox using the shared iFCH control styling."""
+        checkbox = QCheckBox(text)
+        checkbox.setStyleSheet(
+            f"""
+            QCheckBox {{
+                font-size: 16px;
+                color: {GREY_D};
+                spacing: 8px;
+            }}
+            QCheckBox:checked {{
+                color: {BLUE_D};
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border: 2px solid {GREY_M};
+                border-radius: 4px;
+                background-color: white;
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {BLUE_L};
+            }}
+            QCheckBox::indicator:checked {{
+                border-color: {BLUE_D};
+                background-color: {BLUE_L};
+            }}
+            QCheckBox:disabled {{
+                color: {GREY_M};
+            }}
+            QCheckBox:checked:disabled {{
+                color: {GREY_M};
+            }}
+            QCheckBox::indicator:disabled {{
+                border-color: {GREY_L};
+                background-color: {GREY_L};
+            }}
+        """
+        )
+        return checkbox
+
+    @staticmethod
+    def create_combo_box() -> QComboBox:
+        """Create a combo box using the shared iFCH control styling."""
+        combo = QComboBox()
+        combo.setStyleSheet(
+            f"""
+            QComboBox {{
+                font-size: 16px;
+                color: {GREY_D};
+                background-color: white;
+                border: 2px solid {GREY_M};
+                border-radius: 4px;
+                padding: 5px 30px 5px 10px;
+            }}
+            QComboBox:hover {{
+                border-color: {BLUE_D};
+            }}
+            QComboBox:focus,
+            QComboBox:on {{
+                border-color: {BLUE_M};
+            }}
+            QComboBox::drop-down {{
+                width: 24px;
+                border: none;
+                background-color: white;
+            }}
+            QComboBox::down-arrow {{
+                width: 8px;
+                height: 8px;
+                border-right: 2px solid {GREY_M};
+                border-bottom: 2px solid {GREY_M};
+            }}
+            QComboBox:disabled{{
+                color: {GREY_M};
+                border-color: {GREY_L};
+                background-color: {GREY_L};
+            }}
+            QComboBox::Item {{
+                background-color: white;
+            }}
+            QComboBox::Item:selected {{
+                background-color: {BLUE_L};
+                color: white;
+            }}
+            QComboBox::drop-down:disabled {{
+                background-color: {GREY_L};
+            }}
+        """
+        )
+        return combo
+
+    @staticmethod
     def create_status_label(
         text: str,
         selectable: bool = False,
         word_wrap: bool = False,
+        italics: bool = False,
+        bold: bool = False,
         alignment: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignCenter,
     ) -> QLabel:
         """Create a status label with standard styling."""
@@ -102,6 +214,8 @@ class WidgetFactory:
             QLabel {{
                 font-size: 16px;
                 color: {GREY_D};
+                font-style: {"italic" if italics else "normal"};
+                font-weight: {"bold" if bold else "normal"};
             }}
         """)
         label.setAlignment(alignment)
@@ -147,9 +261,37 @@ class WidgetFactory:
         return list_widget
 
     @staticmethod
-    def create_line_edit(placeholder: str = "", read_only: bool = False) -> QLineEdit:
+    def create_line_edit(
+        placeholder: str = "",
+        read_only: bool = False,
+        clickable: bool = False,
+    ) -> QLineEdit:
         """Create a styled line edit."""
-        line_edit = QLineEdit()
+        line_edit = ClickableLineEdit() if clickable else QLineEdit()
+        line_edit.setStyleSheet(
+            f"""
+            QLineEdit {{
+                color: {GREY_D};
+                font-size: 16px;
+                padding: 6px;
+                border: 1px solid {GREY_L};
+                border-radius: 4px;
+            }}
+            QLineEdit:focus {{
+                border-color: {BLUE_L};
+            }}
+            QLineEdit:hover {{
+                border-color: {BLUE_M};
+                border-width: 2px;
+                color: {BLUE_D};
+            }}
+            QLineEdit:disabled {{
+                background-color: {GREY_L};
+                color: {GREY_D};
+            }}
+        """
+        )
+
         if placeholder:
             line_edit.setPlaceholderText(placeholder)
         line_edit.setReadOnly(read_only)
@@ -171,6 +313,7 @@ class WidgetFactory:
         title: str,
         message: str,
         parent: QWidget | None = None,
+        confirm_text: str = "Ignore",
     ) -> QMessageBox:
         """Create a styled warning message box with Ignore/Cancel buttons."""
         msg = QMessageBox(parent)
@@ -181,7 +324,7 @@ class WidgetFactory:
             QMessageBox.StandardButton.Ignore | QMessageBox.StandardButton.Cancel
         )
         msg.setModal(True)
-        msg.button(QMessageBox.StandardButton.Ignore).setText("Ignore")
+        msg.button(QMessageBox.StandardButton.Ignore).setText(confirm_text)
         msg.button(QMessageBox.StandardButton.Cancel).setText("Cancel")
         msg.setWindowFlags(Qt.WindowType.Popup)
 

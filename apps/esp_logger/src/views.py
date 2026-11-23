@@ -7,6 +7,7 @@ from enum import Enum
 
 import ifch_ui
 from ifch_ui import (
+    BLUE_BUTTON,
     BLUE_D,
     BLUE_L,
     BLUE_M,
@@ -15,8 +16,8 @@ from ifch_ui import (
     GREEN_D,
     GREEN_L,
     GREEN_M,
-    GREY_BUTTON,
     GREY_D,
+    ORANGE_BUTTON,
     PURPLE_D,
     PURPLE_L,
     PURPLE_M,
@@ -59,19 +60,6 @@ class UIState(Enum):
     DOWNLOAD = "download"
     CONNECTION_LOST = "connection_lost"
     LOG_SELECTION = "log_selection"
-
-
-class DisconnectedView(BaseView):
-    """Landing page shown while waiting for USB logger connection."""
-
-    status_label: QLabel
-
-    def __init__(self):
-        super().__init__(
-            title="Please connect your iFCH device via USB",
-            title_color=GREY_D,
-            status_text="Waiting for iFCH device...",
-        )
 
 
 # ----------------------------------------------------------------------
@@ -117,14 +105,14 @@ class SettingsView(ifch_ui.SettingsView):
 
     logs_button: QPushButton
 
-    def __init__(self):
+    def __init__(self, *, on_output_dir_selected=None):
         super().__init__(
             __version__,
             advanced_buttons=[
                 MessageButton(
                     "logs",
                     "Manual log download",
-                    GREY_BUTTON,
+                    ORANGE_BUTTON,
                     tooltip=(
                         "Available when the iFCH device is connected and not recording or "
                         "downloading."
@@ -132,6 +120,15 @@ class SettingsView(ifch_ui.SettingsView):
                     enabled=False,
                 )
             ],
+            on_output_dir_selected=on_output_dir_selected,
+            default_sensor_settings={
+                "ecg_enabled": True,
+                "ecg_variant": "/mV",
+                "ecg_frequency": 200,
+                "scg_enabled": True,
+                "scg_variant": "/Meas/Acc",
+                "scg_frequency": 13,
+            },
         )
 
 
@@ -150,8 +147,8 @@ class LogSelectionView(QWidget):
         self.log_list.setMinimumWidth(400)
         layout.addWidget(self.log_list)
         buttons = QHBoxLayout()
-        self.cancel_button = WidgetFactory.create_button("CANCEL", GREY_BUTTON)
-        self.download_button = WidgetFactory.create_button("CONTINUE", GREY_BUTTON)
+        self.cancel_button = WidgetFactory.create_button("Cancel", BLUE_BUTTON)
+        self.download_button = WidgetFactory.create_button("Continue", GREEN_BUTTON)
         self.download_button.setEnabled(False)
         buttons.addWidget(self.cancel_button)
         buttons.addStretch()
@@ -183,7 +180,7 @@ class DeviceSelectionView(ifch_ui.DeviceSelectionView):
         super().__init__(
             instructions="Please select the Movesense device you want to connect to:",
             button_specs=[
-                MessageButton("refresh", "Refresh", GREY_BUTTON),
+                MessageButton("refresh", "Refresh", BLUE_BUTTON),
                 MessageButton("connect", "Connect", GREEN_BUTTON, enabled=False),
             ],
             device_data_format="semicolon_string",

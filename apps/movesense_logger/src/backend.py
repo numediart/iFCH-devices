@@ -30,6 +30,9 @@ class Backend:
     SENSOR_PATHS = ["/Meas/ECG/200/mV", "/Time/Detailed"]
     PLOT_DURATION = 10
 
+    def sensor_paths(self):
+        return self.ui.settings_view.sensor_paths()
+
     def __init__(self, ui: "MainWindow"):
         self.ui = ui
         self.available_devices: list[str] = []
@@ -269,6 +272,8 @@ class Backend:
             logging.warning("Failed to connect to device %s (%s)", device_id, address)
             return False
 
+        self.ui.settings_view.set_sensor_selection_enabled(False)
+
         # Watch for physical disconnect; only enqueues CmdOnDisconnected
 
         async def _watch_disconnect():
@@ -479,7 +484,7 @@ class CmdMonitor:
 
         back.sensor_data.clear()
 
-        for path in back.SENSOR_PATHS:
+        for path in back.sensor_paths():
             # We do not need the time for plotting
             if path == "/Time/Detailed":
                 continue
@@ -533,7 +538,7 @@ class CmdStartLogging:
             )
             return
 
-        for path in back.SENSOR_PATHS:
+        for path in back.sensor_paths():
             success = await back.device.sub_log(path)
             if not success:
                 await back.show_error(
@@ -675,7 +680,7 @@ class CmdSaveRecord:
             record_file,
             record,
             metadata=self.metadata,
-            sensor_paths=back.SENSOR_PATHS,
+            sensor_paths=back.sensor_paths(),
             dump_metadata=True,
         )
 

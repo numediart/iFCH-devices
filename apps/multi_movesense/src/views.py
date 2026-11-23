@@ -18,13 +18,11 @@ from ifch_ui import (
     GREEN_D,
     GREEN_L,
     GREEN_M,
-    GREY_D,
     ORANGE_BUTTON,
     RED_D,
     RED_L,
     RED_M,
     BaseMessageView,
-    BaseView,
     ButtonStyle,
     MessageButton,
     WidgetFactory,
@@ -47,16 +45,6 @@ class UIState(Enum):
     FORM = auto()
     WARNING = auto()
     SUCCESS = auto()
-
-
-class DisconnectedView(BaseView):
-    def __init__(self):
-        # Use base view with grey theme, no max width
-        super().__init__(
-            title="Scanning for Movesense Devices",
-            title_color=GREY_D,
-            status_text="Please make sure your Movesense device is powered on and in range.",
-        )
 
 
 class SuccessView(BaseMessageView):

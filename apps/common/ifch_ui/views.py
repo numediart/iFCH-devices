@@ -7,8 +7,9 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import QSettings, QSignalBlocker, Qt, Signal, Slot
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QListWidgetItem,
@@ -19,10 +20,11 @@ from PySide6.QtWidgets import (
 )
 
 from .styles import (
+    BLUE_BUTTON,
     BLUE_L,
     BUTTON_SPACING,
     GREY_BUTTON,
-    GREY_L,
+    GREY_M,
     ORANGE_BUTTON,
     ORANGE_L,
     PURPLE_BUTTON,
@@ -151,7 +153,7 @@ class ErrorView(BaseMessageView):
     status_label: QLabel
     ok_button: QPushButton
 
-    def __init__(self, *, fixed_button_width: int | None = None):
+    def __init__(self):
         super().__init__(
             title="ERROR",
             title_color=RED_L,
@@ -163,7 +165,7 @@ class ErrorView(BaseMessageView):
                     "OK",
                     GREY_BUTTON,
                     min_width=150,
-                    fixed_width=fixed_button_width,
+                    fixed_width=150,
                 )
             ],
         )
@@ -176,7 +178,7 @@ class WarningView(BaseMessageView):
     ok_button: QPushButton
     cancel_button: QPushButton
 
-    def __init__(self, *, fixed_button_width: int | None = None):
+    def __init__(self):
         super().__init__(
             title="WARNING",
             title_color=ORANGE_L,
@@ -188,14 +190,14 @@ class WarningView(BaseMessageView):
                     "OK",
                     GREY_BUTTON,
                     min_width=150,
-                    fixed_width=fixed_button_width,
+                    fixed_width=150,
                 ),
                 MessageButton(
                     "cancel",
-                    "CANCEL",
+                    "Cancel",
                     ORANGE_BUTTON,
                     min_width=150,
-                    fixed_width=fixed_button_width,
+                    fixed_width=150,
                 ),
             ],
         )
@@ -214,41 +216,136 @@ class InfoView(BaseView):
         )
 
 
+class DisconnectedView(BaseView):
+    """Reusable landing page for applications waiting on a device."""
+
+    status_label: QLabel
+
+    def __init__(self, title: str, status_text: str):
+        super().__init__(
+            title=title,
+            title_color=GREY_M,
+            status_text=status_text,
+        )
+
+
 class SettingsView(BaseView):
     """Settings page with an output directory and optional advanced actions."""
 
-    # TODO add the ability to select which sensors and frequencies are to record
+    sensors_changed = Signal()
+    ECG_VARIANTS = (
+        ("32-bit", ""),
+        ("16-bit (recommended)", "/mV"),
+    )
+    ECG_FREQUENCIES = (125, 128, 200, 250, 256, 500, 512)
+    SCG_VARIANTS = (
+        ("Accelerometer (Acc)", "/Meas/Acc"),
+        ("Gyroscope (Gyro)", "/Meas/Gyro"),
+        ("Magnetometer (Magn)", "/Meas/Magn"),
+        ("IMU6 (Acc+Gyro)", "/Meas/IMU6"),
+        ("IMU6m (Acc+Magn)", "/Meas/IMU6m"),
+        ("IMU9 (Acc+Gyr+Mag)", "/Meas/IMU9"),
+    )
+    SCG_FREQUENCIES = (13, 26, 52, 104, 208, 416, 833, 1666)
 
     def __init__(
         self,
         version: str,
         *,
         advanced_buttons: Sequence[MessageButton] = (),
+        on_output_dir_selected: Callable[[], None] | None = None,
+        default_sensor_settings: dict,
     ):
         self.version = version
         self._advanced_buttons = list(advanced_buttons)
+        self._on_output_dir_selected = on_output_dir_selected
         self.advanced_buttons = {}
-        super().__init__(title="Settings", title_color=GREY_L, max_width=700)
+        if default_sensor_settings is None:
+            raise ValueError("default_sensor_settings must be provided")
+        self.default_sensor_settings = default_sensor_settings
+        self._sensor_selection_enabled = True
+        super().__init__(title="Settings", title_color=GREY_M, max_width=700)
+        self._apply_sensor_settings(self.default_sensor_settings)
 
     def _setup_content(self):
         dir_label = WidgetFactory.create_status_label(
             "Output directory:",
             alignment=Qt.AlignmentFlag.AlignLeft,
         )
-        self.dir_edit = WidgetFactory.create_line_edit(read_only=True)
-        self.browse_btn = WidgetFactory.create_button("Browse…", GREY_BUTTON)
-        # FIXME make the output directory directly browsable by clicking on the
-        # path in the save forms
+        self.dir_edit = WidgetFactory.create_line_edit(read_only=True, clickable=True)
+        self.dir_edit.setToolTip("Click to choose an output directory")
+        if self._on_output_dir_selected is not None:
+            self.dir_edit.clicked.connect(self._on_output_dir_selected)
 
         directory_layout = QHBoxLayout()
         directory_layout.addWidget(dir_label, alignment=Qt.AlignmentFlag.AlignCenter)
         directory_layout.addWidget(self.dir_edit, stretch=1)
-        directory_layout.addWidget(self.browse_btn)
         self.main_layout.addLayout(directory_layout)
         self.main_layout.addSpacing(TITLE_SPACING)
 
+        sensors_title = WidgetFactory.create_status_label("Sensor configuration", bold=True)
+        self.main_layout.addWidget(sensors_title)
+        self.sensor_lock_message = WidgetFactory.create_status_label(
+            "Can only be changed before any device is connected.",
+            word_wrap=True,
+            italics=True,
+        )
+        self.main_layout.addWidget(self.sensor_lock_message)
+
+        self.ecg_enabled = WidgetFactory.create_checkbox("ECG")
+        self.ecg_variant = WidgetFactory.create_combo_box()
+        for label, value in self.ECG_VARIANTS:
+            self.ecg_variant.addItem(label, value)
+        self.ecg_frequency = WidgetFactory.create_combo_box()
+        for frequency in self.ECG_FREQUENCIES:
+            self.ecg_frequency.addItem(f"{frequency} Hz", frequency)
+
+        self.scg_enabled = WidgetFactory.create_checkbox("SCG")
+        self.scg_variant = WidgetFactory.create_combo_box()
+        for label, value in self.SCG_VARIANTS:
+            self.scg_variant.addItem(label, value)
+        self.scg_frequency = WidgetFactory.create_combo_box()
+        for frequency in self.SCG_FREQUENCIES:
+            self.scg_frequency.addItem(f"{frequency} Hz", frequency)
+
+        sensor_rows = QVBoxLayout()
+        for checkbox, variant, frequency in (
+            (self.ecg_enabled, self.ecg_variant, self.ecg_frequency),
+            (self.scg_enabled, self.scg_variant, self.scg_frequency),
+        ):
+            row = QHBoxLayout()
+            checkbox.setMinimumWidth(70)
+            row.addWidget(checkbox)
+            row.addWidget(variant, stretch=2)
+            row.addWidget(frequency, stretch=1)
+            sensor_rows.addLayout(row)
+        self.main_layout.addLayout(sensor_rows)
+        self.reset_sensors_button = WidgetFactory.create_button(
+            "Reset defaults",
+            BLUE_BUTTON,
+        )
+        self.reset_sensors_button.clicked.connect(self.reset_sensor_settings)
+        self.main_layout.addWidget(self.reset_sensors_button, alignment=Qt.AlignmentFlag.AlignRight)
+        self.main_layout.addSpacing(TITLE_SPACING)
+
+        for widget in (
+            self.ecg_enabled,
+            self.scg_enabled,
+        ):
+            widget.toggled.connect(self._sensor_controls_changed)
+        for widget in (
+            self.ecg_variant,
+            self.ecg_frequency,
+            self.scg_variant,
+            self.scg_frequency,
+        ):
+            widget.currentIndexChanged.connect(self._sensor_controls_changed)
+        self._update_sensor_control_states()
+
         if self._advanced_buttons:
-            self.main_layout.addWidget(WidgetFactory.create_status_label("Advanced"))
+            self.main_layout.addWidget(
+                WidgetFactory.create_status_label("Advanced", bold=True),
+            )
             for spec in self._advanced_buttons:
                 button = WidgetFactory.create_button(
                     spec.text,
@@ -266,11 +363,106 @@ class SettingsView(BaseView):
                 self.main_layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignCenter)
             self.main_layout.addSpacing(TITLE_SPACING)
 
-        self.close_button = WidgetFactory.create_button("Close", GREY_BUTTON)
+        self.close_button = WidgetFactory.create_button("Close", BLUE_BUTTON)
         self.main_layout.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignCenter)
-        self.main_layout.addWidget(
-            WidgetFactory.create_status_label(f"App version: {self.version}")
-        )
+
+    @Slot()
+    def _sensor_controls_changed(self):
+        self._update_sensor_control_states()
+        self.sensors_changed.emit()
+
+    def _update_sensor_control_states(self):
+        selection_enabled = self._sensor_selection_enabled
+        self.ecg_enabled.setEnabled(selection_enabled)
+        self.ecg_variant.setEnabled(selection_enabled and self.ecg_enabled.isChecked())
+        self.ecg_frequency.setEnabled(selection_enabled and self.ecg_enabled.isChecked())
+        self.scg_enabled.setEnabled(selection_enabled)
+        self.scg_variant.setEnabled(selection_enabled and self.scg_enabled.isChecked())
+        self.scg_frequency.setEnabled(selection_enabled and self.scg_enabled.isChecked())
+        self.reset_sensors_button.setEnabled(selection_enabled)
+
+    def set_sensor_selection_enabled(self, enabled: bool):
+        """Enable or disable sensor configuration controls as a group."""
+        self._sensor_selection_enabled = enabled
+        self._update_sensor_control_states()
+
+    @Slot()
+    def reset_sensor_settings(self):
+        """Restore the application-specific sensor defaults."""
+        if not self._sensor_selection_enabled:
+            return
+        blockers = [
+            QSignalBlocker(widget)
+            for widget in (
+                self.ecg_enabled,
+                self.ecg_variant,
+                self.ecg_frequency,
+                self.scg_enabled,
+                self.scg_variant,
+                self.scg_frequency,
+            )
+        ]
+        self._apply_sensor_settings(self.default_sensor_settings)
+        del blockers
+        self.sensors_changed.emit()
+
+    def load_sensor_settings(self, settings: QSettings):
+        blockers = [
+            QSignalBlocker(widget)
+            for widget in (
+                self.ecg_enabled,
+                self.ecg_variant,
+                self.ecg_frequency,
+                self.scg_enabled,
+                self.scg_variant,
+                self.scg_frequency,
+            )
+        ]
+        defaults = self.default_sensor_settings
+        values = {
+            key: settings.value(f"sensors/{key}", default, type=type(default))
+            for key, default in defaults.items()
+        }
+        self._apply_sensor_settings(values)
+        del blockers
+        self._update_sensor_control_states()
+
+    def _apply_sensor_settings(self, values):
+        self.ecg_enabled.setChecked(values["ecg_enabled"])
+        self._set_combo_data(self.ecg_variant, values["ecg_variant"])
+        self._set_combo_data(self.ecg_frequency, values["ecg_frequency"])
+        self.scg_enabled.setChecked(values["scg_enabled"])
+        self._set_combo_data(self.scg_variant, values["scg_variant"])
+        self._set_combo_data(self.scg_frequency, values["scg_frequency"])
+        self._update_sensor_control_states()
+
+    @staticmethod
+    def _set_combo_data(combo: QComboBox, value):
+        index = combo.findData(value)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+
+    def save_sensor_settings(self, settings: QSettings):
+        values = {
+            "ecg_enabled": self.ecg_enabled.isChecked(),
+            "ecg_variant": self.ecg_variant.currentData(),
+            "ecg_frequency": self.ecg_frequency.currentData(),
+            "scg_enabled": self.scg_enabled.isChecked(),
+            "scg_variant": self.scg_variant.currentData(),
+            "scg_frequency": self.scg_frequency.currentData(),
+        }
+        for key, value in values.items():
+            settings.setValue(f"sensors/{key}", value)
+
+    def sensor_paths(self) -> list[str]:
+        paths = ["/Time/Detailed"]
+        if self.ecg_enabled.isChecked():
+            paths.append(
+                f"/Meas/ECG/{self.ecg_frequency.currentData()}{self.ecg_variant.currentData()}"
+            )
+        if self.scg_enabled.isChecked():
+            paths.append(f"{self.scg_variant.currentData()}/{self.scg_frequency.currentData()}")
+        return paths
 
 
 class RecordFormView(QWidget):
@@ -281,6 +473,7 @@ class RecordFormView(QWidget):
         *,
         max_width: int = 800,
         include_device_positions: bool = False,
+        on_output_dir_selected: Callable[[], None] | None = None,
     ):
         super().__init__()
         self._include_device_positions = include_device_positions
@@ -307,7 +500,10 @@ class RecordFormView(QWidget):
             max_height=300,
         )
         self.form_layout.addRow("Notes:", self.notes_input)
-        self.save_path = WidgetFactory.create_line_edit(read_only=True)
+        self.save_path = WidgetFactory.create_line_edit(read_only=True, clickable=True)
+        self.save_path.setToolTip("Click to choose an output directory")
+        if on_output_dir_selected is not None:
+            self.save_path.clicked.connect(on_output_dir_selected)
         self.form_layout.addRow("Save path:", self.save_path)
 
         self.name_input.setStyleSheet("font-size: 16px;")
@@ -316,9 +512,6 @@ class RecordFormView(QWidget):
         if include_device_positions:
             self.position_inputs = {}
 
-        layout.addWidget(
-            WidgetFactory.create_status_label("You can change the output directory in Settings.")
-        )
         layout.addSpacing(BUTTON_SPACING)
         self.save_button = WidgetFactory.create_button("SAVE", PURPLE_BUTTON)
         layout.addLayout(LayoutBuilder.create_layout_row(self.save_button, align_right=True))

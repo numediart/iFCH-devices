@@ -29,6 +29,9 @@ class Backend:
     SENSOR_PATHS = ["/Time/Detailed", "/Meas/ECG/200/mV", "/Meas/IMU6/208"]
     PLOT_DURATION = 10
 
+    def sensor_paths(self):
+        return self.ui.settings_view.sensor_paths()
+
     def __init__(self, ui: "MainWindow"):
         self.ui = ui
         self.available_devices: list[str] = []
@@ -256,6 +259,8 @@ class Backend:
             logging.warning("Failed to connect to device %s (%s)", device_id, address)
             return False
 
+        self.ui.settings_view.set_sensor_selection_enabled(False)
+
         # Watch for physical disconnect; only enqueues CmdOnDisconnected
 
         async def _watch_disconnect():
@@ -441,7 +446,7 @@ class CmdMonitor:
             raise RuntimeError("CmdMonitor: No device connected")
 
         for device in back.devices:
-            for path in back.SENSOR_PATHS:
+            for path in back.sensor_paths():
                 success = await device.subscribe(path)
                 if not success:
                     await back.show_error(
@@ -516,7 +521,7 @@ class CmdSaveRecord:
                 output_file,
                 back.sensor_log[device.movesense_id],
                 metadata=device_metadata,
-                sensor_paths=back.SENSOR_PATHS,
+                sensor_paths=back.sensor_paths(),
                 dump_metadata=True,
             )
 
@@ -547,7 +552,7 @@ class CmdSaveRecord:
         if end_time:
             self.metadata["end_time"] = end_time.astimezone().isoformat()
 
-        self.metadata["sensor_paths"] = back.SENSOR_PATHS
+        self.metadata["sensor_paths"] = back.sensor_paths()
 
         with open(output_dir / "metadata.json", "w") as f:
             json.dump(self.metadata, f, indent=4)

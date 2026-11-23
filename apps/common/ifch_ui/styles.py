@@ -8,28 +8,28 @@ from dataclasses import dataclass
 from PySide6.QtCore import Qt
 
 GREEN_L = "#4caf50"
-GREEN_M = "#45a148"
-GREEN_D = "#3f9141"
+GREEN_M = "#378039"
+GREEN_D = "#214d22"
 
 ORANGE_L = "#b0974c"
-ORANGE_M = "#a18a45"
-ORANGE_D = "#917d3f"
+ORANGE_M = "#806d37"
+ORANGE_D = "#4d4121"
 
 RED_L = "#af4c4c"
-RED_M = "#a14545"
-RED_D = "#913f3f"
+RED_M = "#803737"
+RED_D = "#4d2121"
 
 PURPLE_L = "#654cb0"
-PURPLE_M = "#5c45a1"
-PURPLE_D = "#533f91"
+PURPLE_M = "#493780"
+PURPLE_D = "#2c214d"
 
 BLUE_L = "#4c82af"
-BLUE_M = "#4577a1"
-BLUE_D = "#3f6c91"
+BLUE_M = "#375f80"
+BLUE_D = "#21394d"
 
 GREY_L = "#b0b0b0"
-GREY_M = "#a1a1a1"
-GREY_D = "#919191"
+GREY_M = "#808080"
+GREY_D = "#4d4d4d"
 
 ECG_COLOR = "#CC3311"
 ACC_COLOR = "#0077BB"

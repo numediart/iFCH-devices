@@ -17,7 +17,6 @@ from ifch_ui import (
     GREEN_D,
     GREEN_L,
     GREEN_M,
-    GREY_D,
     ORANGE_BUTTON,
     ORANGE_L,
     PURPLE_BUTTON,
@@ -25,7 +24,6 @@ from ifch_ui import (
     RED_L,
     RED_M,
     BaseMessageView,
-    BaseView,
     ButtonStyle,
     LayoutBuilder,
     MessageButton,
@@ -54,18 +52,6 @@ class UIState(Enum):
     SUCCESS = auto()
     CONFIRM = auto()
     DOWNLOAD = auto()
-
-
-class DisconnectedView(BaseView):
-    """Landing view shown while searching for available devices."""
-
-    def __init__(self):
-        # Use base view with grey theme, no max width
-        super().__init__(
-            title="Scanning for Movesense Devices",
-            title_color=GREY_D,
-            status_text="Please make sure your Movesense device is powered on and in range.",
-        )
 
 
 class SuccessView(BaseMessageView):

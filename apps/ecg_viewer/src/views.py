@@ -36,72 +36,7 @@ from PySide6.QtWidgets import (
 )
 from scipy import signal
 
-from . import __version__, r_peaks
-
-
-class SettingsView(QWidget):
-    """Settings panel for output and application information."""
-
-    def __init__(self):
-        super().__init__()
-        over_layout = QVBoxLayout(self)
-        over_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main = QWidget()
-        over_layout.addWidget(main)
-        main.setMaximumWidth(800)
-
-        layout = QVBoxLayout(main)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Main message
-        self.message = QLabel("Settings")
-        self.message.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 28px;
-                font-weight: bold;
-                color: {GREY_L};
-            }}
-        """
-        )
-        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.message)
-        layout.addSpacing(30)
-
-        self.close_button = QPushButton("Close")
-        self.close_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                font-size: 16px;
-                padding: 8px 15px;
-                background-color: {GREY_L};
-                border: none;
-                border-radius: 4px;
-                color: white;
-            }}
-            QPushButton:hover {{
-                background-color: {GREY_M};
-            }}
-            QPushButton:pressed {{
-                background-color: {GREY_D};
-            }}
-        """
-        )
-
-        layout.addSpacing(30)
-        layout.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        version_message = QLabel(f"App version: {__version__}")
-        version_message.setStyleSheet(
-            f"""
-            QLabel {{
-                font-size: 16px;
-                color: {GREY_D};
-            }}
-        """
-        )
-        version_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(version_message)
+from . import r_peaks
 
 
 class MonitoringView(QWidget):

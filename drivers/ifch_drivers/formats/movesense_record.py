@@ -32,6 +32,7 @@ class MovesenseDataTypes(enum.Enum):
     ECG = "/Meas/ECG".upper(), 0.38147e-6
     ECGMV = "/Meas/ECG/mv".upper(), 1e-3
     IMU6 = "/Meas/IMU6".upper()
+    IMU6M = "/Meas/IMU6m".upper()
     IMU9 = "/Meas/IMU9".upper()
     ACC = "/Meas/Acc".upper()
     GYRO = "/Meas/Gyro".upper()
