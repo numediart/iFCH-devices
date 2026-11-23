@@ -446,8 +446,9 @@ class CmdLogging:
             logging.warning("Movesense stopped logging on its own")
             back.ui.update_warning_status(
                 "Movesense reset",
-                "The associated Movesense device stopped logging on its own."
-                " This may have happened if the battery was just replaced.",
+                "The associated Movesense device stopped logging on its own. "
+                "This may have happened if the battery was just replaced.\n"
+                "Press OK to end the recording and save the data collected so far.",
                 ok_cb=back.stop_logging,
                 show_cancel=False,
             )
