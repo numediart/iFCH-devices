@@ -1068,6 +1068,9 @@ void IfchGattClient::onGetResult(wb::RequestId requestId,
         // Add device
         const char *device = deviceInfo.productName;
         helloResponse.insert(helloResponse.end(), device, device + strlen(device));
+
+        const char *variant = deviceInfo.variant;
+        helloResponse.insert(helloResponse.end(), variant, variant + strlen(variant));
         helloResponse.push_back(0);
 
         const char *address = "00:00:00:00:00:00";
