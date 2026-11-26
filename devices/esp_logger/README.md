@@ -45,13 +45,25 @@ source .venv/bin/activate
 source $HOME/.espressif/tools/activate_idf_v6.0.1.sh 
 ```
 
-## Build and Flash
-
-Use the VS Code extension, or from this directory run:
+- Setup the environment variables for the ESP-IDF tools:
 
 ```shell
 source ./env.sh
 idf.py set-target esp32s3
+```
+
+## Build and Flash
+
+Build and flash using make:
+
+```shell
+make build flash
+```
+
+Alternatively, from this directory run:
+
+```shell
+source ./env.sh
 idf.py build flash
 ```
 
