@@ -30,6 +30,7 @@ enum class CmdType : uint8_t
     CMD_RESET_STATE = 0x07,
     CMD_GET_RECORD_ID = 0x08,
     CMD_GET_MIN_VERSION = 0x09,
+    CMD_FACTORY_RESET = 0x0A,
     // BLE
     CMD_SCAN = 0x11,
     CMD_CONNECT = 0x12,

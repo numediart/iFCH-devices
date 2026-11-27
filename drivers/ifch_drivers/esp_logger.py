@@ -31,6 +31,7 @@ class Commands(enum.IntEnum):
     CMD_RESET_STATE = 0x07
     CMD_GET_RECORD_ID = 0x08
     CMD_GET_MIN_VERSION = 0x09
+    CMD_FACTORY_RESET = 0x0A
     # BLE
     CMD_SCAN = 0x11
     CMD_CONNECT = 0x12
@@ -528,11 +529,13 @@ class ESPLogger:
     BLE_CONNECT_TIMEOUT_S = 10
     BLE_BATTERY_TIMEOUT_S = 5
     ERROR_LOG_DELETE_TIMEOUT_S = 5
+    FACTORY_RESET_TIMEOUT_S = 120
     END_LOG_TIMEOUT_S = 300
     MAX_CONFIG_SIZE = 512
 
     CONFIG_FILE = "CONFIG.J"
     ERROR_LOG_FILE = "LOG.TXT"
+    FACTORY_RESET_CODE = "iFCH factory RST"
 
     def __init__(
         self,
@@ -901,6 +904,26 @@ class ESPLogger:
             return True
         else:
             logging.warning("Force reset state failed")
+            return None
+
+    async def factory_reset(self, *, consent) -> bool | None:
+        """Force-reset logger state flags on device side."""
+        if self._proto is None:
+            raise RuntimeError("DeviceService.start() not called")
+
+        if not consent:
+            logging.warning("Factory reset aborted: consent not given")
+            return False
+
+        self._proto.send_frame(Commands.CMD_FACTORY_RESET, self.FACTORY_RESET_CODE.encode("utf-8"))
+        result = await self._proto.wait_for_cmd(
+            Commands.CMD_FACTORY_RESET, timeout=self.FACTORY_RESET_TIMEOUT_S
+        )
+        if result is not None:
+            logging.info("Factory reset succeeded")
+            return True
+        else:
+            logging.warning("Factory reset failed")
             return None
 
     async def get_free_space(self) -> float | None:

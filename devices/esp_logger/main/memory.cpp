@@ -786,7 +786,7 @@ bool wipeSD()
 
     if (done)
     {
-        logError("wipeSD", "SD card wiped successfully");
+        logInfo("wipeSD", "SD card wiped successfully");
     }
 
     return done;

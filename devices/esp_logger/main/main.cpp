@@ -592,6 +592,52 @@ void handleSerialCommand(CmdType cmd)
         break;
     }
 
+    case CmdType::CMD_FACTORY_RESET:
+    {
+        constexpr size_t codeLength = sizeof(FACTORY_RESET_CODE) - 1;
+
+        if (rx_payload_len != codeLength ||
+            memcmp(rx_payload, FACTORY_RESET_CODE, codeLength) != 0)
+        {
+            logError("CMD_FACTORY_RESET", "Invalid security code");
+            sendERR(CmdType::CMD_FACTORY_RESET);
+            break;
+        }
+
+        logWarning("CMD_FACTORY_RESET", "Performing factory reset");
+
+        disconnectMovesense();
+
+        resetState();
+
+        record.lastFetch = 0;
+        record.id = 0;
+        record.part = 0;
+        record.fetchId = 0;
+        record.logging = false;
+
+        if (!saveRecordState())
+        {
+            logError("CMD_FACTORY_RESET", "Failed to save record state");
+            break;
+        }
+
+        shutdownBlinkTask(RESET_TIMEOUT_MS);
+        shutdownLogTask(RESET_TIMEOUT_MS);
+
+        if (!wipeSD())
+        {
+            logError("CMD_FACTORY_RESET", "Failed to wipe SD card");
+            break;
+        }
+
+        sendCMD(CmdType::CMD_FACTORY_RESET);
+
+        // Reset and restart board
+        esp_restart();
+        break;
+    }
+
     // Get the current record ID
     case CmdType::CMD_GET_RECORD_ID:
     {
